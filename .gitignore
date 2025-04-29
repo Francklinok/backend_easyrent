@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+logs/
+tmp/
+
+# macOS
+.DS_Store
+
+# local env files
+.env
+.env*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# Git merge conflicts / backups
+*.orig.*
+
+# Security
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
