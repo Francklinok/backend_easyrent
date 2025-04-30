@@ -1,6 +1,5 @@
 
 import { Request, Response } from 'express';
-import mongoose from 'mongoose';
 import Property from '../../models/propertyModel/propertyModel';
 import {  PropertyStatus } from '../../type/propertyType';
 import { createLogger } from '../../utils/logger/logger';
@@ -12,7 +11,7 @@ const logger = createLogger('propertyController');
  * @route GET /api/properties/owner/:ownerId
  * @access Public
  */
-export const getPropertiesByOwner = async (req: Request, res: Response): Promise<void> => {
+ const getPropertiesByOwner = async (req: Request, res: Response): Promise<void> => {
   try {
     const { ownerId } = req.params;
     const { page = 1, limit = 10, status } = req.query as { page?: number; limit?: number; status?: PropertyStatus };
@@ -60,3 +59,4 @@ export const getPropertiesByOwner = async (req: Request, res: Response): Promise
     });
   }
 };
+export  default  getPropertiesByOwner

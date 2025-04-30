@@ -1,8 +1,7 @@
 
 import { Request, Response } from 'express';
-import mongoose from 'mongoose';
 import Property from '../../models/propertyModel/propertyModel';
-import { PropertyCreateDTO, PropertyUpdateDTO, PropertyQueryFilters, PaginationOptions, PropertyStatus } from '../../type/propertyType';
+import { PropertyStatus } from '../../type/propertyType';
 import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('propertyController');
@@ -12,7 +11,7 @@ const logger = createLogger('propertyController');
  * @route PATCH /api/properties/:id/status
  * @access Privé (propriétaire, administrateur)
  */
-export const updatePropertyStatus = async (req: Request, res: Response): Promise<void> => {
+ const updatePropertyStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { status } = req.body as { status: PropertyStatus };
@@ -56,3 +55,5 @@ export const updatePropertyStatus = async (req: Request, res: Response): Promise
     });
   }
 };
+
+export default updatePropertyStatus

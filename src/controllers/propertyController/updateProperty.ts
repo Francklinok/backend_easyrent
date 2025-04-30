@@ -13,7 +13,7 @@ const logger = createLogger('propertyController');
  * @route PUT /api/properties/:id
  * @access Privé (propriétaire, administrateur)
  */
-export const updateProperty = async (req: Request, res: Response): Promise<void> => {
+ const updateProperty = async (req: Request, res: Response): Promise<void> => {
   const session = await mongoose.startSession();
   session.startTransaction();
   
@@ -70,3 +70,4 @@ export const updateProperty = async (req: Request, res: Response): Promise<void>
     });
   }
 };
+export default updateProperty

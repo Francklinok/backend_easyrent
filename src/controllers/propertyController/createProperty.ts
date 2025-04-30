@@ -3,8 +3,8 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Property from '../../models/propertyModel/propertyModel';
-import { PropertyCreateDTO, PropertyUpdateDTO, PropertyQueryFilters, PaginationOptions, PropertyStatus } from '../../type/propertyType';
-import { createLogger } from '../utils/logger';
+import { PropertyCreateDTO } from '../../type/propertyType';
+import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('propertyController');
 
@@ -13,7 +13,7 @@ const logger = createLogger('propertyController');
  * @route POST /api/properties
  * @access Privé (propriétaires, agents)
  */
-export const createProperty = async (req: Request, res: Response): Promise<void> => {
+ const createProperty = async (req: Request, res: Response): Promise<void> => {
   const session = await mongoose.startSession();
   session.startTransaction();
   
@@ -60,3 +60,4 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
     });
   }
 };
+export default createProperty

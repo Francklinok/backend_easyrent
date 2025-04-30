@@ -1,6 +1,5 @@
 
 import { Request, Response } from 'express';
-import mongoose from 'mongoose';
 import Property from '../../models/propertyModel/propertyModel';
 import { createLogger } from '../../utils/logger/logger';
 
@@ -12,7 +11,7 @@ const logger = createLogger('propertyController');
  * @route GET /api/properties/:id
  * @access Public
  */
-export const getPropertyById = async (req: Request, res: Response): Promise<void> => {
+ const getPropertyById = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     
@@ -45,3 +44,4 @@ export const getPropertyById = async (req: Request, res: Response): Promise<void
     });
   }
 };
+export default getPropertyById

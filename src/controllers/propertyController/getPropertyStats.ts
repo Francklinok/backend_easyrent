@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import mongoose from 'mongoose';
 import Property from '../../models/propertyModel/propertyModel';
 import {PropertyStatus } from '../../type/propertyType';
 import { createLogger } from '../../utils/logger/logger';
@@ -11,7 +10,7 @@ const logger = createLogger('propertyController');
  * @route GET /api/properties/stats
  * @access Privé (administrateur)
  */
-export const getPropertyStats = async (req: Request, res: Response): Promise<void> => {
+ const getPropertyStats = async (req: Request, res: Response): Promise<void> => {
   try {
     // Statistiques générales
     const [
@@ -82,3 +81,4 @@ export const getPropertyStats = async (req: Request, res: Response): Promise<voi
     });
   }
 };
+export  default getPropertyStats

@@ -1,9 +1,8 @@
 
 import { Request, Response } from 'express';
-import mongoose from 'mongoose';
 import Property from '../../models/propertyModel/propertyModel';
-import { PropertyCreateDTO, PropertyUpdateDTO, PropertyQueryFilters, PaginationOptions, PropertyStatus } from '../../type/propertyType';
-import { createLogger } from '../utils/logger';
+import {  PropertyQueryFilters, PaginationOptions} from '../../type/propertyType';
+import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('propertyController');
 
@@ -12,7 +11,7 @@ const logger = createLogger('propertyController');
  * @route GET /api/properties
  * @access Public
  */
-export const getProperties = async (req: Request, res: Response): Promise<void> => {
+ const getProperties = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       area,
@@ -81,3 +80,4 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
     });
   }
 };
+export default getProperties

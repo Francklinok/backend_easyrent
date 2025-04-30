@@ -11,7 +11,7 @@ const logger = createLogger('propertyController');
  * @route GET /api/properties/:id/similar
  * @access Public
  */
-export const getSimilarProperties = async (req: Request, res: Response): Promise<void> => {
+ const getSimilarProperties = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { limit = 5 } = req.query as { limit?: number };
@@ -57,3 +57,5 @@ export const getSimilarProperties = async (req: Request, res: Response): Promise
     });
   }
 };
+
+export default getSimilarProperties

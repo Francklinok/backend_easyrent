@@ -12,7 +12,7 @@ const logger = createLogger('propertyController');
  * @route PUT /api/properties/:id/restore
  * @access Privé (propriétaire, administrateur)
  */
-export const restoreProperty = async (req: Request, res: Response): Promise<void> => {
+ const restoreProperty = async (req: Request, res: Response): Promise<void> => {
   const session = await mongoose.startSession();
   session.startTransaction();
   
@@ -72,3 +72,4 @@ export const restoreProperty = async (req: Request, res: Response): Promise<void
     });
   }
 };
+export default restoreProperty

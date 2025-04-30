@@ -13,7 +13,7 @@ const logger = createLogger('propertyController');
  * @route DELETE /api/properties/:id
  * @access Privé (propriétaire, administrateur)
  */
-export const deleteProperty = async (req: Request, res: Response): Promise<void> => {
+ const deleteProperty = async (req: Request, res: Response): Promise<void> => {
   const session = await mongoose.startSession();
   session.startTransaction();
   
@@ -73,3 +73,4 @@ export const deleteProperty = async (req: Request, res: Response): Promise<void>
     });
   }
 };
+export  default deleteProperty
