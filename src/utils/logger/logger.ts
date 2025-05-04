@@ -67,7 +67,7 @@ const dailyRotateFileTransport = new DailyRotateFile({
 });
 
 // Création d'un formateur personnalisé pour masquer les données sensibles
-const maskSensitiveData = winston.format((info) => {
+const maskSensitiveData = winston.format((info:any) => {
   // Masquer les informations sensibles si présentes dans le message
   if (typeof info.message === 'string') {
     // Masquer les mots de passe
