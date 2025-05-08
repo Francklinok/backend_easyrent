@@ -1,9 +1,7 @@
-import { body,validationResult } from 'express-validator';
+import { body } from 'express-validator';
 import mongoose from 'mongoose';
 import { PropertyStatus } from '../../type/propertyType';
-import { createLogger } from '../utils/logger';
-
-const  logger = createLogger('propertyMiddleware')
+import { validateResults } from '../../utils/property/validateResults';
 
 const validateCreateProperty = [
     body('title')
@@ -13,7 +11,7 @@ const validateCreateProperty = [
         .withMesage('The title must  be a  string')
         .islength({max:50})
         .widthMessage('title  will  not  have  more  than 50 chararcter')
-        .trim()
+        .trim(),
     
     body('description')
         .notEmpty()
@@ -135,3 +133,5 @@ const validateCreateProperty = [
     
     validateResults
 ]
+
+export default validateCreateProperty;

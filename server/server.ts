@@ -5,8 +5,6 @@ import  http from  'http'
 import port from './normalizePort'
 import  onError from './onError'
 
-
-
 interface appConfig {
   port:number,
   env:string,

@@ -1,17 +1,16 @@
-import { param,validationResult } from 'express-validator';
+import { param } from 'express-validator';
 import mongoose from 'mongoose';
-import { createLogger } from '../utils/logger';
-
-const logger = createLogger('propertyMiddleware');
+import { validateResults } from '../../utils/property/validateResults';
 
 /**
  * Middleware pour valider l'ID de propriété
  */
-export const validatePropertyId = [
+ const validatePropertyId = [
   param('id')
     .notEmpty()
     .withMessage('L\'ID de la propriété est requis')
     .custom((value) => mongoose.Types.ObjectId.isValid(value))
     .withMessage('L\'ID de la propriété n\'est pas valide'),
-validationResult
+validateResults
 ];
+export  default validatePropertyId;

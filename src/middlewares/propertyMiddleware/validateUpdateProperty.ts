@@ -1,10 +1,7 @@
-import { body, param,validationResult } from 'express-validator';
+import { body, param } from 'express-validator';
 import mongoose from 'mongoose';
 import { PropertyStatus } from '../../type/propertyType';
-import { createLogger } from '../utils/logger';
-
-const logger = createLogger('propertyMiddleware');
-
+import { validateResults } from '../../utils/property/validateResults';
 
 /**
  * Middleware pour valider la mise à jour d'une propriété

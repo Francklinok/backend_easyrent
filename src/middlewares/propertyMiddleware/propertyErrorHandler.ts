@@ -1,4 +1,6 @@
-
+import { Request, Response, NextFunction } from 'express';
+import { createLogger } from '../../utils/logger/logger';
+const logger = createLogger('propertyMiddleware')
 /**
  * Middleware pour la gestion des erreurs des propriétés
  */

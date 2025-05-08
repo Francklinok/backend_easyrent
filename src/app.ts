@@ -15,8 +15,9 @@ import { fileURLToPath } from 'url';
 import config from './config/index.ts';
 import routes from './routes/index.ts';
 import { errorHandler } from './middlewares/errorHandler.ts';
-import { propertyErrorHandler } from './middlewares/propertyMiddleware/propertyErrorHandler.ts';
 import logger from './utils/logger/logger.js';
+
+
 // Configuration pour ES modules avec __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

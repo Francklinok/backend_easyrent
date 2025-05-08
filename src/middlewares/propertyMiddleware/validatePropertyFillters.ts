@@ -1,10 +1,7 @@
-import { query, validationResult } from 'express-validator';
+import { query } from 'express-validator';
 import mongoose from 'mongoose';
 import { PropertyStatus } from '../../type/propertyType';
-import { createLogger } from '../utils/logger';
-
-const logger = createLogger('propertyMiddleware');
-
+import { validateResults } from '../../utils/property/validateResults';
 
 /**
  * Middleware pour valider les filtres de recherche de propriétés
