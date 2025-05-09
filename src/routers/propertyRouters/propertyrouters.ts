@@ -1,23 +1,23 @@
 import express from "express";
-import createProperty from "../../controllers/propertyController/createProperty";
-import deleteProperty from "../../controllers/propertyController/deleteProperty";
-import checkOwnerAuthorization from "../../middlewares/propertyMiddleware/checkOwnerAuthorization";
-import validateCreateProperty from "../../middlewares/propertyMiddleware/validateCreateProperty";
-import rateLimiter from "../../middlewares/propertyMiddleware/rateLimiter";
+import createProperty from "../../property/controllers/createProperty";
+import deleteProperty from "../../property/controllers/deleteProperty";
+import checkOwnerAuthorization from "../../property/middlewares/checkOwnerAuthorization";
+import validateCreateProperty from "../../property/middlewares/validateCreateProperty";
+import rateLimiter from "../../property/middlewares/rateLimiter";
 
-import getProperties from "../../controllers/propertyController/getProperties";
-import getPropertiesByOwner from "../../controllers/propertyController/getPropertiesByOwner";
-import getPropertyById from "../../controllers/propertyController/getPropertyById";
-import getPropertyStats from "../../controllers/propertyController/getPropertyStats";
-import getSimilarProperties from "../../controllers/propertyController/getSimilarProperties";
-import validatePropertyId from "../../middlewares/propertyMiddleware/validatePropertyId";
-import permanentDeleteProperty from "../../controllers/propertyController/permanentDeleteProperty";
+import getProperties from "../../property/controllers/getProperties";
+import getPropertiesByOwner from "../../property/controllers/getPropertiesByOwner";
+import getPropertyById from "../../property/controllers/getPropertyById";
+import getPropertyStats from "../../property/controllers/getPropertyStats";
+import getSimilarProperties from "../../property/controllers/getSimilarProperties";
+import validatePropertyId from "../../property/middlewares/validatePropertyId";
+import permanentDeleteProperty from "../../property/controllers/permanentDeleteProperty";
 
-import restoreProperty from "../../controllers/propertyController/restoreProperty";
-import searchProperties from "../../controllers/propertyController/searchProperties";
+import restoreProperty from "../../property/controllers/restoreProperty";
+import searchProperties from "../../property/controllers/searchProperties";
 
-import updateProperty from "../../controllers/propertyController/updateProperty";
-import updatePropertyStatus from "../../controllers/propertyController/updatePropertyStatus";
+import updateProperty from "../../property/controllers/updateProperty";
+import updatePropertyStatus from "../../property/controllers/updatePropertyStatus";
 
 const router = express.Router();
 

@@ -14,7 +14,7 @@ import path from 'path';t
 import { fileURLToPath } from 'url';
 import config from './config/index.ts';
 import routes from './routes/index.ts';
-import { errorHandler } from './middlewares/errorHandler.ts';
+import { errorHandler } from './property/middlewares/errorHandler.js';
 import logger from './utils/logger/logger.js';
 
 
