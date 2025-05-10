@@ -1,11 +1,11 @@
 import User from "../models/userModel"
-import { IUser } from "../userTypes/userTypes";
+import { IUser } from "../types/userTypes";
 import createLogger from  "../../utils/logger/logger"
-import { CreateUserDto } from '../userTypes/userTypes';
-import { UpdateUserDto } from '../userTypes/userTypes';
-import { SearchUsersParams } from '../userTypes/userTypes';
-import { VerificationStatus } from '../userTypes/userTypes';
-import { UserRole } from '../userTypes/userTypes';
+import { CreateUserDto } from '../types/userTypes';
+import { UpdateUserDto } from '../types/userTypes';
+import { SearchUsersParams } from '../types/userTypes';
+import { VerificationStatus } from '../types/userTypes';
+import { UserRole } from '../types/userTypes';
 
 const logger = createLogger;
 

@@ -1,6 +1,6 @@
 import { query } from 'express-validator';
 import mongoose from 'mongoose';
-import { PropertyStatus } from '../../type/propertyType';
+import { PropertyStatus } from '../types/propertyType';
 import { validateResults } from '../utils/validateResults';
 
 /**

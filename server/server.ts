@@ -4,6 +4,8 @@ import logger from '../src/utils/logger/logger'
 import  http from  'http'
 import port from './normalizePort'
 import  onError from './onError'
+import { UserPresenceService } from '../src/users/services/userPresence'
+import {PresenceWebSocketHandler} from'../src/utils/socket/webSocket'
 
 interface appConfig {
   port:number,
@@ -18,6 +20,8 @@ app.set('port', port)
 //creation d  un serveur  http
 const  server = http.createServer(app)
 
+const presenceService = new UserPresenceService();
+const wsHandler = new PresenceWebSocketHandler(server, presenceService);
 
 const onListening = ():void =>{
   const addr = server.address();

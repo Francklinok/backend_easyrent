@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { IUser } from '../userTypes/userTypes';// à adapter à ton arborescence
+import { IUser } from '../types/userTypes';// à adapter à ton arborescence
 
 export async function comparePassword(this: IUser, candidatePassword: string): Promise<boolean> {
   try {

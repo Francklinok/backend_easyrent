@@ -1,5 +1,5 @@
 
-import { IUser } from "../userTypes/userTypes"; // à adapter à ton arborescence
+import { IUser } from "../types/userTypes"; // à adapter à ton arborescence
 
 
 export function isPasswordResetTokenValid(this: IUser, token: string): boolean {

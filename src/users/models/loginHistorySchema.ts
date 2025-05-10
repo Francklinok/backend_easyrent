@@ -1,7 +1,7 @@
 import { Schema, model } from "mongoose";
-import { LoginHistory } from "../userTypes/userTypes";
+import { LoginHistory } from "../types/userTypes";
 
-const loginHistorySchema = new Schema<LoginHistory>({
+const LoginHistorySchema = new Schema<LoginHistory>({
     timestamp: { 
         type: Date, 
         default: Date.now
@@ -24,4 +24,4 @@ const loginHistorySchema = new Schema<LoginHistory>({
 })
 
 // const LoginHistory = model("LoginHistory", LoginHistorySchema)
-export default loginHistorySchema;
+export default LoginHistorySchema;

@@ -1,10 +1,10 @@
 import { Schema, model } from 'mongoose';
-import { AgentDetails } from '../userTypes/userTypes';
-import { VerificationStatus } from '../userTypes/userTypes';
+import { AgentDetails } from '../types/userTypes';
+import { VerificationStatus } from '../types/userTypes';
 
 
 
-const agentDetailsSchema = new Schema<AgentDetails>({
+const AgentDetailsSchema = new Schema<AgentDetails>({
   licenseNumber: { 
     type: String,
      required: true
@@ -47,4 +47,4 @@ const agentDetailsSchema = new Schema<AgentDetails>({
 });
 
 // const  agentDetails = model("agentDetails",  agentDetailsSchema)
-export default agentDetailsSchema
+export default AgentDetailsSchema

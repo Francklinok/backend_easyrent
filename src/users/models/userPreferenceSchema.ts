@@ -1,6 +1,6 @@
 import { Schema, model } from "mongoose";
 
-const userPreferencesSchema = new Schema({
+const UserPreferencesSchema = new Schema({
   theme: { 
     type: String,
      enum: ['light', 'dark', 'system'], default: 'system'
@@ -32,4 +32,4 @@ const userPreferencesSchema = new Schema({
 });
 
 // const  userPreferences = model("userPreferences",  userPreferencesSchema)
-export default userPreferencesSchema
+export default UserPreferencesSchema

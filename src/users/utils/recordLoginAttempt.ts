@@ -1,5 +1,5 @@
 
-import { IUser, LoginHistory } from "../userTypes/userTypes"; // à adapter à ton arborescence
+import { IUser, LoginHistory } from "../types/userTypes"; // à adapter à ton arborescence
 
 
 export function recordLoginAttempt(this: IUser, data: Omit<LoginHistory, 'timestamp'>): void {

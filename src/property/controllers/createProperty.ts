@@ -3,7 +3,7 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Property from '../model/propertyModel';
-import { PropertyCreateDTO } from '../../type/propertyType';
+import { PropertyCreateDTO } from '../types/propertyType';
 import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('propertyController');

@@ -1,8 +1,8 @@
 import mongoose, { model, Schema } from 'mongoose';
 import { Types } from 'mongoose';
-import { IProperty } from '../../type/propertyType';
-import { PropertyStatus } from '../../type/propertyType';
-import { IPropertyDocument } from '../../type/propertyType';
+import { IProperty } from '../types/propertyType';
+import { PropertyStatus } from '../types/propertyType';
+import { IPropertyDocument } from '../types/propertyType';
 
 /**
  * Schéma de propriété pour l'application de location immobilière

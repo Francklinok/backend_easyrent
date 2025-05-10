@@ -1,7 +1,7 @@
 
 import { Request, Response } from 'express';
 import Property from '../model/propertyModel';
-import {  PropertyQueryFilters, PaginationOptions} from '../../type/propertyType';
+import {  PropertyQueryFilters, PaginationOptions} from '../types/propertyType';
 import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('propertyController');

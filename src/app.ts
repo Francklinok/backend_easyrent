@@ -17,6 +17,8 @@ import routes from './routes/index.ts';
 import { errorHandler } from './property/middlewares/errorHandler.js';
 import logger from './utils/logger/logger.js';
 
+import { trackUserActivity } from './users/middleware/trackUserActivity.js';
+
 
 // Configuration pour ES modules avec __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -24,6 +26,9 @@ const __dirname = path.dirname(__filename);
 
 // Création et configuration de l'application Express
 const app = express();
+
+// Middleware pour traquer l'activité sur les requêtes HTTP
+app.use(trackUserActivity(presenceService));
 
 // Middlewares de sécurité et d'optimisation
 app.use(helmet());
@@ -111,3 +116,11 @@ app.use(errorHandler);
 
 // Export de l'application pour le serveur
 export default app;
+
+
+// Exemple d'utilisation dans le fichier principal de l'application
+
+
+
+
+

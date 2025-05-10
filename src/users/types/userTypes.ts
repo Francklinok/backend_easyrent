@@ -7,6 +7,7 @@ export enum UserRole {
   SUPER_ADMIN = "super_admin"
 
 }
+
 export enum  VerificationStatus{
   UNVERIFIED = "unverified",
   PENDING = "pending",
@@ -59,7 +60,7 @@ export interface AgentDetails{
 }
 
 export interface IUser extends Document {
-   firstName: string;
+  firstName: string;
   lastName: string;
   username:string;
   email: string;
@@ -72,6 +73,11 @@ export interface IUser extends Document {
   createdAt: Date;
   updatedAt: Date;
   lastLogin?: Date;
+  lastIp?: string;
+  lastUserAgent?: string;
+  presenceStatus: string;
+  lastActive: Date;
+  loginAttempts: LoginHistory[];
   isActive: boolean;
   verificationToken?: string;
   passwordResetToken?: string;
@@ -87,6 +93,7 @@ export interface IUser extends Document {
   isPasswordResetTokenValid: (token: string) => boolean;
   recordLoginAttempt: (data: Omit<LoginHistory, 'timestamp'>) => void;
   updateLastLogin: (ipAddress: string, userAgent: string) => void;
+  updatePresenceStatus(status: string): void;
 }
 
 export interface CreateUserDto {

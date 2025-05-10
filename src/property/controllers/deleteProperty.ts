@@ -2,7 +2,7 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Property from '../model/propertyModel';
-import {  PropertyStatus } from '../../type/propertyType';
+import {  PropertyStatus } from '../types/propertyType';
 import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('propertyController');

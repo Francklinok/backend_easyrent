@@ -1,4 +1,4 @@
-import { IUser } from '../userTypes/userTypes';
+import { IUser } from '../types/userTypes';
 import { Document } from "mongoose";
 import bcrypt from 'bcrypt';
 

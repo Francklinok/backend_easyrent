@@ -1,13 +1,12 @@
-import mongoose, { Schema, Document, model } from 'mongoose';
-
+import { Schema, model } from 'mongoose';
 import validator from 'validator';
-import { hashPasswordMiddleware } from '../userMiddleware/hashPasswordMiddleware';
-import { IUser } from '../userTypes/userTypes';
-import { UserRole } from '../userTypes/userTypes';
-import addressSchema from './addressSchema';
-import agentDetailsSchema from './agentDetailsSchema';
-import userPreferencesSchema from './userPreferenceSchema';
-import loginHistorySchema from './loginHistorySchema';
+import { hashPasswordMiddleware } from '../middleware/hashPasswordMiddleware';
+import { IUser, LoginHistory } from '../types/userTypes';
+import { UserRole } from '../types/userTypes';
+import AddressSchema from './addressSchema';
+import AgentDetailsSchema from './agentDetailsSchema';
+import UserPreferencesSchema from './userPreferenceSchema';
+import LoginHistorySchema from './loginHistorySchema';
 import { comparePassword } from '../utils/comparePassword';
 import { generatePasswordResetToken } from '../utils/generatePasswordResetToken';
 import { generateVerificationToken } from '../utils/generateVerificationToken';
@@ -16,7 +15,7 @@ import { recordLoginAttempt } from '../utils/recordLoginAttempt';
 import { updateLastLogin } from '../utils/updateLastLogin';
 
 
-const userSchema = new Schema<IUser>(
+const UserSchema = new Schema<IUser>(
   {
     firstName: {
       type: String,
@@ -68,25 +67,40 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: true
     },
-    lastLogin: Date,
-    profilePicture: String,
+    lastLogin: {
+      type:Date,
+    },
+    lastIp: { 
+      type: String 
+    },  presenceStatus: { 
+    type: String, 
+    enum: ['online', 'away', 'offline'], 
+    default: 'offline' 
+    },
+    lastActive: { 
+      type: Date, 
+      default: Date.now 
+    },
+    profilePicture: {
+      type:String,
+    },
     phoneNumber: {
       type: String,
       unique: true,
       sparse: true
     },
-    address: addressSchema,
+    address: AddressSchema,
     dateOfBirth: Date,
     verificationToken: String,
     passwordResetToken: String,
     passwordResetExpires: Date,
     refreshTokens: [String],
-    loginHistory: [loginHistorySchema],
+    loginHistory: [LoginHistorySchema],
     preferences: {
-      type: userPreferencesSchema,
+      type: UserPreferencesSchema,
       default: () => ({})
     },
-    agentDetails: agentDetailsSchema
+    agentDetails: AgentDetailsSchema
   },
   {
     timestamps: true,
@@ -104,15 +118,13 @@ const userSchema = new Schema<IUser>(
   }
 );
 
-export const UserModel = mongoose.model<IUser>('User', userSchema);
-
 
 // Index pour améliorer les performances des requêtes
-userSchema.index({ email: 1 });
-userSchema.index({ username: 1 });
-userSchema.index({firstname:1})
+UserSchema.index({ email: 1 });
+UserSchema.index({ username: 1 });
+UserSchema.index({firstname:1})
 
-userSchema.index({
+UserSchema.index({
   firstName: 'text',
   lastName: 'text',
   email: 'text',
@@ -122,28 +134,67 @@ userSchema.index({
 });
 
 // Création d'un champ virtuel pour le nom complet
-userSchema.virtual('fullName').get(function() {
+UserSchema.virtual('fullName').get(function() {
   return `${this.firstName} ${this.lastName}`;
 });
 
 // Méthode pour obtenir le nom complet
-userSchema.methods.getFullName = function(): string {
+UserSchema.methods.getFullName = function(): string {
   return `${this.firstName} ${this.lastName}`;
 };
 
 
 // Ajouter les middlewares
-userSchema.pre('save', hashPasswordMiddleware);
-//creation du model user
-userSchema.methods.comparePassword = comparePassword;
-userSchema.methods.generateVerificationToken = generateVerificationToken;
-userSchema.methods.generatePasswordResetToken = generatePasswordResetToken;
-userSchema.methods.isPasswordResetTokenValid = isPasswordResetTokenValid;
-userSchema.methods.recordLoginAttempt = recordLoginAttempt;
-userSchema.methods.updateLastLogin = updateLastLogin;
+UserSchema.pre('save', hashPasswordMiddleware);
+
+//methodes
+UserSchema.methods.comparePassword = comparePassword;
+UserSchema.methods.generateVerificationToken = generateVerificationToken;
+UserSchema.methods.generatePasswordResetToken = generatePasswordResetToken;
+UserSchema.methods.isPasswordResetTokenValid = isPasswordResetTokenValid;
+UserSchema.methods.recordLoginAttempt = recordLoginAttempt;
+UserSchema.methods.updateLastLogin = updateLastLogin;
 
 
-const User = model<IUser>('User', userSchema);
+// Méthode pour mettre à jour les informations de dernière connexion
+UserSchema.methods.updateLastLogin = function(ip: string, userAgent: string): void {
+  this.lastLogin = new Date();
+  this.lastIp = ip;
+  this.lastUserAgent = userAgent;
+  this.lastActive = new Date();
+  this.presenceStatus = 'online';
+};
+
+// Méthode pour enregistrer une tentative de connexion
+UserSchema.methods.recordLoginAttempt = function(attempt: Omit<LoginHistory, 'timestamp'>): void {
+  const { ipAddress, userAgent, successful } = attempt;
+  
+  this.loginAttempts.push({
+    timestamp: new Date(),
+    ipAddress,
+    userAgent,
+    successful
+  });
+  
+  // Limiter le nombre d'entrées d'historique (garder les 10 dernières tentatives)
+  if (this.loginAttempts.length > 10) {
+    this.loginAttempts = this.loginAttempts.slice(-10);
+  }
+};
+
+// Méthode pour mettre à jour le statut de présence
+UserSchema.methods.updatePresenceStatus = function(status: string): void {
+  if (['online', 'away', 'offline'].includes(status)) {
+    this.presenceStatus = status;
+    
+    // Si l'utilisateur devient "online", mettre à jour lastActive
+    if (status === 'online') {
+      this.lastActive = new Date();
+    }
+  }
+};
+
+const User = model<IUser>('User', UserSchema);
 
 
 export default User;

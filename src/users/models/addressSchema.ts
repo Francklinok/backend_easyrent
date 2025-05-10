@@ -1,8 +1,8 @@
 import { Schema,  model } from "mongoose";
-import { Address } from "../userTypes/userTypes";
+import { Address } from "../types/userTypes";
 
 
-const  addressSchema = new Schema<Address>({
+const  AddressSchema = new Schema<Address>({
     street:{
         type:String,
         required:false,
@@ -31,6 +31,5 @@ const  addressSchema = new Schema<Address>({
     }
 )
 
-// const Address = model<Address>("Address",addressSchema)
 
-export default addressSchema;
+export default AddressSchema;
