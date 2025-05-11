@@ -1,3 +1,8 @@
+import rateLimit from 'express-rate-limit';
+import RedisStore from 'rate-limit-redis';
+
+
+
 // Middleware de limitation pour les requêtes API générales
 export const apiLimiter = rateLimit({
   store: new RedisStore({
