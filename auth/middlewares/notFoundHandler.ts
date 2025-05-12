@@ -7,7 +7,7 @@ const logger = createLogger('AuthMiddleware');
 /**
  * Middleware pour capturer les routes non trouvées
  */
-export const notFoundHandler = (req: Request, res: Response) => {
+ const notFoundHandler = (req: Request, res: Response) => {
   logger.warn('Route non trouvée', { path: req.path, method: req.method });
   
   res.status(404).json({
@@ -15,3 +15,4 @@ export const notFoundHandler = (req: Request, res: Response) => {
     message: 'Ressource non trouvée'
   });
 };
+export  default  notFoundHandler

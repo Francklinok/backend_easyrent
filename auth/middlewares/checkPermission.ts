@@ -16,7 +16,7 @@ interface PermissionModel {
 /**
  * Middleware de contrôle d'accès basé sur les rôles et les permissions
  */
-export const checkPermission = (requiredPermission: PermissionModel) => {
+ const checkPermission = (requiredPermission: PermissionModel) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
@@ -62,3 +62,4 @@ export const checkPermission = (requiredPermission: PermissionModel) => {
     }
   };
 };
+export  default checkPermission

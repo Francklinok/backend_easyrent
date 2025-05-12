@@ -4,7 +4,7 @@ import RedisStore from 'rate-limit-redis';
 
 
 // Middleware de limitation pour les requêtes API générales
-export const apiLimiter = rateLimit({
+ const apiLimiter = rateLimit({
   store: new RedisStore({
     sendCommand: (...args: string[]) => redisClient.sendCommand(args),
   }),
@@ -18,5 +18,5 @@ export const apiLimiter = rateLimit({
   }
 });
 
-
+export  default apiLimiter
 

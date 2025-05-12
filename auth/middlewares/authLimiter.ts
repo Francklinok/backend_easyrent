@@ -5,7 +5,7 @@ import RedisStore from 'rate-limit-redis';
 
 
 // Middleware de limitation pour les requêtes d'authentification
-export const authLimiter = rateLimit({
+ const authLimiter = rateLimit({
   store: new RedisStore({
     sendCommand: (...args: string[]) => redisClient.sendCommand(args),
   }),
@@ -22,3 +22,5 @@ export const authLimiter = rateLimit({
     return `auth:${req.ip}`;
   },
 });
+
+export  default authLimiter

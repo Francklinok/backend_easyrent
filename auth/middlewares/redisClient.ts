@@ -22,4 +22,4 @@ const redisClient = createClient({
   }
 })();
 
-
+export  default redisClient;

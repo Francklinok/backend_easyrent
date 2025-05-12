@@ -10,7 +10,7 @@ const authService = new AuthService();
 /**
  * Middleware pour l'authentification à deux facteurs
  */
-export const requireTwoFactor = async (req: Request, res: Response, next: NextFunction) => {
+ const requireTwoFactor = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) {
       return res.status(401).json({ 
@@ -48,3 +48,4 @@ export const requireTwoFactor = async (req: Request, res: Response, next: NextFu
   }
 };
 
+export  default requireTwoFactor;

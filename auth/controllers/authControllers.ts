@@ -1,10 +1,10 @@
 
 import { Request, Response, NextFunction } from 'express';
-import { AuthService } from '../../services/authService';
-import { UserService } from '../../services/userService';
+import { AuthService } from '../../src/users/services/authService';
+import { UserService } from '../../src/services/service';
 import { NotificationService } from '../../services/notificationService';
 import { SecurityAuditService } from '../../services/securityAuditService';
-import { AppError } from '../middlewares/errorHandler';
+import {AppError} from '../utils/AppError'
 import createLogger from '../../utils/logger/logger';
 
 const logger = createLogger('AuthController');
@@ -16,7 +16,7 @@ const securityAuditService = new SecurityAuditService();
 /**
  * Contrôleur pour les opérations d'authentification
  */
-export class AuthController {
+class AuthControllers {
   /**
    * Inscription d'un nouvel utilisateur
    */
@@ -476,3 +476,5 @@ export class AuthController {
     }
   }
 }
+
+export  default AuthControllers

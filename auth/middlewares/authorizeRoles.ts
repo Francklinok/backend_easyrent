@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 /*
  * Middleware pour la vérification des rôles
  */
-export const authorizeRoles = (...roles: string[]) => {
+ const authorizeRoles = (...roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ 
@@ -21,3 +21,4 @@ export const authorizeRoles = (...roles: string[]) => {
     next();
   };
 };
+export  default authorizeRoles

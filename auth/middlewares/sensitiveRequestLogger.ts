@@ -7,7 +7,7 @@ const logger = createLogger('AuthMiddleware');
 /**
  * Middleware pour journaliser les requêtes sensibles avec plus de détails
  */
-export const sensitiveRequestLogger = (req: Request, res: Response, next: NextFunction) => {
+ const sensitiveRequestLogger = (req: Request, res: Response, next: NextFunction) => {
   // Ne pas journaliser les mots de passe ou autres données sensibles
   const sensitiveFields = ['password', 'token', 'secret', 'credit_card', 'cardNumber'];
   
@@ -31,3 +31,5 @@ export const sensitiveRequestLogger = (req: Request, res: Response, next: NextFu
   
   next();
 };
+
+export default sensitiveRequestLogger

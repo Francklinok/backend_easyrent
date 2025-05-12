@@ -9,7 +9,7 @@ const logger = createLogger('AuthMiddleware');
 /**
  * Middleware pour vérifier l'authentification par token JWT
  */
-export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
+ const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Extraire le token du header Authorization
     const authHeader = req.headers.authorization;
@@ -44,3 +44,5 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     });
   }
 };
+
+export default authenticate

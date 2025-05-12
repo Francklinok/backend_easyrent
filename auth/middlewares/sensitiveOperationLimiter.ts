@@ -3,7 +3,7 @@ import RedisStore from 'rate-limit-redis';
 
 
 // Middleware de limitation spécifique pour les opérations sensibles
-export const sensitiveOperationLimiter = rateLimit({
+ const sensitiveOperationLimiter = rateLimit({
   store: new RedisStore({
     sendCommand: (...args: string[]) => redisClient.sendCommand(args),
   }),
@@ -16,3 +16,5 @@ export const sensitiveOperationLimiter = rateLimit({
     message: 'Trop de tentatives pour cette opération sensible, veuillez réessayer plus tard'
   }
 });
+
+export  default sensitiveOperationLimiter
