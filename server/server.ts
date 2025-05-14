@@ -1,17 +1,14 @@
 import  app from '../src/app'
-import  config from './src/config/index'
-import logger from '../src/utils/logger/logger'
+import config from '../config'
+// import logger from '../src/utils/logger/logger'
 import  http from  'http'
 import port from './normalizePort'
 import  onError from './onError'
 import { UserPresenceService } from '../src/users/services/userPresence'
 import {PresenceWebSocketHandler} from'../src/utils/socket/webSocket'
+import { createLogger } from '../src/utils/logger/logger'
 
-interface appConfig {
-  port:number,
-  env:string,
-  host?:string,
-}
+const  logger = createLogger('server')
 
 // Configuration du port
 app.set('port', port)
@@ -37,7 +34,7 @@ server.listen(port);
 server.on('error', onError);
 server.on('listening', onListening)
 
-// gestion des signau  d arret 
+// gestion des signaux  d arret 
 const gracefulShutdown = (signal:string):void =>{
   logger.info(`${signal} reçu. Arrêt gracieux du serveur...`);
 server.close(() =>{

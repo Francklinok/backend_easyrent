@@ -1,6 +1,6 @@
 
 import { Request, Response } from 'express';
-import createLogger from '../../utils/logger/logger';
+import { createLogger } from '../../src/utils/logger/logger';
 
 const logger = createLogger('AuthMiddleware');
 

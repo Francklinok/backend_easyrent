@@ -1,5 +1,4 @@
-import  config from './src/config/index'
-
+import config from "../config";
 /**
  * Normalise le port en valeur numérique ou chaîne
  * @param val Valeur du port à normaliser

@@ -2,10 +2,10 @@
 import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import { envConfig } from '../config/env.config';
-import { UserPresenceService, PresenceStatus } from './userPresenceService';
-import createLogger from '../../utils/logger/logger';
-
+import { UserPresence, PresenceStatus } from '../../users/types/presenceType';
+import { createLogger } from '../logger/logger';
+import { UserPresenceService } from '../../users/services/userPresence';
+import config from '../../../config';
 const logger = createLogger('PresenceWebSocket');
 
 /**
@@ -33,8 +33,8 @@ export class PresenceWebSocketHandler {
   constructor(server: HttpServer, presenceService?: UserPresenceService) {
     this.io = new SocketIOServer(server, {
       cors: {
-        origin: envConfig.CORS_ORIGIN || '*',
-        methods: ['GET', 'POST']
+        origin: config.cors.origin|| '*',
+        methods: config.cors.methods
       }
     });
     
@@ -59,7 +59,7 @@ export class PresenceWebSocketHandler {
         }
         
         // Vérifier le token
-        const userData = jwt.verify(token, envConfig.JWT_SECRET) as UserData;
+        const userData = jwt.verify(token, config.auth.jwtSecret) as UserData;
         
         if (!userData || !userData.userId) {
           logger.warn('Invalid token provided for WebSocket connection');

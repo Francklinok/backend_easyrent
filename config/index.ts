@@ -1,17 +1,26 @@
-import base from './base';
-import  dev from './env/developpement'
-import  prod from './env/production'
+import baseConfig from './base';
+import { Config } from './type';
+import devConfig from './env/developpment';
+import prodConfig from './env/production';
 
-
+/**
+ * Sélection de la configuration selon l'environnement
+ */
 const env = process.env.NODE_ENV || 'development';
 
-const envConfig = {
-  development: dev,
-  production: prod,
+const envConfigs: Record<string, Partial<Config>> = {
+  development: devConfig,
+  production: prodConfig,
 };
 
-export default {
-  ...base,
-  ...(envConfig[env] || {}),
+/**
+ * Configuration finale qui combine la configuration de base avec celle spécifique à l'environnement
+ */
+const config: Config = {
+  ...baseConfig,
+  ...(envConfigs[env] || {}),
 };
+
+export default config;
+
 

@@ -1,6 +1,6 @@
-import { Request, Response, NextFunction, RequestHandler } from 'express';
-import createLogger from '../../utils/logger/logger';
-import authService from '../../services/authService'; // votre service JWT (ex: jwt.verify)
+import { RequestHandler } from 'express';
+import { createLogger } from '../../src/utils/logger/logger';
+import { AuthService } from '../../src/users/services/authService';// votre service JWT (ex: jwt.verify)
 
 const logger = createLogger('AuthMiddleware');
 
@@ -16,7 +16,7 @@ const authenticate: RequestHandler = (req, res, next) => {
       }
 
       const token = authHeader.split(' ')[1];
-      const decoded = await authService.validateToken(token);
+      const decoded = await AuthService.validateToken(token);
 
       if (!decoded) {
         return res.status(401).json({

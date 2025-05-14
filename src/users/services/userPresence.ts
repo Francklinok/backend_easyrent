@@ -1,32 +1,9 @@
 // userPresenceService.ts
 import { createClient, RedisClientType } from 'redis';
-import createLogger from '../../utils/logger/logger';
-import { envConfig } from '../config/env.config';
-
+import { createLogger } from '../../utils/logger/logger';
+import config from '../../../config';
+import { UserPresence,PresenceStatus } from '../types/presenceType';
 const logger = createLogger('UserPresenceService');
-
-/**
- * Énumération des statuts de présence possibles
- */
-export enum PresenceStatus {
-  ONLINE = 'online',
-  AWAY = 'away',
-  OFFLINE = 'offline'
-}
-
-/**
- * Interface pour les informations de présence
- */
-export interface UserPresence {
-  userId: string;
-  status: PresenceStatus;
-  lastActive: Date;
-  deviceInfo?: {
-    ip?: string;
-    userAgent?: string;
-    deviceId?: string;
-  };
-}
 
 /**
  * Service de gestion de la présence des utilisateurs
@@ -44,7 +21,7 @@ export class UserPresenceService {
 
   constructor() {
     this.redisClient = createClient({
-      url: envConfig.REDIS_URL || 'redis://localhost:6379'
+      url: config.redis?.url || 'redis://localhost:6379'
     });
     this.initRedisConnection();
   }
