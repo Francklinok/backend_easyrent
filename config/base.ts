@@ -31,6 +31,8 @@ const baseConfig: Config = {
     port: parseInt(process.env.PORT || '3000', 10),
     env: process.env.NODE_ENV || 'development',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+    host: process.env.HOST || "localhost", // 👈 ajoute ceci
+
   },
   auth: {
     jwtSecret: process.env.JWT_SECRET!,
@@ -75,8 +77,11 @@ const baseConfig: Config = {
   },
   cors: {
     origin: process.env.CORS_ORIGIN || '*',
-    methods: ['GET', 'POST'], // Tu peux le rendre configurable aussi si besoin
-  }
+    methods: ['GET', 'POST' ,'HEAD','PUT','PATCH','DELETE'], // Tu peux le rendre configurable aussi si besoin
+  },
+   rateLimit: {
+    max: parseInt(process.env.RATE_LIMIT_MAX || '100')
+  },
 };
 
 // Exportation de la configuration de base

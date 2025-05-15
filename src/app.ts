@@ -10,13 +10,13 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import path from 'path';t
+import path from 'path';
 import { fileURLToPath } from 'url';
-import config from './config/index.ts';
-import routes from './routes/index.ts';
-import { errorHandler } from './property/middlewares/errorHandler.js';
+import config from '../config';
+import router from '../auth/routers/authrouters';
+import { errorHandler } from '../auth/utils/errorHandler';
 import logger from './utils/logger/logger.js';
-
+import { UserPresenceService } from './users/services/userPresence';
 import { trackUserActivity } from './users/middleware/trackUserActivity.js';
 
 
@@ -28,13 +28,15 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // Middleware pour traquer l'activité sur les requêtes HTTP
-app.use(trackUserActivity(presenceService));
+const userPresenceService = new UserPresenceService();
+
+app.use(trackUserActivity(userPresenceService));
 
 // Middlewares de sécurité et d'optimisation
 app.use(helmet());
 app.use(cors({
-  origin: config.corsOptions?.origin || '*',
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  origin: config.cors.origin|| '*',
+  methods: config.cors.methods,
   credentials: true,
   optionsSuccessStatus: 204
 }));
@@ -64,10 +66,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Connexion à MongoDB avec gestion des événements
-mongoose.connect(config.database.uri, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(config.database.url, {})
   .then(() => console.log('✅ Connecté à MongoDB'))
   .catch(err => {
     console.error('❌ Erreur de connexion MongoDB:', err);
@@ -94,13 +93,13 @@ app.get('/', (req, res) => {
   res.status(200).json({
     status: 'success',
     message: 'Bienvenue sur l\'API EasyRent',
-    version: config.version || '1.0.0',
+    // version: config.version || '1.0.0',
     environment: process.env.NODE_ENV || 'development'
   });
 });
 
 // Routes API
-app.use('/api/v1', routes);
+app.use('/api/v1', router);
 
 // Gestion des routes inconnues
 app.all('*', (req, res) => {

@@ -1,4 +1,4 @@
-import config from "../config";
+import config from "../../../config";
 /**
  * Normalise le port en valeur numérique ou chaîne
  * @param val Valeur du port à normaliser

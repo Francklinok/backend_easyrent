@@ -1,12 +1,11 @@
-import  app from '../src/app'
-import config from '../config'
-// import logger from '../src/utils/logger/logger'
+import  app from './src/app'
+import config from './config'
 import  http from  'http'
-import port from './normalizePort'
-import  onError from './onError'
-import { UserPresenceService } from '../src/users/services/userPresence'
-import {PresenceWebSocketHandler} from'../src/utils/socket/webSocket'
-import { createLogger } from '../src/utils/logger/logger'
+import port from './src/utils/normalize/normalizePort'
+import  onError from './src/utils/normalize/onError'
+import { UserPresenceService } from './src/users/services/userPresence'
+import {PresenceWebSocketHandler} from'./src/utils/socket/webSocket'
+import { createLogger } from './src/utils/logger/logger'
 
 const  logger = createLogger('server')
 

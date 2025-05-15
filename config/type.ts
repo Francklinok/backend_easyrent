@@ -6,6 +6,7 @@ export interface Config {
     port: number;
     env: string;
     frontendUrl: string;
+    host:string,
   };
   auth: {
     jwtSecret: string;
@@ -52,6 +53,10 @@ export interface Config {
   };
     cors: {
     origin:string,
-    methods:[string, string]
-  }
+    methods:string[]
+  }; 
+  rateLimit?: {
+    max?: number;
+  };
 }
+

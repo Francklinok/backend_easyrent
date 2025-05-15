@@ -1,4 +1,4 @@
-import logger from '../src/utils/logger/logger';
+import logger from '../logger/logger';
 import  port from './normalizePort'
 
 const onError = (error:NodeJS.ErrnoException):void =>{
