@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { UserService } from '../../services/userService';
-import { SecurityAuditService } from '../../services/securityAuditService';
+import { SecurityAuditService } from '../../services/auditservices';
 import { NotificationService } from '../../services/notificationService';
 import { AppError } from '../middlewares/errorHandler';
 import createLogger from '../../utils/logger/logger';

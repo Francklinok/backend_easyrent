@@ -1,13 +1,12 @@
 import { Document, Types } from 'mongoose';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import User from '../models/userModel';
-import { NotificationService } from './notificationService';
-import { SecurityAuditService } from './securityAuditService';
+import User from '../users/models/userModel';
+import { NotificationService } from './notificationServices';
+import { SecurityAuditService } from './auditservices';
 import createLogger from '../utils/logger/logger';
-import { AppError } from '../api/middlewares/errorHandler';
+import { AppError } from '../../auth/utils/AppError';
 import { UserDocument, UserFilterOptions, UserSearchOptions } from '../types/userTypes';
-
 const logger = createLogger('UserService');
 const notificationService = new NotificationService();
 const securityAuditService = new SecurityAuditService();

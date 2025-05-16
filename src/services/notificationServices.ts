@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import { createLogger } from '../utils/logger/logger';
 import { VerificationStatus } from '../users/types/userTypes';
 
-import config from '../../config/config';
+import config from '../../config';
 
 const logger = createLogger('ServiceName');
 

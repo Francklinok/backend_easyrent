@@ -2,7 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../../src/users/services/authService';
 import { UserService } from '../../src/services/service';
-import { NotificationService } from '../../services/notificationService';
+import { NotificationService } from '../../src/services/notificationServices';
 import { SecurityAuditService } from '../../services/securityAuditService';
 import {AppError} from '../utils/AppError'
 import createLogger from '../../utils/logger/logger';

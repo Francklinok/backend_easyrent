@@ -1,7 +1,7 @@
 
 import { Request, Response, NextFunction } from 'express';
-import createLogger from '../../utils/logger/logger';
-import { envConfig } from '../../config/env.config';
+import { createLogger } from '../../src/utils/logger/logger';
+import config from '../../config';
 
 const logger = createLogger('ErrorHandler');
 
@@ -19,14 +19,14 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
     stack: err.stack,
     path: req.path,
     method: req.method,
-    userId: req.user?.userId
+    userId: req.user?.id
   });
 
   // Préparer la réponse
   const response = {
     success: false,
     message: errorMessage,
-    ...(envConfig.NODE_ENV === 'development' && { stack: err.stack })
+    ...(config.app.env === 'development' && { stack: err.stack })
   };
 
   // Envoyer la réponse
