@@ -1,11 +1,10 @@
-
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../../src/users/services/authService';
 import { UserService } from '../../src/services/service';
 import { NotificationService } from '../../src/services/notificationServices';
-import { SecurityAuditService } from '../../services/securityAuditService';
-import {AppError} from '../utils/AppError'
-import createLogger from '../../utils/logger/logger';
+import { SecurityAuditService } from '../../src/services/auditservices';
+import { AppError } from '../utils/AppError';
+import { createLogger } from '../../src/utils/logger/logger';
 
 const logger = createLogger('AuthController');
 const authService = new AuthService();
@@ -20,17 +19,18 @@ class AuthControllers {
   /**
    * Inscription d'un nouvel utilisateur
    */
-  async register(req: Request, res: Response, next: NextFunction) {
+  async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { email, password, firstName, lastName, ...userData } = req.body;
       
       // Vérifier si l'email est déjà utilisé
       const existingUser = await userService.getUserByEmail(email);
       if (existingUser) {
-        return res.status(409).json({
+        res.status(409).json({
           success: false,
           message: 'Cet email est déjà utilisé'
         });
+        return;
       }
       
       // Créer l'utilisateur
@@ -69,7 +69,7 @@ class AuthControllers {
   /**
    * Connexion d'un utilisateur
    */
-  async login(req: Request, res: Response, next: NextFunction) {
+  async login(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { email, password } = req.body;
       
@@ -84,10 +84,11 @@ class AuthControllers {
           details: { email }
         });
         
-        return res.status(401).json({
+        res.status(401).json({
           success: false,
           message: 'Email ou mot de passe incorrect'
         });
+        return;
       }
       
       // Obtenir les informations de l'utilisateur
@@ -95,12 +96,13 @@ class AuthControllers {
       
       // Vérifier si 2FA est activé
       if (user?.preferences?.twoFactorEnabled) {
-        return res.status(200).json({
+        res.status(200).json({
           success: true,
           message: 'Authentification réussie, validation 2FA requise',
           requireTwoFactor: true,
           temporaryToken: tokens.accessToken // Token temporaire pour l'étape 2FA
         });
+        return;
       }
       
       // Journaliser la connexion réussie
@@ -125,7 +127,7 @@ class AuthControllers {
   /**
    * Déconnexion d'un utilisateur
    */
-  async logout(req: Request, res: Response, next: NextFunction) {
+  async logout(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
       
@@ -150,24 +152,26 @@ class AuthControllers {
   /**
    * Rafraîchir le token d'accès
    */
-  async refreshToken(req: Request, res: Response, next: NextFunction) {
+  async refreshToken(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { refreshToken } = req.body;
       
       if (!refreshToken) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: 'Token de rafraîchissement requis'
         });
+        return;
       }
       
       const accessToken = await authService.refreshAccessToken(refreshToken);
       
       if (!accessToken) {
-        return res.status(401).json({
+        res.status(401).json({
           success: false,
           message: 'Token de rafraîchissement invalide ou expiré'
         });
+        return;
       }
       
       res.status(200).json({
@@ -183,7 +187,7 @@ class AuthControllers {
   /**
    * Demande de réinitialisation de mot de passe
    */
-  async forgotPassword(req: Request, res: Response, next: NextFunction) {
+  async forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { email } = req.body;
       
@@ -213,25 +217,27 @@ class AuthControllers {
   /**
    * Réinitialisation de mot de passe
    */
-  async resetPassword(req: Request, res: Response, next: NextFunction) {
+  async resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { token } = req.params;
       const { password } = req.body;
       
       if (!token || !password) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: 'Token et nouveau mot de passe requis'
         });
+        return;
       }
       
       const result = await userService.resetPassword(token, password);
       
       if (!result.success) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: result.message || 'Échec de la réinitialisation du mot de passe'
         });
+        return;
       }
       
       await securityAuditService.logEvent({
@@ -256,24 +262,26 @@ class AuthControllers {
   /**
    * Vérification d'email
    */
-  async verifyEmail(req: Request, res: Response, next: NextFunction) {
+  async verifyEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { token } = req.params;
       
       if (!token) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: 'Token de vérification requis'
         });
+        return;
       }
       
       const result = await userService.verifyEmail(token);
       
       if (!result.success) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: result.message || 'Échec de la vérification d\'email'
         });
+        return;
       }
       
       await securityAuditService.logEvent({
@@ -295,7 +303,7 @@ class AuthControllers {
   /**
    * Configuration de l'authentification à deux facteurs
    */
-  async setupTwoFactor(req: Request, res: Response, next: NextFunction) {
+  async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
       
@@ -322,17 +330,18 @@ class AuthControllers {
   /**
    * Vérification d'un code 2FA
    */
-  async verifyTwoFactorCode(req: Request, res: Response, next: NextFunction) {
+  async verifyTwoFactorCode(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { code, token } = req.body;
       
       // Valider le token temporaire pour obtenir l'userId
       const decoded = await authService.validateToken(token);
       if (!decoded) {
-        return res.status(401).json({
+        res.status(401).json({
           success: false,
           message: 'Token invalide ou expiré'
         });
+        return;
       }
       
       const { userId } = decoded;
@@ -348,10 +357,11 @@ class AuthControllers {
           userAgent: req.headers['user-agent']
         });
         
-        return res.status(401).json({
+        res.status(401).json({
           success: false,
           message: 'Code 2FA invalide'
         });
+        return;
       }
       
       // Générer de nouveaux tokens après la 2FA réussie
@@ -382,7 +392,7 @@ class AuthControllers {
   /**
    * Désactiver l'authentification à deux facteurs
    */
-  async disableTwoFactor(req: Request, res: Response, next: NextFunction) {
+  async disableTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
       const { password } = req.body;
@@ -391,10 +401,11 @@ class AuthControllers {
       const passwordValid = await userService.verifyPassword(userId, password);
       
       if (!passwordValid) {
-        return res.status(401).json({
+        res.status(401).json({
           success: false,
           message: 'Mot de passe incorrect'
         });
+        return;
       }
       
       // Désactiver 2FA
@@ -426,7 +437,7 @@ class AuthControllers {
   /**
    * Obtenir les sessions actives
    */
-  async getActiveSessions(req: Request, res: Response, next: NextFunction) {
+  async getActiveSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
       
@@ -445,7 +456,7 @@ class AuthControllers {
   /**
    * Révoquer une session spécifique
    */
-  async revokeSession(req: Request, res: Response, next: NextFunction) {
+  async revokeSession(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
       const { id: sessionId } = req.params;
@@ -453,10 +464,11 @@ class AuthControllers {
       const result = await authService.revokeSession(userId, sessionId);
       
       if (!result) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: 'Session non trouvée ou déjà révoquée'
         });
+        return;
       }
       
       await securityAuditService.logEvent({
@@ -477,4 +489,4 @@ class AuthControllers {
   }
 }
 
-export  default AuthControllers
+export default AuthControllers;

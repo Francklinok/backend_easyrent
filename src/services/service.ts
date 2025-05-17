@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import User from '../users/models/userModel';
 import { NotificationService } from './notificationServices';
 import { SecurityAuditService } from './auditservices';
-import createLogger from '../utils/logger/logger';
+import { createLogger } from '../utils/logger/logger';
 import { AppError } from '../../auth/utils/AppError';
 import { UserDocument, UserFilterOptions, UserSearchOptions } from '../types/userTypes';
 const logger = createLogger('UserService');

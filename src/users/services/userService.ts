@@ -6,7 +6,7 @@ import { UpdateUserDto } from '../types/userTypes';
 import { SearchUsersParams } from '../types/userTypes';
 import { VerificationStatus } from '../types/userTypes';
 import { UserRole } from '../types/userTypes';
-
+import { NotificationService } from "../../services/notificationServices";
 const logger = createLogger;
 
 

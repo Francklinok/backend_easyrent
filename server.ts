@@ -1,88 +1,154 @@
-import app from './src/app.js'
-import config from './config/index.js'
-import  http from  'http'
-import port from './src/utils/normalize/normalizePort.js'
-import  onError from './src/utils/normalize/onError'
-import { UserPresenceService } from './src/users/services/userPresence'
-import {PresenceWebSocketHandler} from'./src/utils/socket/webSocket'
-import { createLogger } from './src/utils/logger/logger'
+import http from 'http';
+import config from './config/index';
+import port from './src/utils/normalize/normalizePort';
+import onError from './src/utils/normalize/onError';
+import { createLogger } from './src/utils/logger/logger';
+import { UserPresenceService } from './src/users/services/userPresence';
+import { PresenceWebSocketHandler } from './src/utils/socket/webSocket';
+import app from './src/app'
 
-const  logger = createLogger('server')
+const logger = createLogger('server');
 
-// Configuration du port
-app.set('port', port)
+// === Log pour confirmer le chargement initial ===
+console.log('🚀 Démarrage du fichier server.ts');
 
+let server: http.Server;
 
-//creation d  un serveur  http
-const  server = http.createServer(app)
+try {
+  // // Import dynamique pour capturer plus facilement les erreurs
+  // import('./src/app.js')
+  //   .then(({ default: app }) => {
+  //     app.set('port', port);
 
-const presenceService = new UserPresenceService();
-const wsHandler = new PresenceWebSocketHandler(server, presenceService);
+  //     // Création du serveur HTTP
+  //     server = http.createServer(app);
 
-const onListening = ():void =>{
-  const addr = server.address();
-  const bind = typeof addr ==='string'
-  ? `pipe ${addr}` 
-  : `port ${addr?.port}`;
+  //     // Log si la création est OK
+  //     console.log('✅ Serveur HTTP créé');
 
-  logger.info(`🚀 Serveur démarré sur ${bind} en mode ${config.app.env}`);
-  logger.info(`🌐 URL locale: http://${config.app.host || 'localhost'}:${port}`);
+  //     // Initialisation des services WebSocket et présence
+  //     const presenceService = new UserPresenceService();
+  //     const wsHandler = new PresenceWebSocketHandler(server, presenceService);
+
+  //     // Fonction appelée au démarrage réussi
+  //     const onListening = (): void => {
+  //       const addr = server.address();
+  //       const bind = typeof addr === 'string' ? `pipe ${addr}` : `port ${addr?.port}`;
+  //       logger.info(`🚀 Serveur démarré sur ${bind} en mode ${config.app.env}`);
+  //       logger.info(`🌐 URL locale: http://${config.app.host || 'localhost'}:${port}`);
+  //     };
+
+  //     // Démarrage du serveur
+  //     server.listen(port);
+  //     server.on('error', (error) => {
+  //       console.error('❌ Erreur serveur détectée :', error);
+  //       onError(error);
+  //     });
+  //     server.on('listening', onListening);
+
+  //     // === Gestion arrêt propre ===
+  //     const gracefulShutdown = (signal: string): void => {
+  //       logger.info(`${signal} reçu. Arrêt gracieux du serveur...`);
+  //       server.close(() => {
+  //         logger.info('✅ Serveur arrêté proprement');
+  //         process.exit(0);
+  //       });
+
+  //       setTimeout(() => {
+  //         logger.error('⏰ Fermeture forcée du serveur après 10 secondes');
+  //         process.exit(1);
+  //       }, 10000);
+  //     };
+
+  //     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  //     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  //     process.on('SIGUSR2', () => {
+  //       logger.info('SIGUSR2 reçu (nodemon). Redémarrage propre...');
+  //       server.close(() => process.exit(0));
+  //     });
+
+  //     // === Gestion des erreurs non attrapées ===
+  //     process.on('unhandledRejection', (reason: any) => {
+  //       logger.error('💥 Rejection NON GÉRÉE !');
+  //       logger.error(reason);
+  //       server.close(() => process.exit(1));
+  //     });
+
+  //     process.on('uncaughtException', (error: Error) => {
+  //       logger.error('💥 Exception NON CAPTURÉE !');
+  //       onError(error);
+  //       process.exit(1);
+  //     });
+
+  //   })
+  //   .catch((err) => {
+  //     console.error('❌ Erreur au chargement de l\'app :', err);
+  //     process.exit(1);
+  //   });
+
+ app.set('port', port);
+
+      // Création du serveur HTTP
+      server = http.createServer(app);
+
+      // Log si la création est OK
+      console.log('✅ Serveur HTTP créé');
+
+      // Initialisation des services WebSocket et présence
+      const presenceService = new UserPresenceService();
+      const wsHandler = new PresenceWebSocketHandler(server, presenceService);
+
+      // Fonction appelée au démarrage réussi
+      const onListening = (): void => {
+        const addr = server.address();
+        const bind = typeof addr === 'string' ? `pipe ${addr}` : `port ${addr?.port}`;
+        logger.info(`🚀 Serveur démarré sur ${bind} en mode ${config.app.env}`);
+        logger.info(`🌐 URL locale: http://${config.app.host || 'localhost'}:${port}`);
+      };
+
+      // Démarrage du serveur
+      server.listen(port);
+      server.on('error', (error) => {
+        console.error('❌ Erreur serveur détectée :', error);
+        onError(error);
+      });
+      server.on('listening', onListening);
+
+      // === Gestion arrêt propre ===
+      const gracefulShutdown = (signal: string): void => {
+        logger.info(`${signal} reçu. Arrêt gracieux du serveur...`);
+        server.close(() => {
+          logger.info('✅ Serveur arrêté proprement');
+          process.exit(0);
+        });
+
+        setTimeout(() => {
+          logger.error('⏰ Fermeture forcée du serveur après 10 secondes');
+          process.exit(1);
+        }, 10000);
+      };
+
+      process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+      process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+      process.on('SIGUSR2', () => {
+        logger.info('SIGUSR2 reçu (nodemon). Redémarrage propre...');
+        server.close(() => process.exit(0));
+      });
+
+      // === Gestion des erreurs non attrapées ===
+      process.on('unhandledRejection', (reason: any) => {
+        logger.error('💥 Rejection NON GÉRÉE !');
+        logger.error(reason);
+        server.close(() => process.exit(1));
+      });
+
+      process.on('uncaughtException', (error: Error) => {
+        logger.error('💥 Exception NON CAPTURÉE !');
+        onError(error);
+        process.exit(1);
+      });
+
+} catch (e) {
+  console.error('🔥 Erreur fatale au lancement du serveur :', e);
+  process.exit(1);
 }
-
-server.listen(port);
-server.on('error', onError);
-server.on('listening', onListening)
-
-// gestion des signaux  d arret 
-const gracefulShutdown = (signal:string):void =>{
-  logger.info(`${signal} reçu. Arrêt gracieux du serveur...`);
-server.close(() =>{
-  logger.info('Serveur arrêté avec succès');
-  process.exit(0)
-
-});
-  // Si le serveur ne se ferme pas dans les 10 secondes, on force l'arrêt
-  setTimeout(() => {
-    logger.error('Fermeture forcée du serveur après délai dépassé');
-    process.exit(1);
-  }, 10000);
-}
-
-// Gestion des erreurs non gérées
-process.on('unhandledRejection', (reason: Error) => {
-  logger.error('ERREUR NON GÉRÉE ! Fermeture du serveur...');
-  logger.error(`${reason.name}: ${reason.message}`);
-  logger.error(reason.stack || 'Pas de stack trace disponible');
-  
-  server.close(() => {
-    process.exit(1);
-  });
-});
-
-process.on('uncaughtException', (error: Error) => {
-  logger.error('EXCEPTION NON CAPTURÉE ! Fermeture du serveur...');
-  logger.error(`${error.name}: ${error.message}`);
-  logger.error(error.stack || 'Pas de stack trace disponible');
-  
-  process.exit(1); // Il est dangereux de continuer après une exception non capturée
-});
-
-// Gestion des signaux d'arrêt
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Pour le développement avec nodemon
-process.on('SIGUSR2', () => {
-  logger.info('SIGUSR2 reçu (probablement nodemon). Arrêt gracieux...');
-  server.close(() => {
-    process.exit(0);
-  });
-});
-
-export default server;
-
-
-
-
-
-

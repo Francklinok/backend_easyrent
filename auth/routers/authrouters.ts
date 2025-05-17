@@ -9,16 +9,14 @@ import {
   sensitiveOperationLimiter,
   sensitiveRequestLogger
 } from '../middlewares';
-import  authControllers from "../controllers/authControllers"
+import AuthControllers from "../controllers/authControllers";
 
-const authController = new authControllers()
-
-const router = express.Router();
+const authController = new AuthControllers();
+const authRouter = express.Router();
 
 // ─────────── Routes publiques ───────────
-
 // Register
-router.post(
+authRouter.post(
   '/register',
   apiLimiter,
   authLimiter,
@@ -32,7 +30,7 @@ router.post(
 );
 
 // Login
-router.post(
+authRouter.post(
   '/login',
   apiLimiter,
   authLimiter,
@@ -45,14 +43,14 @@ router.post(
 );
 
 // Refresh Token
-router.post(
+authRouter.post(
   '/refresh-token',
   apiLimiter,
   authController.refreshToken.bind(authController)
 );
 
 // Forgot Password
-router.post(
+authRouter.post(
   '/forgot-password',
   apiLimiter,
   authLimiter,
@@ -64,7 +62,7 @@ router.post(
 );
 
 // Reset Password
-router.post(
+authRouter.post(
   '/reset-password/:token',
   apiLimiter,
   sensitiveOperationLimiter,
@@ -77,7 +75,7 @@ router.post(
 );
 
 // Verify Email
-router.get(
+authRouter.get(
   '/verify-email/:token',
   apiLimiter,
   validate([
@@ -87,16 +85,15 @@ router.get(
 );
 
 // ─────────── Routes authentifiées ───────────
-
 // Logout (authentifié uniquement)
-router.post(
+authRouter.post(
   '/logout',
   authenticate,
   authController.logout.bind(authController)
 );
 
 // 2FA Setup (auth + sensible)
-router.post(
+authRouter.post(
   '/2fa/setup',
   authenticate,
   sensitiveOperationLimiter,
@@ -105,14 +102,42 @@ router.post(
 );
 
 // 2FA Verify (auth + sensible)
-router.post(
+authRouter.post(
   '/2fa/verify',
-  authenticate,
   sensitiveRequestLogger,
   validate([
-    body('code').isNumeric().withMessage('Code invalide')
+    body('code').isNumeric().withMessage('Code invalide'),
+    body('token').notEmpty().withMessage('Token requis')
   ]),
   authController.verifyTwoFactorCode.bind(authController)
 );
 
-export default router;
+// Disable 2FA (auth + sensible)
+authRouter.post(
+  '/2fa/disable',
+  authenticate,
+  requireTwoFactor,
+  sensitiveOperationLimiter,
+  sensitiveRequestLogger,
+  validate([
+    body('password').notEmpty().withMessage('Mot de passe requis')
+  ]),
+  authController.disableTwoFactor.bind(authController)
+);
+
+// Get active sessions (auth)
+authRouter.get(
+  '/sessions',
+  authenticate,
+  authController.getActiveSessions.bind(authController)
+);
+
+// Revoke session (auth)
+authRouter.delete(
+  '/sessions/:id',
+  authenticate,
+  param('id').notEmpty().withMessage('ID de session requis'),
+  authController.revokeSession.bind(authController)
+);
+
+// export default authRouter;

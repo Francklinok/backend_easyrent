@@ -120,8 +120,9 @@ const UserSchema = new Schema<IUser>(
 
 
 // Index pour améliorer les performances des requêtes
-UserSchema.index({ email: 1 });
-UserSchema.index({ username: 1 });
+// UserSchema.index({ email: 1 });
+// UserSchema.index({ username: 1 });
+
 UserSchema.index({firstname:1})
 
 UserSchema.index({

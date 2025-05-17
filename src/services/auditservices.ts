@@ -1,8 +1,7 @@
 import { ObjectId } from 'mongodb';
-import createLogger from '../utils/logger/logger';
-import { SecurityAuditModel } from '../models/SecurityAuditModel';
-import { SecurityAuditEvent, AuditEventData, SecurityEventSearchCriteria, SuspiciousActivityResult, PaginatedSecurityEvents, SecurityEventType } from '../types/SecurityAuditEvent';
-
+import { createLogger } from '../utils/logger/logger';
+import { SecurityAuditModel } from '../models/securityAUditServiceModel';
+import { SecurityAuditEvent, AuditEventData, SecurityEventSearchCriteria, SuspiciousActivityResult, PaginatedSecurityEvents, SecurityEventType } from '../type/securityAuditEvent';
 /**
  * Service responsable de l'audit de sécurité
  * Enregistre les événements liés à la sécurité pour suivi et analyse

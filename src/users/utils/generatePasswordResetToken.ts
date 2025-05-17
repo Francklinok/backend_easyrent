@@ -1,5 +1,3 @@
-
-import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { IUser } from '../types/userTypes'; // à adapter à ton arborescence
 

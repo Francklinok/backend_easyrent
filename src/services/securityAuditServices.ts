@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
-import createLogger from '../utils/logger/logger';
-import { SecurityAuditModel, SecurityAuditEvent } from '../models/SecurityAuditModel';
-
+import { createLogger } from '../utils/logger/logger';
+import { SecurityAuditModel } from '../models/securityAUditServiceModel';
+import { SecurityAuditEvent } from '../type/type';
 /**
  * Interface pour les événements de sécurité à auditer
  */
@@ -62,7 +62,7 @@ export class SecurityAuditService {
 
       // Créer un événement minimal en cas d'erreur pour assurer la traçabilité
       return {
-        _id: new ObjectId(),
+        id: new ObjectId(),
         eventType: eventData.eventType,
         timestamp: new Date(),
         ipAddress: eventData.ipAddress || 'unknown',

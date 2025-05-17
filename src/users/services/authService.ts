@@ -1,12 +1,12 @@
 import jwt from 'jsonwebtoken';
 import { Request } from 'express';
-import { envConfig } from '../config/env.config';
+import config from '../../../config';
 import { UserService } from './userService';
-import createLogger from '../../utils/logger/logger';
+import { createLogger } from '../../utils/logger/logger';
 import { UserPresenceService } from './userPresence';
 
 // Création d'une instance du logger
-const logger = createLogger
+const logger = createLogger("AuthService");
 
 /**
  * Interface pour le payload des tokens JWT
@@ -99,22 +99,32 @@ export class AuthService {
    */
   async refreshAccessToken(refreshToken: string): Promise<string | null> {
     try {
-      const decoded = jwt.verify(refreshToken, envConfig.JWT_REFRESH_SECRET) as TokenPayload;
+      if (!config.auth.jwtRefreshSecret) {
+        logger.error('JWT refresh secret not configured');
+        return null;
+      }
+
+      const decoded = jwt.verify(refreshToken, config.auth.jwtRefreshSecret) as TokenPayload;
 
       const user = await this.userService.getUserById(decoded.userId);
       if (!user || !user.isActive) {
         logger.warn('Token refresh failed: user not found or inactive', { userId: decoded.userId });
         return null;
       }
+      
+      if (!config.auth.jwtSecret) {
+        logger.error('JWT secret not configured');
+        return null;
+      }
 
       const accessToken = jwt.sign(
         {
-          userId: user._id.toString(),
+          userId: user.id.toString(),
           email: user.email,
           role: user.role,
         },
-        envConfig.JWT_SECRET,
-        { expiresIn: envConfig.JWT_ACCESS_EXPIRES_IN || '15m' }
+        config.auth.jwtSecret,
+        { expiresIn: config.auth.jwtExpiresIn }
       );
 
       logger.info('Access token refreshed successfully', { userId: user._id });
@@ -152,7 +162,12 @@ export class AuthService {
    */
   validateToken(token: string): TokenPayload | null {
     try {
-      const decoded = jwt.verify(token, envConfig.JWT_SECRET) as TokenPayload;
+      if (!config.auth.jwtSecret) {
+        logger.error('JWT secret not configured');
+        return null;
+      }
+      
+      const decoded = jwt.verify(token, config.auth.jwtSecret) as TokenPayload;
       return decoded;
     } catch (error) {
       logger.warn('Invalid token', { error: error instanceof Error ? error.message : 'Unknown error' });
@@ -181,13 +196,25 @@ export class AuthService {
       role: user.role,
     };
 
-    const accessToken = jwt.sign(payload, envConfig.JWT_SECRET, {
-      expiresIn: envConfig.JWT_ACCESS_EXPIRES_IN || '15m',
-    });
+    if (!config.auth.jwtSecret) {
+      throw new Error('JWT secret not configured');
+    }
 
-    const refreshToken = jwt.sign(payload, envConfig.JWT_REFRESH_SECRET, {
-      expiresIn: envConfig.JWT_REFRESH_EXPIRES_IN || '7d',
-    });
+    if (!config.auth.jwtRefreshSecret) {
+      throw new Error('JWT refresh secret not configured');
+    }
+
+    const accessToken = jwt.sign(
+      payload, 
+      config.auth.jwtSecret,
+      { expiresIn: config.auth.jwtExpiresIn }
+    );
+
+    const refreshToken = jwt.sign(
+      payload, 
+      config.auth.jwtRefreshSecret,
+      { expiresIn: config.auth.jwtRefreshExpiresIn }
+    );
 
     return { accessToken, refreshToken };
   }

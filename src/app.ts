@@ -13,11 +13,12 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import config from '../config';
-import router from '../auth/routers/authrouters';
+// import auThrouter from '../auth/routers/authrouters';
+// import router from '../auth/routers/authrouters';
 import { errorHandler } from '../auth/utils/errorHandler';
-import logger from './utils/logger/logger.js';
+import logger from './utils/logger/logger';
 import { UserPresenceService } from './users/services/userPresence';
-import { trackUserActivity } from './users/middleware/trackUserActivity.js';
+import { trackUserActivity } from './users/middleware/trackUserActivity';
 
 
 // Configuration pour ES modules avec __dirname
@@ -99,7 +100,7 @@ app.get('/', (req, res) => {
 });
 
 // Routes API
-app.use('/api/v1', router);
+// app.use('/api/v1/auth', auThrouter);
 
 // Gestion des routes inconnues
 app.all('*', (req, res) => {
