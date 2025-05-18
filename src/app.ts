@@ -22,16 +22,16 @@ import { trackUserActivity } from './users/middleware/trackUserActivity';
 
 
 // Configuration pour ES modules avec __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
 
 // Création et configuration de l'application Express
 const app = express();
 
 // Middleware pour traquer l'activité sur les requêtes HTTP
-const userPresenceService = new UserPresenceService();
+// const userPresenceService = new UserPresenceService();
 
-app.use(trackUserActivity(userPresenceService));
+// app.use(trackUserActivity(userPresenceService));
 
 // Middlewares de sécurité et d'optimisation
 app.use(helmet());
@@ -95,31 +95,33 @@ app.get('/', (req, res) => {
     status: 'success',
     message: 'Bienvenue sur l\'API EasyRent',
     // version: config.version || '1.0.0',
-    environment: process.env.NODE_ENV || 'development'
+    environment: config.app.env,
   });
 });
 
 // Routes API
 // app.use('/api/v1/auth', auThrouter);
 
-// Gestion des routes inconnues
-app.all('*', (req, res) => {
-  res.status(404).json({
-    status: 'fail',
-    message: `La route ${req.originalUrl} est introuvable`
-  });
-});
+
 
 // Middlewares de gestion d'erreurs - doivent être en dernier
 // app.use(propertyErrorHandler);
-app.use(errorHandler);
+// app.use(errorHandler);
+// Gestion des routes inconnues
 
-// Export de l'application pour le serveur
+// app.all('*', async (req, res, next) => {
+//   try {
+//     res.status(404).json({
+//       status: 'fail',
+//       message: `La route ${req.originalUrl} est introuvable`
+//     });
+//   } catch (err) {
+//     next(err); // pass error to Express error handler
+//   }
+// });
+
+
 export default app;
-
-
-// Exemple d'utilisation dans le fichier principal de l'application
-
 
 
 

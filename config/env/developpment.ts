@@ -10,7 +10,7 @@ const devConfig: Partial<Config> = {
     frontendUrl: 'http://localhost:3000',
   },
   database: {
-    url: 'mongodb://localhost:27017/easyrent-dev',
+    ...baseConfig.database
   },
   security: {
     level: 'low',

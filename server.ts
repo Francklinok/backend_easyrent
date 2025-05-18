@@ -8,14 +8,14 @@ import { PresenceWebSocketHandler } from './src/utils/socket/webSocket';
 import app from './src/app'
 
 const logger = createLogger('server');
-
 // === Log pour confirmer le chargement initial ===
 console.log('🚀 Démarrage du fichier server.ts');
 
 let server: http.Server;
 
+
 try {
-  // // Import dynamique pour capturer plus facilement les erreurs
+  // Import dynamique pour capturer plus facilement les erreurs
   // import('./src/app.js')
   //   .then(({ default: app }) => {
   //     app.set('port', port);
@@ -86,7 +86,7 @@ try {
   //     process.exit(1);
   //   });
 
- app.set('port', port);
+//  app.set('port', port);
 
       // Création du serveur HTTP
       server = http.createServer(app);
@@ -103,11 +103,11 @@ try {
         const addr = server.address();
         const bind = typeof addr === 'string' ? `pipe ${addr}` : `port ${addr?.port}`;
         logger.info(`🚀 Serveur démarré sur ${bind} en mode ${config.app.env}`);
-        logger.info(`🌐 URL locale: http://${config.app.host || 'localhost'}:${port}`);
+        logger.info(`🌐 URL locale: http://${config.database.url|| 'localhost'}:${port}`);
       };
 
       // Démarrage du serveur
-      server.listen(port);
+      server.listen(port, ()=> console.log("start server"));
       server.on('error', (error) => {
         console.error('❌ Erreur serveur détectée :', error);
         onError(error);
@@ -152,3 +152,5 @@ try {
   console.error('🔥 Erreur fatale au lancement du serveur :', e);
   process.exit(1);
 }
+
+

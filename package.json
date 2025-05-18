@@ -2,10 +2,9 @@
   "name": "backend_easyrent",
   "version": "1.0.0",
   "main": "server.ts",
-  "type": "module",
   "scripts": {
     "dev": "nodemon",
-    "test":"tsc ./server.ts",
+    "test":"ts-node ./server.ts",
     "build": "tsup",
     "start": "node dist/server.js"
   },

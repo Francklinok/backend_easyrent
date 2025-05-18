@@ -27,6 +27,7 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
     success: false,
     message: errorMessage,
     ...(config.app.env === 'development' && { stack: err.stack })
+
   };
 
   // Envoyer la réponse

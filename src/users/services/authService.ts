@@ -118,13 +118,9 @@ export class AuthService {
       }
 
       const accessToken = jwt.sign(
-        {
-          userId: user.id.toString(),
-          email: user.email,
-          role: user.role,
-        },
+        user.id.toString(),
         config.auth.jwtSecret,
-        { expiresIn: config.auth.jwtExpiresIn }
+        // { expiresIn: config.auth.jwtExpiresIn }
       );
 
       logger.info('Access token refreshed successfully', { userId: user._id });
@@ -207,13 +203,13 @@ export class AuthService {
     const accessToken = jwt.sign(
       payload, 
       config.auth.jwtSecret,
-      { expiresIn: config.auth.jwtExpiresIn }
+      // { expiresIn: config.auth.jwtExpiresIn }
     );
 
     const refreshToken = jwt.sign(
       payload, 
       config.auth.jwtRefreshSecret,
-      { expiresIn: config.auth.jwtRefreshExpiresIn }
+      // { expiresIn: config.auth.jwtRefreshExpiresIn }
     );
 
     return { accessToken, refreshToken };

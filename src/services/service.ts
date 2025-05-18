@@ -397,7 +397,7 @@ export class UserService {
       
       return {
         success: true,
-        userId: user._id.toString()
+        userId: user.id.toString()
       };
     } catch (error) {
       logger.error('Erreur lors de la réinitialisation du mot de passe', { 
