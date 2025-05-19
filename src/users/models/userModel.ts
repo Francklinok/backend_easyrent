@@ -72,17 +72,19 @@ const UserSchema = new Schema<IUser>(
     },
     lastIp: { 
       type: String 
-    },  presenceStatus: { 
-    type: String, 
-    enum: ['online', 'away', 'offline'], 
-    default: 'offline' 
-    },
+    }, 
+    presenceStatus: { 
+        type: String, 
+        enum: ['online', 'away', 'offline'], 
+        default: 'offline' 
+        },
     lastActive: { 
       type: Date, 
       default: Date.now 
     },
     profilePicture: {
       type:String,
+      default: 'https://cdn.monsite.com/images/avatar-blanc.png',
     },
     phoneNumber: {
       type: String,

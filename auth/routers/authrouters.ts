@@ -116,7 +116,7 @@ authRouter.post(
 authRouter.post(
   '/2fa/disable',
   authenticate,
-  requireTwoFactor,
+  // requireTwoFactor,
   sensitiveOperationLimiter,
   sensitiveRequestLogger,
   validate([
@@ -140,4 +140,4 @@ authRouter.delete(
   authController.revokeSession.bind(authController)
 );
 
-// export default authRouter;
+export default authRouter;

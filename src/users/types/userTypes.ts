@@ -165,3 +165,110 @@ export interface SearchUsersParams {
   sortDirection?: 'asc' | 'desc';
 }
 
+/**
+ * Interface pour les options d'authentification
+ */
+
+export interface AuthOptions {
+  rememberMe?: boolean;
+  deviceInfo?: {
+    deviceId: string;
+    deviceName: string;
+    platform: string;
+    version: string;
+  };
+}
+
+/**
+ * Interface pour la configuration 2FA
+ */
+export interface TwoFactorSetup {
+  secret: string;
+  qrCodeUrl: string;
+  backupCodes: string[];
+}
+
+/**
+ * Interface pour les informations de sécurité
+ */
+export interface SecurityInfo {
+  twoFactorEnabled: boolean;
+  lastPasswordChange: Date;
+  activeSessions: number;
+  recentLoginAttempts: number;
+  accountLockout?: {
+    isLocked: boolean;
+    lockUntil?: Date;
+  };
+}
+
+/**
+ * Interface pour les sessions actives
+ */
+export interface ActiveSession {
+  id: string;
+  deviceInfo: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: Date;
+  lastActivity: Date;
+  isCurrent: boolean;
+}
+
+/**
+ * Interface pour le payload des tokens JWT
+ */
+export interface TokenPayload {
+  userId: string;
+  email: string;
+  role: string;
+  sessionId?: string;
+  deviceId?: string;
+}
+
+/**
+ * Interface pour les tokens d'authentification
+ */
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  sessionId?: string;
+}
+
+/**
+ * Interface pour les détails de connexion
+ */
+export interface LoginDetails {
+  ipAddress: string;
+  userAgent: string;
+  successful: boolean;
+  timestamp?: Date;
+}
+
+/**
+ * Interface pour les informations utilisateur étendues
+ */
+export interface UserInfo {
+  _id: string;
+  id: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  preferences?: {
+    twoFactorEnabled?: boolean;
+  };
+  twoFactorSecret?: string;
+  tempTwoFactorSecret?: string;
+  lastPasswordChange?: Date;
+  createdAt: Date;
+  accountLockout?: {
+    isLocked: boolean;
+    lockUntil?: Date;
+  };
+  comparePassword(password: string): Promise<boolean>;
+  updateLastLogin(ip: string, userAgent: string): void;
+  recordLoginAttempt(details: LoginDetails): void;
+  addDeviceInfo?(deviceInfo: any): void;
+  save(): Promise<void>;
+}
+

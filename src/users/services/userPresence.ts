@@ -32,7 +32,7 @@ export class UserPresenceService {
   private async initRedisConnection(): Promise<void> {
     try {
       this.redisClient.on('error', (err) => {
-        logger.error('Redis client error', { error: err.message });
+        // logger.error('Redis client error', { error: err.message });
       });
 
       await this.redisClient.connect();

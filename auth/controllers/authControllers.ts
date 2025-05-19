@@ -21,24 +21,38 @@ class AuthControllers {
    */
   async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { email, password, firstName, lastName, ...userData } = req.body;
+      const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, ...userData } = req.body;
       
       // Vérifier si l'email est déjà utilisé
-      const existingUser = await userService.getUserByEmail(email);
-      if (existingUser) {
+      const existingUserByEmail = await userService.getUserByEmail(email);
+      if (existingUserByEmail) {
         res.status(409).json({
           success: false,
           message: 'Cet email est déjà utilisé'
         });
         return;
       }
+
+      // Vérifier si le nom d'utilisateur est déjà utilisé
+      const existingUserByUsername = await userService.getUserByUsername(username);
+      if (existingUserByUsername) {
+        res.status(409).json({
+          success: false,
+          message: 'Ce nom d\'utilisateur est déjà utilisé'
+        });
+        return;
+      }
       
-      // Créer l'utilisateur
+      // Créer l'utilisateur avec tous les champs validés
       const user = await userService.createUser({
-        email,
-        password,
         firstName,
         lastName,
+        username,
+        email,
+        password,
+        phoneNumber,
+        dateOfBirth,
+        address,
         ...userData
       }, true); // Envoyer l'email de vérification
       
@@ -48,17 +62,18 @@ class AuthControllers {
         userId: user._id.toString(),
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
-        details: { email }
+        details: { email, username }
       });
       
-      logger.info('Nouvel utilisateur inscrit', { userId: user._id, email });
+      logger.info('Nouvel utilisateur inscrit', { userId: user._id, email, username });
       
       res.status(201).json({
         success: true,
         message: 'Inscription réussie. Veuillez vérifier votre email pour activer votre compte',
         data: {
           userId: user._id,
-          email: user.email
+          email: user.email,
+          username: user.username
         }
       });
     } catch (error) {
@@ -71,10 +86,10 @@ class AuthControllers {
    */
   async login(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { email, password } = req.body;
+      const { email, password, rememberMe, deviceInfo } = req.body;
       
-      // Authentifier l'utilisateur
-      const tokens = await authService.authenticate(email, password, req);
+      // Authentifier l'utilisateur avec les informations supplémentaires
+      const tokens = await authService.authenticate(email, password, req, { rememberMe, deviceInfo });
       
       if (!tokens) {
         await securityAuditService.logEvent({
@@ -94,8 +109,25 @@ class AuthControllers {
       // Obtenir les informations de l'utilisateur
       const user = await userService.getUserByEmail(email);
       
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          message: 'Utilisateur non trouvé'
+        });
+        return;
+      }
+
+      // Vérifier si le compte est vérifié
+      if (!user.emailVerified) {
+        res.status(403).json({
+          success: false,
+          message: 'Veuillez vérifier votre email avant de vous connecter'
+        });
+        return;
+      }
+      
       // Vérifier si 2FA est activé
-      if (user?.preferences?.twoFactorEnabled) {
+      if (user.preferences?.twoFactorEnabled) {
         res.status(200).json({
           success: true,
           message: 'Authentification réussie, validation 2FA requise',
@@ -108,16 +140,26 @@ class AuthControllers {
       // Journaliser la connexion réussie
       await securityAuditService.logEvent({
         eventType: 'SUCCESSFUL_LOGIN',
-        userId: user?._id.toString(),
+        userId: user._id.toString(),
         ipAddress: req.ip,
-        userAgent: req.headers['user-agent']
+        userAgent: req.headers['user-agent'],
+        details: { rememberMe, deviceInfo }
       });
       
       // Envoyer les tokens
       res.status(200).json({
         success: true,
         message: 'Connexion réussie',
-        data: tokens
+        data: {
+          ...tokens,
+          user: {
+            id: user._id,
+            email: user.email,
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName
+          }
+        }
       });
     } catch (error) {
       next(error);
@@ -130,19 +172,25 @@ class AuthControllers {
   async logout(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
+      const { allDevices } = req.body;
       
-      await authService.logout(userId);
+      if (allDevices) {
+        await authService.logoutAllDevices(userId);
+      } else {
+        await authService.logout(userId);
+      }
       
       await securityAuditService.logEvent({
-        eventType: 'USER_LOGOUT',
+        eventType: allDevices ? 'USER_LOGOUT_ALL_DEVICES' : 'USER_LOGOUT',
         userId,
         ipAddress: req.ip,
-        userAgent: req.headers['user-agent']
+        userAgent: req.headers['user-agent'],
+        details: { allDevices }
       });
       
       res.status(200).json({
         success: true,
-        message: 'Déconnexion réussie'
+        message: allDevices ? 'Déconnexion de tous les appareils réussie' : 'Déconnexion réussie'
       });
     } catch (error) {
       next(error);
@@ -164,9 +212,9 @@ class AuthControllers {
         return;
       }
       
-      const accessToken = await authService.refreshAccessToken(refreshToken);
+      const newTokens = await authService.refreshAccessToken(refreshToken);
       
-      if (!accessToken) {
+      if (!newTokens) {
         res.status(401).json({
           success: false,
           message: 'Token de rafraîchissement invalide ou expiré'
@@ -177,7 +225,7 @@ class AuthControllers {
       res.status(200).json({
         success: true,
         message: 'Token rafraîchi avec succès',
-        data: { accessToken }
+        data: newTokens
       });
     } catch (error) {
       next(error);
@@ -189,9 +237,9 @@ class AuthControllers {
    */
   async forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { email } = req.body;
+      const { email, redirectUrl } = req.body;
       
-      const success = await userService.initiatePasswordReset(email);
+      const success = await userService.initiatePasswordReset(email, redirectUrl);
       
       // Toujours retourner un succès pour éviter l'énumération d'email
       res.status(200).json({
@@ -206,7 +254,8 @@ class AuthControllers {
           eventType: 'PASSWORD_RESET_REQUESTED',
           userId: user?._id.toString(),
           ipAddress: req.ip,
-          userAgent: req.headers['user-agent']
+          userAgent: req.headers['user-agent'],
+          details: { email }
         });
       }
     } catch (error) {
@@ -235,7 +284,7 @@ class AuthControllers {
       if (!result.success) {
         res.status(400).json({
           success: false,
-          message: result.message || 'Échec de la réinitialisation du mot de passe'
+          message: result.message || 'Token invalide ou expiré'
         });
         return;
       }
@@ -279,7 +328,7 @@ class AuthControllers {
       if (!result.success) {
         res.status(400).json({
           success: false,
-          message: result.message || 'Échec de la vérification d\'email'
+          message: result.message || 'Token invalide ou expiré'
         });
         return;
       }
@@ -293,7 +342,98 @@ class AuthControllers {
       
       res.status(200).json({
         success: true,
-        message: 'Email vérifié avec succès'
+        message: 'Email vérifié avec succès',
+        data: {
+          userId: result.userId
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Renvoyer l'email de vérification
+   */
+  async resendVerificationEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { email } = req.body;
+      
+      const user = await userService.getUserByEmail(email);
+      
+      if (!user) {
+        // Ne pas révéler si l'email existe ou non
+        res.status(200).json({
+          success: true,
+          message: 'Si un compte existe avec cet email et n\'est pas encore vérifié, un nouvel email de vérification sera envoyé'
+        });
+        return;
+      }
+
+      if (user.emailVerified) {
+        res.status(400).json({
+          success: false,
+          message: 'Ce compte est déjà vérifié'
+        });
+        return;
+      }
+      
+      await userService.sendVerificationEmail(user._id.toString());
+      
+      await securityAuditService.logEvent({
+        eventType: 'VERIFICATION_EMAIL_RESENT',
+        userId: user._id.toString(),
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+      
+      res.status(200).json({
+        success: true,
+        message: 'Email de vérification renvoyé avec succès'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Changement de mot de passe
+   */
+  async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.user as { userId: string };
+      const { currentPassword, password } = req.body;
+      
+      // Vérifier le mot de passe actuel
+      const isCurrentPasswordValid = await userService.verifyPassword(userId, currentPassword);
+      
+      if (!isCurrentPasswordValid) {
+        res.status(401).json({
+          success: false,
+          message: 'Mot de passe actuel incorrect'
+        });
+        return;
+      }
+      
+      // Changer le mot de passe
+      await userService.changePassword(userId, password);
+      
+      // Invalider toutes les sessions sauf la courante
+      await authService.invalidateOtherSessions(userId, req.sessionId);
+      
+      await securityAuditService.logEvent({
+        eventType: 'PASSWORD_CHANGED',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+      
+      // Envoyer une notification à l'utilisateur
+      await notificationService.sendPasswordChangedNotification(userId);
+      
+      res.status(200).json({
+        success: true,
+        message: 'Mot de passe changé avec succès'
       });
     } catch (error) {
       next(error);
@@ -306,6 +446,18 @@ class AuthControllers {
   async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
+      const { password } = req.body;
+      
+      // Vérifier le mot de passe avant la configuration
+      const isPasswordValid = await userService.verifyPassword(userId, password);
+      
+      if (!isPasswordValid) {
+        res.status(401).json({
+          success: false,
+          message: 'Mot de passe incorrect'
+        });
+        return;
+      }
       
       // Générer un secret et un QR code
       const twoFactorSetup = await authService.generateTwoFactorSecret(userId);
@@ -313,13 +465,21 @@ class AuthControllers {
       if (!twoFactorSetup) {
         throw new AppError('Erreur lors de la configuration de l\'authentification à deux facteurs', 500);
       }
+
+      await securityAuditService.logEvent({
+        eventType: 'TWO_FACTOR_SETUP_INITIATED',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
       
       res.status(200).json({
         success: true,
-        message: 'Code QR 2FA généré avec succès',
+        message: 'Configuration 2FA initiée avec succès',
         data: {
           qrCodeUrl: twoFactorSetup.qrCodeUrl,
-          secret: twoFactorSetup.secret
+          manualEntryKey: twoFactorSetup.secret,
+          backupCodes: twoFactorSetup.backupCodes
         }
       });
     } catch (error) {
@@ -328,18 +488,18 @@ class AuthControllers {
   }
   
   /**
-   * Vérification d'un code 2FA
+   * Vérification d'un code 2FA lors de la connexion
    */
   async verifyTwoFactorCode(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { code, token } = req.body;
       
       // Valider le token temporaire pour obtenir l'userId
-      const decoded = await authService.validateToken(token);
+      const decoded = await authService.validateTemporaryToken(token);
       if (!decoded) {
         res.status(401).json({
           success: false,
-          message: 'Token invalide ou expiré'
+          message: 'Token temporaire invalide ou expiré'
         });
         return;
       }
@@ -367,11 +527,6 @@ class AuthControllers {
       // Générer de nouveaux tokens après la 2FA réussie
       const tokens = await authService.generateTokensAfter2FA(userId);
       
-      // Marquer la session comme authentifiée avec 2FA
-      if (req.session) {
-        req.session.twoFactorAuthenticated = true;
-      }
-      
       await securityAuditService.logEvent({
         eventType: 'SUCCESSFUL_2FA',
         userId,
@@ -388,6 +543,48 @@ class AuthControllers {
       next(error);
     }
   }
+
+  /**
+   * Activation finale de 2FA après configuration
+   */
+  async enableTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.user as { userId: string };
+      const { code, backupCodes } = req.body;
+      
+      // Vérifier le code 2FA pour activer définitivement
+      const isValid = await authService.verifyAndEnableTwoFactor(userId, code, backupCodes);
+      
+      if (!isValid) {
+        res.status(401).json({
+          success: false,
+          message: 'Code 2FA invalide. Veuillez réessayer.'
+        });
+        return;
+      }
+      
+      await securityAuditService.logEvent({
+        eventType: 'TWO_FACTOR_ENABLED',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+      
+      // Envoyer une notification à l'utilisateur
+      await notificationService.sendSecurityNotification(
+        userId,
+        'Authentification à deux facteurs activée',
+        'L\'authentification à deux facteurs a été activée avec succès sur votre compte.'
+      );
+      
+      res.status(200).json({
+        success: true,
+        message: 'Authentification à deux facteurs activée avec succès'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
   
   /**
    * Désactiver l'authentification à deux facteurs
@@ -395,7 +592,7 @@ class AuthControllers {
   async disableTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
-      const { password } = req.body;
+      const { password, confirmationCode } = req.body;
       
       // Vérifier le mot de passe avant la désactivation
       const passwordValid = await userService.verifyPassword(userId, password);
@@ -406,6 +603,18 @@ class AuthControllers {
           message: 'Mot de passe incorrect'
         });
         return;
+      }
+
+      // Si un code de confirmation est fourni, le vérifier
+      if (confirmationCode) {
+        const isCodeValid = await authService.verifyTwoFactorCode(userId, confirmationCode);
+        if (!isCodeValid) {
+          res.status(401).json({
+            success: false,
+            message: 'Code de confirmation invalide'
+          });
+          return;
+        }
       }
       
       // Désactiver 2FA
@@ -433,6 +642,98 @@ class AuthControllers {
       next(error);
     }
   }
+
+  /**
+   * Générer de nouveaux codes de secours 2FA
+   */
+  async generateBackupCodes(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.user as { userId: string };
+      
+      const backupCodes = await authService.generateNewBackupCodes(userId);
+      
+      await securityAuditService.logEvent({
+        eventType: 'TWO_FACTOR_BACKUP_CODES_GENERATED',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+      
+      res.status(200).json({
+        success: true,
+        message: 'Nouveaux codes de secours générés avec succès',
+        data: {
+          backupCodes
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Vérification avec un code de secours 2FA
+   */
+  async verifyBackupCode(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { backupCode, token } = req.body;
+      
+      // Valider le token temporaire pour obtenir l'userId
+      const decoded = await authService.validateTemporaryToken(token);
+      if (!decoded) {
+        res.status(401).json({
+          success: false,
+          message: 'Token temporaire invalide ou expiré'
+        });
+        return;
+      }
+      
+      const { userId } = decoded;
+      
+      // Vérifier le code de secours
+      const isValid = await authService.verifyBackupCode(userId, backupCode);
+      
+      if (!isValid) {
+        await securityAuditService.logEvent({
+          eventType: 'FAILED_BACKUP_CODE',
+          userId,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent']
+        });
+        
+        res.status(401).json({
+          success: false,
+          message: 'Code de secours invalide ou déjà utilisé'
+        });
+        return;
+      }
+      
+      // Générer de nouveaux tokens après la vérification réussie
+      const tokens = await authService.generateTokensAfter2FA(userId);
+      
+      await securityAuditService.logEvent({
+        eventType: 'SUCCESSFUL_BACKUP_CODE',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+      
+      // Envoyer une notification à l'utilisateur
+      await notificationService.sendSecurityNotification(
+        userId,
+        'Code de secours utilisé',
+        'Un code de secours a été utilisé pour accéder à votre compte. Si vous n\'êtes pas à l\'origine de cette action, veuillez sécuriser votre compte immédiatement.'
+      );
+      
+      res.status(200).json({
+        success: true,
+        message: 'Authentification avec code de secours réussie',
+        data: tokens
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
   
   /**
    * Obtenir les sessions actives
@@ -440,13 +741,17 @@ class AuthControllers {
   async getActiveSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { userId } = req.user as { userId: string };
+      const { includeExpired } = req.query;
       
-      const sessions = await authService.getActiveSessions(userId);
+      const sessions = await authService.getActiveSessions(userId, includeExpired === 'true');
       
       res.status(200).json({
         success: true,
         message: 'Sessions récupérées avec succès',
-        data: sessions
+        data: {
+          sessions,
+          total: sessions.length
+        }
       });
     } catch (error) {
       next(error);
@@ -482,6 +787,106 @@ class AuthControllers {
       res.status(200).json({
         success: true,
         message: 'Session révoquée avec succès'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Révoquer toutes les sessions sauf la courante
+   */
+  async revokeAllSessions(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.user as { userId: string };
+      const currentSessionId = req.sessionId; // Suppose que le middleware authentifie et ajoute sessionId
+      
+      const revokedCount = await authService.revokeAllSessionsExceptCurrent(userId, currentSessionId);
+      
+      await securityAuditService.logEvent({
+        eventType: 'ALL_SESSIONS_REVOKED',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        details: { revokedCount }
+      });
+      
+      res.status(200).json({
+        success: true,
+        message: `${revokedCount} sessions révoquées avec succès`
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Récupération des informations de l'utilisateur connecté
+   */
+  async getCurrentUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.user as { userId: string };
+      
+      const user = await userService.getUserById(userId);
+      
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: 'Utilisateur non trouvé'
+        });
+        return;
+      }
+      
+      // Exclure le mot de passe et autres informations sensibles
+      const { password, twoFactorSecret, ...safeUserData } = user;
+      
+      res.status(200).json({
+        success: true,
+        message: 'Informations utilisateur récupérées avec succès',
+        data: safeUserData
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Informations de sécurité de l'utilisateur
+   */
+  async getSecurityInfo(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.user as { userId: string };
+      
+      const securityInfo = await authService.getSecurityInfo(userId);
+      
+      res.status(200).json({
+        success: true,
+        message: 'Informations de sécurité récupérées avec succès',
+        data: securityInfo
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Historique des connexions
+   */
+  async getLoginHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.user as { userId: string };
+      const { limit = 10, page = 1 } = req.query;
+      
+      const history = await securityAuditService.getLoginHistory(
+        userId, 
+        parseInt(limit as string), 
+        parseInt(page as string)
+      );
+      
+      res.status(200).json({
+        success: true,
+        message: 'Historique de connexion récupéré avec succès',
+        data: history
       });
     } catch (error) {
       next(error);

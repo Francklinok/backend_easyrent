@@ -13,7 +13,7 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import config from '../config';
-// import auThrouter from '../auth/routers/authrouters';
+import auThrouter from '../auth/routers/authrouters';
 // import router from '../auth/routers/authrouters';
 import { errorHandler } from '../auth/utils/errorHandler';
 import logger from './utils/logger/logger';
@@ -100,7 +100,7 @@ app.get('/', (req, res) => {
 });
 
 // Routes API
-// app.use('/api/v1/auth', auThrouter);
+app.use('/api/v1/auth', auThrouter);
 
 
 
