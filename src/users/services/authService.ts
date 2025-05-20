@@ -146,7 +146,7 @@ export class AuthService {
 
       logger.info('Authenticating user', { email });
       const loginDetails = this.extractLoginDetails(req);
-      const user = await this.userService.getUserByEmail(email) as UserInfo;
+      const user = await this.userService.getUserByEmail(email);
 
       if (!user) {
         logger.warn('Authentication failed: user not found', { email });
@@ -607,6 +607,7 @@ export class AuthService {
         const revokedCount = await this.userService.revokeAllSessionsExceptCurrent(userId, currentSessionId);
         logger.info('All sessions except current revoked', { userId, revokedCount });
         return revokedCount;
+        
       } catch (error) {
         // If method doesn't exist, return 0
         logger.warn('revokeAllSessionsExceptCurrent method not available', { userId });
@@ -624,7 +625,7 @@ export class AuthService {
    */
   async getSecurityInfo(userId: string): Promise<SecurityInfo> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo;
+      const user = await this.userService.getUserById(userId);
       if (!user) {
         throw new Error('User not found');
       }

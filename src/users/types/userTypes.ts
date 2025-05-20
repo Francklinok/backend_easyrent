@@ -5,64 +5,105 @@ export enum UserRole {
   AGENT = "agent",
   ADMIN = "admin",
   SUPER_ADMIN = "super_admin"
-
 }
 
-export enum  VerificationStatus{
+export enum VerificationStatus {
   UNVERIFIED = "unverified",
   PENDING = "pending",
   VERIFIED = "verified",
   REJECTED = "rejected"
 }
 
-export interface LoginHistory{
-  timestamp:Date;
-  ipAddress:string;
-  userAgent:string;
-  location?:string;
-  deviceId?:string;
-  successful:boolean;
+export interface LoginHistory {
+  timestamp: Date;
+  ipAddress: string;
+  userAgent: string;
+  location?: string;
+  deviceId?: string;
+  successful: boolean;
 }
 
-export interface UserPreferences{
-  theme:'light'| 'dark'|'system';
-  language:string;
-  emailNotifications:boolean;
-  pushNotifications:boolean;
-  smsNotifications:boolean;
-  twoFactorEnabled:boolean;
-  marketingCommunications:boolean;
+export interface UserPreferences {
+  theme: 'light' | 'dark' | 'system';
+  language: string;
+   notifications?: {
+      email?: boolean;
+      push?: boolean;
+      sms?: boolean;
+    };
+  twoFactorEnabled: boolean;
+
+
+  // emailNotifications: boolean;
+  // pushNotifications: boolean;
+  // smsNotifications: boolean;
+  marketingCommunications: boolean;
+  [key: string]: any;
 }
 
-export interface Address{
-  street?:string;
-  city:string;
-  state?:string;
-  postalCode?:string;
-  country:string;
-  coordinates?:{
-    latitude:number;
-    longitude:number;
+export interface Address {
+  street?: string;
+  city: string;
+  state?: string;
+  postalCode?: string;
+  country: string;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
   }
 }
 
-export interface AgentDetails{
-  licenseNumber:string;
-  licenseExpiryDate:Date;
-  agency:string;
-  specializations:string[];
+export interface AgentDetails {
+  licenseNumber: string;
+  licenseExpiryDate: Date;
+  agency: string;
+  specializations: string[];
   yearsOfExperience: number;
-  verificationStatus:VerificationStatus;
-  verificationDocuments:string[];
-  verificationDate?:Date;
-  rating?:number;
-  reviewCount?:number;
+  verificationStatus: VerificationStatus;
+  verificationDocuments: string[];
+  verificationDate?: Date;
+  rating?: number;
+  reviewCount?: number;
+}
+
+export interface RefreshToken {
+  tokenId: string;
+  expiresAt: Date;
+  lastUsed?: Date;
+  device?: string;
+  ipAddress?: string;
+  createdAt: Date;
+}
+
+export  interface loginAttempts{
+  timestamp: Date;
+  success: boolean;
+  ipAddress: string;
+  userAgent: string;
+}
+
+export  interface  BackupCode {
+  code: string;
+  used: boolean;
+  usedAt?: Date;
+}
+
+
+export interface SecurityDetails {
+  question: string;
+  answer: string;
+  backupCodes?: BackupCode[];
+  loginAttempts?:loginAttempts[] ;
+  lockUntil?: Date;
+  twoFactorSecret?: string;
+  tempTwoFactorSecret?: string;
+  tempTwoFactorSecretExpires?: Date;
 }
 
 export interface IUser extends Document {
   firstName: string;
   lastName: string;
-  username:string;
+  username: string;
   email: string;
   password: string;
   role: UserRole;
@@ -73,20 +114,40 @@ export interface IUser extends Document {
   createdAt: Date;
   updatedAt: Date;
   lastLogin?: Date;
+  lastLoginAt?: Date;
   lastIp?: string;
   lastUserAgent?: string;
   presenceStatus: string;
   lastActive: Date;
   loginAttempts: LoginHistory[];
   isActive: boolean;
-  verificationToken?: string;
-  passwordResetToken?: string;
-  passwordResetExpires?: Date;
-  refreshTokens: string[];
+  refreshTokens: RefreshToken[];
   loginHistory: LoginHistory[];
   preferences: UserPreferences;
   agentDetails?: AgentDetails;
+  security?: SecurityDetails;
   getFullName(): string;
+
+  
+  // Propriétés pour la vérification d'email
+  isEmailVerified?: boolean;
+  verificationToken?: string;
+  emailVerificationToken?: string;
+  emailVerificationTokenExpires?: Date;
+  
+    // Propriétés pour la réinitialisation de mot de passe
+  passwordResetToken?: string;
+  passwordResetExpires?: Date;
+  resetPasswordToken?: string;
+  resetPasswordExpires?: Date;
+  passwordChangedAt?: Date;
+  
+
+  // Propriétés pour la gestion de la suppression
+  isDeleted?: boolean;
+  deletedAt?: Date;
+  deletedBy?: string;
+  
   comparePassword: (candidatePassword: string) => Promise<boolean>;
   generateVerificationToken: () => string;
   generatePasswordResetToken: () => Promise<string>;
@@ -168,7 +229,6 @@ export interface SearchUsersParams {
 /**
  * Interface pour les options d'authentification
  */
-
 export interface AuthOptions {
   rememberMe?: boolean;
   deviceInfo?: {
@@ -271,4 +331,3 @@ export interface UserInfo {
   addDeviceInfo?(deviceInfo: any): void;
   save(): Promise<void>;
 }
-

@@ -1,27 +1,36 @@
-import User from "../models/userModel"
-import { IUser } from "../types/userTypes";
-import createLogger from  "../../utils/logger/logger"
+
+
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import User from "../models/userModel";
+import { IUser, UserDocument } from "../types/userTypes";
 import { CreateUserDto } from '../types/userTypes';
 import { UpdateUserDto } from '../types/userTypes';
 import { SearchUsersParams } from '../types/userTypes';
 import { VerificationStatus } from '../types/userTypes';
 import { UserRole } from '../types/userTypes';
+import { UserFilterOptions, UserSearchOptions } from '../types/userTypes';
 import { NotificationService } from "../../services/notificationServices";
+import { SecurityAuditService } from '../../services/auditservices';
+import { createLogger } from '../../utils/logger/logger';
+import { AppError } from '../../auth/utils/AppError';
 import { FilterQuery } from 'mongoose';
-const logger = createLogger;
 
+const logger = createLogger('UserService');
 
 export class UserService {
   private notificationService: NotificationService;
+  // private securityAuditService: SecurityAuditService;
 
   constructor() {
     this.notificationService = new NotificationService();
+    // this.securityAuditService = new SecurityAuditService();
   }
 
   /**
    * Crée un nouvel utilisateur
    */
-  async createUser(userData: CreateUserDto, sendVerificationEmail = true): Promise<IUser> {
+  async createUser(userData: CreateUserDto | Partial<UserDocument>, sendVerificationEmail = true): Promise<IUser> {
     try {
       logger.info('Creating new user', { email: userData.email });
       
@@ -29,16 +38,32 @@ export class UserService {
       const existingUser = await User.findOne({ email: userData.email });
       if (existingUser) {
         logger.warn('User already exists', { email: userData.email });
-        throw new Error('Un utilisateur avec cet email existe déjà');
+        throw new AppError('Un utilisateur avec cet email existe déjà', 409);
       }
 
+      // Hasher le mot de passe
+      if (userData.password) {
+        userData.password = await bcrypt.hash(userData.password, 12);
+      }
+      
       // Créer le nouvel utilisateur
-      const user = new User(userData);
+      const user = new User({
+        ...userData,
+        isActive: !sendVerificationEmail, // Actif immédiatement si pas de vérification d'email
+        createdAt: new Date()
+      });
       
       // Générer un jeton de vérification si demandé
       if (sendVerificationEmail) {
-        const verificationToken = user.generateVerificationToken();
-        await this.notificationService.sendVerificationEmail(user.email, verificationToken, user.firstName);
+        const verificationToken = crypto.randomBytes(32).toString('hex');
+        user.emailVerificationToken = verificationToken;
+        user.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
+        
+        await this.notificationService.sendVerificationEmail(
+          user.email,
+          verificationToken,
+          user.firstName
+        );
       }
 
       // Enregistrer l'utilisateur
@@ -47,7 +72,10 @@ export class UserService {
       
       return user;
     } catch (error) {
-      logger.error('Error creating user', { error, userData });
+      logger.error('Error creating user', { 
+        error: error instanceof Error ? error.message : 'Erreur inconnue',
+        userData 
+      });
       throw error;
     }
   }
@@ -57,7 +85,7 @@ export class UserService {
    */
   async getUserById(id: string): Promise<IUser | null> {
     try {
-      return await User.findById(id);
+      return await User.findById(id).select('-password -resetPasswordToken -emailVerificationToken');
     } catch (error) {
       logger.error('Error fetching user by ID', { error, id });
       throw error;
@@ -69,7 +97,7 @@ export class UserService {
    */
   async getUserByEmail(email: string): Promise<IUser | null> {
     try {
-      return await User.findOne({ email: email.toLowerCase() });
+      return await User.findOne({ email: email.toLowerCase() }).select('-resetPasswordToken -emailVerificationToken');
     } catch (error) {
       logger.error('Error fetching user by email', { error, email });
       throw error;
@@ -77,19 +105,183 @@ export class UserService {
   }
 
   /**
+   * Obtenir la liste des utilisateurs avec pagination et filtres
+   */
+  async getUsers(options: UserFilterOptions): Promise<{
+    data: UserDocument[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    try {
+      const { 
+        page = 1, 
+        limit = 10, 
+        sortBy = 'createdAt', 
+        sortOrder = 'desc',
+        isActive,
+        role,
+        ...otherFilters 
+      } = options;
+      
+      // Construire les critères de filtrage
+      const filters: Record<string, any> = {
+        isDeleted: { $ne: true },
+        ...otherFilters
+      };
+      
+      if (isActive !== undefined) {
+        filters.isActive = isActive;
+      }
+      
+      if (role) {
+        filters.role = role;
+      }
+      
+      // Construire l'objet de tri
+      const sort: Record<string, 1 | -1> = {
+        [sortBy]: sortOrder === 'asc' ? 1 : -1
+      };
+      
+      // Exécuter la requête avec pagination
+      const users = await User.find(filters)
+        .select('-password -resetPasswordToken -emailVerificationToken')
+        .sort(sort)
+        .skip((page - 1) * limit)
+        .limit(limit);
+      
+      // Compter le nombre total d'utilisateurs correspondant aux filtres
+      const total = await User.countDocuments(filters);
+      
+      return {
+        data: users,
+        total,
+        page,
+        limit
+      };
+    } catch (error) {
+      logger.error('Erreur lors de la récupération des utilisateurs', { 
+        error: error instanceof Error ? error.message : 'Erreur inconnue',
+        options
+      });
+      throw error;
+    }
+  }
+  
+  /**
+   * Recherche avancée d'utilisateurs
+   */
+  async searchUsers(options: UserSearchOptions): Promise<{
+    data: UserDocument[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    try {
+      const { 
+        query, 
+        fields = ['firstName', 'lastName', 'email'],
+        page = 1, 
+        limit = 10,
+        filters = {},
+        sortBy = 'createdAt',
+        sortOrder = 'desc'
+      } = options;
+      
+      // Construire les critères de recherche
+      const searchCriteria: Record<string, any> = {
+        isDeleted: { $ne: true },
+        ...filters
+      };
+      
+      // Ajouter la recherche textuelle si une requête est fournie
+      if (query) {
+        const orConditions = fields.map(field => ({
+          [field]: { $regex: query, $options: 'i' }
+        }));
+        
+        searchCriteria.$or = orConditions;
+      }
+      
+      // Construire l'objet de tri
+      const sort: Record<string, 1 | -1> = {
+        [sortBy]: sortOrder === 'asc' ? 1 : -1
+      };
+      
+      // Exécuter la requête avec pagination
+      const users = await User.find(searchCriteria)
+        .select('-password -resetPasswordToken -emailVerificationToken')
+        .sort(sort)
+        .skip((page - 1) * limit)
+        .limit(limit);
+      
+      // Compter le nombre total d'utilisateurs correspondant aux critères
+      const total = await User.countDocuments(searchCriteria);
+      
+      return {
+        data: users,
+        total,
+        page,
+        limit
+      };
+    } catch (error) {
+      logger.error('Erreur lors de la recherche d\'utilisateurs', { 
+        error: error instanceof Error ? error.message : 'Erreur inconnue',
+        query: options.query
+      });
+      throw error;
+    }
+  }
+    
+  /**
    * Met à jour un utilisateur existant
    */
-  async updateUser(id: string, updateData: UpdateUserDto): Promise<IUser | null> {
+  async updateUser(id: string, updateData: UpdateUserDto | Partial<UserDocument>): Promise<IUser | null> {
     try {
       logger.info('Updating user', { id });
+      
+      // Supprimer les champs sensibles ou spéciaux
+      const { password, email, isDeleted, ...safeUpdateData } = updateData as any;
+      
+      // Si le mot de passe est fourni, le hasher
+      let updateObject: Record<string, any> = { ...safeUpdateData };
+      if (password) {
+        updateObject.password = await bcrypt.hash(password, 12);
+      }
+      
+      // Si l'email est fourni, vérifier qu'il n'est pas déjà utilisé
+      if (email) {
+        const existingUser = await User.findOne({ email, _id: { $ne: id } });
+        if (existingUser) {
+          throw new AppError('Cet email est déjà utilisé par un autre compte', 409);
+        }
+        
+        // Réinitialiser le statut de vérification d'email
+        updateObject.email = email;
+        updateObject.isEmailVerified = false;
+        updateObject.emailVerificationToken = crypto.randomBytes(32).toString('hex');
+        updateObject.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        
+        // Envoyer un email de vérification
+        await this.notificationService.sendVerificationEmail(
+          email,
+          updateObject.emailVerificationToken,
+          updateObject.firstName || ""
+        );
+      }
+      
       const user = await User.findByIdAndUpdate(
         id,
-        { $set: updateData },
+        { 
+          $set: updateObject,
+          $currentDate: { updatedAt: true }
+        },
         { new: true, runValidators: true }
-      );
+      ).select('-password -resetPasswordToken -emailVerificationToken');
       
       if (!user) {
         logger.warn('User not found for update', { id });
+        throw new AppError('Utilisateur non trouvé', 404);
       } else {
         logger.info('User updated successfully', { id });
       }
@@ -156,20 +348,24 @@ export class UserService {
   }
 
   /**
-   * Vérifie un compte utilisateur
+   * Vérifie un compte utilisateur avec token
    */
   async verifyUser(verificationToken: string): Promise<boolean> {
     try {
       logger.info('Verifying user account');
-      const user = await User.findOne({ verificationToken });
+      const user = await User.findOne({ emailVerificationToken: verificationToken });
 
       if (!user) {
         logger.warn('Invalid verification token', { verificationToken });
         return false;
       }
 
-      // Effacer le jeton et enregistrer l'utilisateur
-      user.verificationToken = undefined;
+      // Mettre à jour le statut de vérification
+      user.isEmailVerified = true;
+      user.emailVerificationToken = undefined;
+      user.emailVerificationTokenExpires = undefined;
+      user.isActive = true; // Activer l'utilisateur après vérification
+      
       await user.save();
       
       // Si c'est un agent, mettre à jour le statut de vérification
@@ -201,7 +397,16 @@ export class UserService {
         return false;
       }
 
-      const resetToken = await user.generatePasswordResetToken();
+      // Générer un token de réinitialisation
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      
+      // Stocker le token hash
+      user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+      user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 heure
+      
+      await user.save();
+      
+      // Envoyer l'email de réinitialisation
       await this.notificationService.sendPasswordResetEmail(email, resetToken, user.firstName);
       
       logger.info('Password reset initiated successfully', { email });
@@ -215,25 +420,33 @@ export class UserService {
   /**
    * Réinitialise le mot de passe avec un jeton
    */
-  async resetPassword(token: string, newPassword: string): Promise<boolean> {
+  async resetPassword(token: string, newPassword: string): Promise<{ success: boolean; message?: string; userId?: string }> {
     try {
       logger.info('Resetting password');
+      
+      // Hasher le token fourni pour le comparer avec celui stocké
+      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+      
+      // Trouver l'utilisateur avec le token de réinitialisation
       const user = await User.findOne({ 
-        passwordResetToken: token,
-        passwordResetExpires: { $gt: new Date() }
+        resetPasswordToken: hashedToken,
+        resetPasswordExpires: { $gt: Date.now() }
       });
 
       if (!user) {
         logger.warn('Invalid or expired password reset token', { token });
-        return false;
+        return {
+          success: false,
+          message: 'Token de réinitialisation invalide ou expiré'
+        };
       }
 
       // Mettre à jour le mot de passe et effacer le jeton
-      user.password = newPassword;
-      user.passwordResetToken = undefined;
-      user.passwordResetExpires = undefined;
-      await user.save();
-
+      user.password = await bcrypt.hash(newPassword, 12);
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpires = undefined;
+      user.passwordChangedAt = new Date();
+      
       // Invalider tous les jetons d'actualisation
       user.refreshTokens = [];
       await user.save();
@@ -241,7 +454,10 @@ export class UserService {
       logger.info('Password reset successfully', { id: user.id });
       await this.notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName);
       
-      return true;
+      return {
+        success: true,
+        userId: user._id.toString()
+      };
     } catch (error) {
       logger.error('Error resetting password', { error, token });
       throw error;
@@ -254,7 +470,7 @@ export class UserService {
   async changePassword(id: string, currentPassword: string, newPassword: string): Promise<boolean> {
     try {
       logger.info('Changing password', { id });
-      const user = await User.findById(id);
+      const user = await User.findById(id).select('+password');
 
       if (!user) {
         logger.warn('User not found for password change', { id });
@@ -262,18 +478,19 @@ export class UserService {
       }
 
       // Vérifier le mot de passe actuel
-      const isPasswordValid = await user.comparePassword(currentPassword);
+      const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
       if (!isPasswordValid) {
         logger.warn('Invalid current password', { id });
         return false;
       }
 
       // Mettre à jour le mot de passe
-      user.password = newPassword;
+      user.password = await bcrypt.hash(newPassword, 12);
+      user.passwordChangedAt = new Date();
       await user.save();
 
       // Invalider tous les jetons d'actualisation sauf le dernier utilisé
-      const latestToken = user.refreshTokens.pop();
+      const latestToken = user.refreshTokens?.pop();
       user.refreshTokens = latestToken ? [latestToken] : [];
       await user.save();
 
@@ -288,9 +505,9 @@ export class UserService {
   }
 
   /**
-   * Recherche avancée d'utilisateurs
+   * Recherche avancée d'utilisateurs avec paramètres spécifiques
    */
-  async searchUsers(params: SearchUsersParams): Promise<{ users: IUser[], total: number }> {
+  async searchUsersParams(params: SearchUsersParams): Promise<{ users: IUser[], total: number }> {
     try {
       const { 
         query, role, isActive, city, country, 
@@ -698,6 +915,9 @@ export class UserService {
   /**
    * Vérifie si le compte est verrouillé
    */
+/**
+   * Vérifie si le compte est verrouillé
+   */
   async isAccountLocked(email: string): Promise<boolean> {
     try {
       const user = await User.findOne({ email: email.toLowerCase() });
@@ -705,25 +925,18 @@ export class UserService {
         return false;
       }
 
-      // Vérifier si le compte est verrouillé
-      if (user.security.lockUntil && user.security.lockUntil > new Date()) {
+      // Vérifier si le compte est explicitement verrouillé
+      if (user.security.accountLocked) {
         return true;
       }
 
-      // Vérifier le nombre de tentatives récentes échouées
-      const recentFailedAttempts = await this.getRecentLoginAttemptsCount(email);
-      if (recentFailedAttempts >= 5) {
-        // Verrouiller le compte pour 30 minutes
-        user.security.lockUntil = new Date(Date.now() + 30 * 60 * 1000);
-        await user.save();
-        
-        // Envoyer une notification de sécurité
-        await this.notificationService.sendSecurityAlertEmail(
-          user.email,
-          user.firstName,
-          'Votre compte a été temporairement verrouillé en raison de multiples tentatives de connexion échouées'
-        );
-        
+      // Vérifier si le compte doit être verrouillé en raison de trop nombreuses tentatives
+      const maxAttempts = 5; // Configurable
+      const recentFailedAttempts = await this.getRecentFailedLoginAttemptsCount(email);
+      
+      if (recentFailedAttempts >= maxAttempts) {
+        // Verrouiller le compte
+        await this.lockAccount(email);
         return true;
       }
 
@@ -735,199 +948,581 @@ export class UserService {
   }
 
   /**
+   * Obtient le nombre de tentatives échouées récentes
+   */
+  async getRecentFailedLoginAttemptsCount(email: string, timeWindow = 15): Promise<number> {
+    try {
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user || !user.security?.loginAttempts) {
+        return 0;
+      }
+
+      const cutoffTime = new Date(Date.now() - timeWindow * 60 * 1000);
+      const recentFailedAttempts = user.security.loginAttempts.filter(
+        attempt => attempt.timestamp > cutoffTime && !attempt.success
+      );
+
+      return recentFailedAttempts.length;
+    } catch (error) {
+      logger.error('Error getting recent failed login attempts count', { error, email });
+      return 0;
+    }
+  }
+
+  /**
+   * Verrouille un compte utilisateur
+   */
+  async lockAccount(email: string, duration = 30): Promise<boolean> {
+    try {
+      logger.info('Locking account', { email });
+      
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        return false;
+      }
+
+      if (!user.security) {
+        user.security = {} as any;
+      }
+
+      // Verrouiller le compte pour la durée spécifiée (en minutes)
+      user.security.accountLocked = true;
+      user.security.lockExpiresAt = new Date(Date.now() + duration * 60 * 1000);
+      
+      await user.save();
+      
+      // Envoyer une notification de verrouillage
+      await this.notificationService.sendAccountLockedEmail(
+        user.email,
+        user.firstName,
+        duration
+      );
+      
+      logger.info('Account locked successfully', { email, duration });
+      return true;
+    } catch (error) {
+      logger.error('Error locking account', { error, email });
+      return false;
+    }
+  }
+
+  /**
    * Déverrouille un compte utilisateur
    */
   async unlockAccount(email: string): Promise<boolean> {
     try {
       logger.info('Unlocking account', { email });
       
-      const result = await User.findOneAndUpdate(
-        { email: email.toLowerCase() },
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        return false;
+      }
+
+      if (!user.security) {
+        return true; // Déjà déverrouillé
+      }
+
+      // Déverrouiller le compte
+      user.security.accountLocked = false;
+      user.security.lockExpiresAt = undefined;
+      
+      // Réinitialiser les tentatives de connexion
+      user.security.loginAttempts = [];
+      
+      await user.save();
+      
+      // Envoyer une notification de déverrouillage
+      await this.notificationService.sendAccountUnlockedEmail(
+        user.email,
+        user.firstName
+      );
+      
+      logger.info('Account unlocked successfully', { email });
+      return true;
+    } catch (error) {
+      logger.error('Error unlocking account', { error, email });
+      return false;
+    }
+  }
+
+  /**
+   * Vérifie si un compte est marqué comme supprimé
+   */
+  async isAccountDeleted(id: string): Promise<boolean> {
+    try {
+      const user = await User.findById(id);
+      return !!user?.isDeleted;
+    } catch (error) {
+      logger.error('Error checking if account is deleted', { error, id });
+      return false;
+    }
+  }
+
+  /**
+   * Suppression logique d'un utilisateur
+   */
+  async softDeleteUser(id: string): Promise<IUser | null> {
+    try {
+      logger.info('Soft deleting user', { id });
+      
+      // Anonymiser certaines données pour RGPD
+      const updateData = {
+        isDeleted: true,
+        email: `deleted_${id}@anonymized.com`,
+        phone: null,
+        address: null,
+        refreshTokens: [],
+        deletedAt: new Date()
+      };
+      
+      const user = await User.findByIdAndUpdate(
+        id,
+        { $set: updateData },
+        { new: true }
+      );
+
+      if (!user) {
+        logger.warn('User not found for soft delete', { id });
+        return null;
+      }
+      
+      logger.info('User soft deleted successfully', { id });
+      
+      // Envoyer une notification de suppression de compte
+      await this.notificationService.sendAccountDeletedEmail(
+        user.email, // Email original déjà récupéré avant anonymisation
+        user.firstName
+      );
+      
+      return user;
+    } catch (error) {
+      logger.error('Error soft deleting user', { error, id });
+      throw error;
+    }
+  }
+
+  /**
+   * Restaure un utilisateur supprimé logiquement
+   */
+  async restoreDeletedUser(id: string, email: string): Promise<IUser | null> {
+    try {
+      logger.info('Restoring deleted user', { id });
+      
+      // Vérifier si l'email est disponible
+      const existingUser = await User.findOne({ email, _id: { $ne: id } });
+      if (existingUser) {
+        logger.warn('Email already in use', { email });
+        throw new AppError('Cet email est déjà utilisé par un autre compte', 409);
+      }
+      
+      // Restaurer l'utilisateur
+      const user = await User.findByIdAndUpdate(
+        id,
         { 
-          $unset: { 'security.lockUntil': 1 },
-          $set: { 'security.loginAttempts': [] }
+          $set: { 
+            isDeleted: false,
+            email,
+            deletedAt: undefined
+          }
         },
         { new: true }
       );
 
-      if (result) {
-        logger.info('Account unlocked successfully', { email });
-        
-        // Envoyer une notification
-        await this.notificationService.sendSecurityAlertEmail(
-          result.email,
-          result.firstName,
-          'Votre compte a été déverrouillé'
-        );
-      }
-
-      return !!result;
-    } catch (error) {
-      logger.error('Error unlocking account', { error, email });
-      throw error;
-    }
-  }
-
-  /**
-   * Met à jour la dernière activité d'un utilisateur
-   */
-  async updateLastActivity(userId: string, ipAddress?: string): Promise<void> {
-    try {
-      await User.findByIdAndUpdate(userId, {
-        $set: { 
-          lastLoginAt: new Date(),
-          lastLoginIP: ipAddress || 'Unknown'
-        }
-      });
-    } catch (error) {
-      logger.error('Error updating last activity', { error, userId });
-    }
-  }
-
-  /**
-   * Génère des codes de sauvegarde 2FA
-   */
-  async generateBackupCodes(count = 10): Promise<string[]> {
-    const codes: string[] = [];
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    
-    for (let i = 0; i < count; i++) {
-      let code = '';
-      for (let j = 0; j < 8; j++) {
-        code += characters.charAt(Math.floor(Math.random() * characters.length));
-      }
-      codes.push(code);
-    }
-    
-    return codes;
-  }
-
-  /**
-   * Active l'authentification à deux facteurs avec vérification
-   */
-  async confirmTwoFactorSetup(userId: string, code: string): Promise<boolean> {
-    try {
-      const user = await User.findById(userId);
-      if (!user || !user.security?.tempTwoFactorSecret) {
-        return false;
-      }
-
-      // Vérifier le code 2FA (implémentation simplifiée)
-      // Dans un vrai projet, utilisez speakeasy ou une bibliothèque similaire
-      const isValidCode = this.verifyTOTPCode(user.security.tempTwoFactorSecret, code);
-      
-      if (!isValidCode) {
-        return false;
-      }
-
-      // Générer des codes de sauvegarde
-      const backupCodes = await this.generateBackupCodes();
-
-      // Activer 2FA définitivement
-      user.security.twoFactorSecret = user.security.tempTwoFactorSecret;
-      user.security.tempTwoFactorSecret = undefined;
-      user.security.tempTwoFactorSecretExpires = undefined;
-      user.preferences.twoFactorEnabled = true;
-      
-      await this.updateBackupCodes(userId, backupCodes);
-      await user.save();
-
-      logger.info('2FA setup confirmed successfully', { userId });
-      return true;
-    } catch (error) {
-      logger.error('Error confirming 2FA setup', { error, userId });
-      throw error;
-    }
-  }
-
-  /**
-   * Vérifie un code TOTP (implémentation simplifiée)
-   */
-  private verifyTOTPCode(secret: string, code: string): boolean {
-    // Dans un vrai projet, utilisez speakeasy.totp.verify()
-    // Ceci est une implémentation simplifiée pour l'exemple
-    return code.length === 6 && /^\d+$/.test(code);
-  }
-
-  /**
-   * Obtient les statistiques d'un utilisateur
-   */
-  async getUserStats(userId: string): Promise<{
-    activeSessionsCount: number;
-    recentLoginAttempts: number;
-    twoFactorEnabled: boolean;
-    accountCreatedAt: Date;
-    lastLoginAt?: Date;
-  } | null> {
-    try {
-      const user = await User.findById(userId);
       if (!user) {
+        logger.warn('User not found for restoration', { id });
         return null;
       }
-
-      const activeSessionsCount = await this.getActiveSessionsCount(userId);
-      const recentLoginAttempts = await this.getRecentLoginAttemptsCount(user.email);
-
-      return {
-        activeSessionsCount,
-        recentLoginAttempts,
-        twoFactorEnabled: user.preferences?.twoFactorEnabled || false,
-        accountCreatedAt: user.createdAt,
-        lastLoginAt: user.lastLoginAt
-      };
+      
+      logger.info('User restored successfully', { id });
+      
+      // Envoyer une notification de restauration de compte
+      await this.notificationService.sendAccountRestoredEmail(
+        email,
+        user.firstName
+      );
+      
+      return user;
     } catch (error) {
-      logger.error('Error getting user stats', { error, userId });
+      logger.error('Error restoring deleted user', { error, id });
       throw error;
     }
   }
 
   /**
-   * Exporte les données d'un utilisateur (RGPD)
+   * Enregistre l'historique des préférences utilisateur
+   */
+  async updateUserPreferences(id: string, preferences: any): Promise<IUser | null> {
+    try {
+      logger.info('Updating user preferences', { id });
+      
+      const user = await User.findById(id);
+      if (!user) {
+        logger.warn('User not found for preference update', { id });
+        return null;
+      }
+      
+      // Sauvegarder l'ancienne version dans l'historique
+      if (!user.preferencesHistory) {
+        user.preferencesHistory = [];
+      }
+      
+      if (user.preferences) {
+        user.preferencesHistory.push({
+          preferences: { ...user.preferences },
+          timestamp: new Date()
+        });
+      }
+      
+      // Limiter la taille de l'historique
+      if (user.preferencesHistory.length > 10) {
+        user.preferencesHistory = user.preferencesHistory.slice(-10);
+      }
+      
+      // Mettre à jour les préférences
+      user.preferences = {
+        ...user.preferences,
+        ...preferences,
+        updatedAt: new Date()
+      };
+      
+      await user.save();
+      logger.info('User preferences updated successfully', { id });
+      
+      return user;
+    } catch (error) {
+      logger.error('Error updating preferences', { error, id });
+      throw error;
+    }
+  }
+
+  /**
+   * Génère de nouveaux codes de récupération
+   */
+  async generateRecoveryCodes(userId: string): Promise<string[]> {
+    try {
+      logger.info('Generating recovery codes', { userId });
+      
+      // Générer 10 codes de récupération aléatoires
+      const recoveryCodes: string[] = [];
+      for (let i = 0; i < 10; i++) {
+        recoveryCodes.push(crypto.randomBytes(5).toString('hex'));
+      }
+      
+      // Hasher et stocker les codes
+      const hashedCodes = await Promise.all(
+        recoveryCodes.map(async code => ({
+          code: await bcrypt.hash(code, 8),
+          used: false,
+          createdAt: new Date()
+        }))
+      );
+      
+      // Mettre à jour l'utilisateur
+      await User.findByIdAndUpdate(userId, {
+        'security.recoveryCodes': hashedCodes
+      });
+      
+      logger.info('Recovery codes generated successfully', { userId });
+      
+      // Retourner les codes en clair pour affichage unique
+      return recoveryCodes;
+    } catch (error) {
+      logger.error('Error generating recovery codes', { error, userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Vérifie et utilise un code de récupération
+   */
+  async verifyRecoveryCode(userId: string, code: string): Promise<boolean> {
+    try {
+      logger.info('Verifying recovery code', { userId });
+      
+      const user = await User.findById(userId);
+      if (!user || !user.security?.recoveryCodes || user.security.recoveryCodes.length === 0) {
+        logger.warn('No recovery codes found', { userId });
+        return false;
+      }
+      
+      // Vérifier chaque code
+      let codeIndex = -1;
+      for (let i = 0; i < user.security.recoveryCodes.length; i++) {
+        const storedCode = user.security.recoveryCodes[i];
+        if (!storedCode.used && await bcrypt.compare(code, storedCode.code)) {
+          codeIndex = i;
+          break;
+        }
+      }
+      
+      if (codeIndex === -1) {
+        logger.warn('Invalid recovery code', { userId });
+        return false;
+      }
+      
+      // Marquer le code comme utilisé
+      user.security.recoveryCodes[codeIndex].used = true;
+      user.security.recoveryCodes[codeIndex].usedAt = new Date();
+      await user.save();
+      
+      logger.info('Recovery code verified successfully', { userId });
+      return true;
+    } catch (error) {
+      logger.error('Error verifying recovery code', { error, userId });
+      return false;
+    }
+  }
+  
+  /**
+   * Ajoute un appareil de confiance
+   */
+  async addTrustedDevice(userId: string, deviceInfo: any): Promise<boolean> {
+    try {
+      logger.info('Adding trusted device', { userId });
+      
+      const user = await User.findById(userId);
+      if (!user) {
+        return false;
+      }
+      
+      if (!user.security) {
+        user.security = {} as any;
+      }
+      
+      if (!user.security.trustedDevices) {
+        user.security.trustedDevices = [];
+      }
+      
+      // Ajouter l'appareil
+      user.security.trustedDevices.push({
+        ...deviceInfo,
+        deviceId: crypto.randomBytes(16).toString('hex'),
+        addedAt: new Date(),
+        lastUsed: new Date()
+      });
+      
+      await user.save();
+      logger.info('Trusted device added successfully', { userId });
+      
+      return true;
+    } catch (error) {
+      logger.error('Error adding trusted device', { error, userId });
+      return false;
+    }
+  }
+  
+  /**
+   * Supprime un appareil de confiance
+   */
+  async removeTrustedDevice(userId: string, deviceId: string): Promise<boolean> {
+    try {
+      logger.info('Removing trusted device', { userId, deviceId });
+      
+      const user = await User.findById(userId);
+      if (!user || !user.security?.trustedDevices) {
+        return false;
+      }
+      
+      const initialLength = user.security.trustedDevices.length;
+      user.security.trustedDevices = user.security.trustedDevices.filter(
+        device => device.deviceId !== deviceId
+      );
+      
+      if (user.security.trustedDevices.length === initialLength) {
+        logger.warn('Device not found', { userId, deviceId });
+        return false;
+      }
+      
+      await user.save();
+      logger.info('Trusted device removed successfully', { userId, deviceId });
+      
+      return true;
+    } catch (error) {
+      logger.error('Error removing trusted device', { error, userId, deviceId });
+      return false;
+    }
+  }
+  
+  /**
+   * Vérifie si un appareil est de confiance
+   */
+  async isTrustedDevice(userId: string, deviceId: string): Promise<boolean> {
+    try {
+      const user = await User.findById(userId);
+      if (!user || !user.security?.trustedDevices) {
+        return false;
+      }
+      
+      const device = user.security.trustedDevices.find(d => d.deviceId === deviceId);
+      if (device) {
+        // Mettre à jour la date de dernière utilisation
+        device.lastUsed = new Date();
+        await user.save();
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      logger.error('Error checking trusted device', { error, userId, deviceId });
+      return false;
+    }
+  }
+  
+  /**
+   * Exporte les données utilisateur (conformité RGPD)
    */
   async exportUserData(userId: string): Promise<any> {
     try {
+      logger.info('Exporting user data (GDPR)', { userId });
+      
       const user = await User.findById(userId);
       if (!user) {
-        return null;
+        throw new AppError('Utilisateur non trouvé', 404);
       }
-
-      // Retourner une version anonymisée des données
-      const userData = user.toObject();
       
-      // Supprimer les données sensibles
-      delete userData.password;
-      delete userData.refreshTokens;
-      delete userData.security;
-      delete userData.verificationToken;
-      delete userData.passwordResetToken;
-
+      // Récupérer toutes les données de l'utilisateur
+      // Omettre les informations sensibles comme le mot de passe
+      const userData = {
+        personalInfo: {
+          id: user._id.toString(),
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone,
+          dateOfBirth: user.dateOfBirth,
+          address: user.address,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt
+        },
+        accountInfo: {
+          role: user.role,
+          isActive: user.isActive,
+          isEmailVerified: user.isEmailVerified,
+          preferences: user.preferences
+        },
+        agentDetails: user.agentDetails,
+        securityInfo: {
+          passwordLastChanged: user.passwordChangedAt,
+          twoFactorEnabled: user.preferences?.twoFactorEnabled
+        },
+        sessions: user.refreshTokens?.map(session => ({
+          device: session.device,
+          ipAddress: session.ipAddress,
+          createdAt: session.createdAt,
+          lastUsed: session.lastUsed
+        }))
+      };
+      
+      // Note: Dans un système réel, il faudrait également récupérer
+      // les données associées à l'utilisateur dans d'autres collections
+      
       return userData;
     } catch (error) {
       logger.error('Error exporting user data', { error, userId });
       throw error;
     }
   }
-
+  
   /**
-   * Supprime définitivement un utilisateur (RGPD)
+   * Met à jour l'avatar de l'utilisateur
    */
-  async deleteUserPermanently(userId: string): Promise<boolean> {
+  async updateUserAvatar(userId: string, avatarUrl: string): Promise<IUser | null> {
     try {
-      logger.info('Permanently deleting user', { userId });
+      logger.info('Updating user avatar', { userId });
       
-      const result = await User.findByIdAndDelete(userId);
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { $set: { avatarUrl } },
+        { new: true }
+      );
       
-      if (result) {
-        logger.info('User permanently deleted', { userId });
-        
-        // Optionnel: nettoyer les données liées dans d'autres collections
-        // await this.cleanupRelatedData(userId);
-      }
-
-      return !!result;
+      return user;
     } catch (error) {
-      logger.error('Error permanently deleting user', { error, userId });
+      logger.error('Error updating user avatar', { error, userId });
       throw error;
+    }
+  }
+  
+  /**
+   * Ajoute une notification à l'utilisateur
+   */
+  async addUserNotification(userId: string, notification: any): Promise<boolean> {
+    try {
+      logger.info('Adding user notification', { userId });
+      
+      const user = await User.findById(userId);
+      if (!user) {
+        return false;
+      }
+      
+      if (!user.notifications) {
+        user.notifications = [];
+      }
+      
+      user.notifications.push({
+        ...notification,
+        id: crypto.randomBytes(8).toString('hex'),
+        createdAt: new Date(),
+        read: false
+      });
+      
+      // Limiter le nombre de notifications stockées
+      if (user.notifications.length > 100) {
+        user.notifications = user.notifications.slice(-100);
+      }
+      
+      await user.save();
+      return true;
+    } catch (error) {
+      logger.error('Error adding user notification', { error, userId });
+      return false;
+    }
+  }
+  
+  /**
+   * Marque une notification comme lue
+   */
+  async markNotificationAsRead(userId: string, notificationId: string): Promise<boolean> {
+    try {
+      logger.info('Marking notification as read', { userId, notificationId });
+      
+      const user = await User.findById(userId);
+      if (!user || !user.notifications) {
+        return false;
+      }
+      
+      const notification = user.notifications.find(n => n.id === notificationId);
+      if (!notification) {
+        return false;
+      }
+      
+      notification.read = true;
+      notification.readAt = new Date();
+      
+      await user.save();
+      return true;
+    } catch (error) {
+      logger.error('Error marking notification as read', { error, userId, notificationId });
+      return false;
+    }
+  }
+  
+  /**
+   * Obtient toutes les notifications de l'utilisateur
+   */
+  async getUserNotifications(userId: string, includeRead = false): Promise<any[]> {
+    try {
+      const user = await User.findById(userId);
+      if (!user || !user.notifications) {
+        return [];
+      }
+      
+      return user.notifications
+        .filter(n => includeRead || !n.read)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    } catch (error) {
+      logger.error('Error getting user notifications', { error, userId });
+      return [];
     }
   }
 }

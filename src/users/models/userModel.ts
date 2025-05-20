@@ -67,6 +67,10 @@ const UserSchema = new Schema<IUser>(
       type: Boolean,
       default: true
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false
+    },
     lastLogin: {
       type:Date,
     },
@@ -91,18 +95,31 @@ const UserSchema = new Schema<IUser>(
       unique: true,
       sparse: true
     },
+
     address: AddressSchema,
     dateOfBirth: Date,
     verificationToken: String,
+    emailVerificationToken: String,
+    emailVerificationTokenExpires: Date,
     passwordResetToken: String,
+    resetPasswordToken: String,
+    resetPasswordExpires: Date,
     passwordResetExpires: Date,
+    passwordChangedAt: Date,
     refreshTokens: [String],
     loginHistory: [LoginHistorySchema],
+    loginAttempts: [LoginHistorySchema],
+    isDeleted: {
+      type: Boolean,
+      default: false
+    },
+    deletedAt: Date,
+    deletedBy: String,
     preferences: {
       type: UserPreferencesSchema,
       default: () => ({})
     },
-    agentDetails: AgentDetailsSchema
+    agentDetails: AgentDetailsSchema,
   },
   {
     timestamps: true,
