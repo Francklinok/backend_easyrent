@@ -1,3 +1,5 @@
+
+
 import { Document } from 'mongoose';
 
 export enum UserRole {
@@ -26,19 +28,20 @@ export interface LoginHistory {
 export interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
   language: string;
-   notifications?: {
-      email?: boolean;
-      push?: boolean;
-      sms?: boolean;
-    };
+  notifications?: {
+    email?: boolean;
+    push?: boolean;
+    sms?: boolean;
+  };
   twoFactorEnabled: boolean;
-
-
-  // emailNotifications: boolean;
-  // pushNotifications: boolean;
-  // smsNotifications: boolean;
   marketingCommunications: boolean;
+  updatedAt?: Date;
   [key: string]: any;
+}
+
+export interface PreferenceHistoryEntry {
+  preferences: UserPreferences;
+  timestamp: Date;
 }
 
 export interface Address {
@@ -75,29 +78,61 @@ export interface RefreshToken {
   createdAt: Date;
 }
 
-export  interface loginAttempts{
+export interface LoginAttempt {
   timestamp: Date;
   success: boolean;
   ipAddress: string;
   userAgent: string;
 }
 
-export  interface  BackupCode {
+export interface BackupCode {
   code: string;
   used: boolean;
   usedAt?: Date;
+  createdAt?: Date;
 }
 
+export interface TrustedDevice {
+  deviceId: string;
+  name?: string;
+  userAgent?: string;
+  ipAddress?: string;
+  addedAt: Date;
+  lastUsed: Date;
+  [key: string]: any;
+}
+
+export interface RecoveryCode {
+  code: string;
+  used: boolean;
+  usedAt?: Date;
+  createdAt: Date;
+}
 
 export interface SecurityDetails {
-  question: string;
-  answer: string;
+  question?: string;
+  answer?: string;
   backupCodes?: BackupCode[];
-  loginAttempts?:loginAttempts[] ;
-  lockUntil?: Date;
+  loginAttempts?: LoginAttempt[];
+  accountLocked?: boolean;
+  lockExpiresAt?: Date;
+  recoveryCodes?: RecoveryCode[];
+  trustedDevices?: TrustedDevice[];
   twoFactorSecret?: string;
   tempTwoFactorSecret?: string;
   tempTwoFactorSecretExpires?: Date;
+}
+
+export interface UserNotification {
+  id: string;
+  title: string;
+  message: string;
+  type?: string;
+  read: boolean;
+  createdAt: Date;
+  readAt?: Date;
+  link?: string;
+  [key: string]: any;
 }
 
 export interface IUser extends Document {
@@ -124,25 +159,28 @@ export interface IUser extends Document {
   refreshTokens: RefreshToken[];
   loginHistory: LoginHistory[];
   preferences: UserPreferences;
+  preferencesHistory?: PreferenceHistoryEntry[];
   agentDetails?: AgentDetails;
   security?: SecurityDetails;
+  notifications?: UserNotification[];
+  avatarUrl?: string;
+  phone?: string | null;
   getFullName(): string;
-
   
   // Propriétés pour la vérification d'email
+  emailVerified?:boolean,
   isEmailVerified?: boolean;
   verificationToken?: string;
   emailVerificationToken?: string;
   emailVerificationTokenExpires?: Date;
   
-    // Propriétés pour la réinitialisation de mot de passe
+  // Propriétés pour la réinitialisation de mot de passe
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
   passwordChangedAt?: Date;
   
-
   // Propriétés pour la gestion de la suppression
   isDeleted?: boolean;
   deletedAt?: Date;
@@ -331,3 +369,24 @@ export interface UserInfo {
   addDeviceInfo?(deviceInfo: any): void;
   save(): Promise<void>;
 }
+
+export interface UserFilterOptions {
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  isActive?: boolean;
+  role?: string;
+  [key: string]: any; // Pour autoriser d'autres filtres dynamiques
+}
+
+export interface UserSearchOptions {
+  query?: string;
+  fields?: string[];
+  page?: number;
+  limit?: number;
+  filters?: Record<string, any>;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+

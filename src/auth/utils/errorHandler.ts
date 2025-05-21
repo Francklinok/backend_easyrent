@@ -1,7 +1,7 @@
 
 import { Request, Response, NextFunction } from 'express';
-import { createLogger } from '../../src/utils/logger/logger';
-import config from '../../config';
+import { createLogger } from '../../utils/logger/logger';
+import config from '../../../config';
 
 const logger = createLogger('ErrorHandler');
 

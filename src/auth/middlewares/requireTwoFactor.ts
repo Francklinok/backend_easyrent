@@ -1,7 +1,7 @@
 
 import { Request, Response, NextFunction } from 'express';
-import { AuthService } from '../../src/users/services/authService';
-import { createLogger } from '../../src/utils/logger/logger';
+import { AuthService } from '../../users/services/authService';
+import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('AuthMiddleware');
 const authService = new AuthService();

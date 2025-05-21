@@ -1,6 +1,6 @@
 import { RequestHandler } from 'express';
-import { createLogger } from '../../src/utils/logger/logger';
-import { AuthService } from '../../src/users/services/authService';// votre service JWT (ex: jwt.verify)
+import { createLogger } from '../../utils/logger/logger';
+import { AuthService } from '../../users/services/authService';// votre service JWT (ex: jwt.verify)
 
 const logger = createLogger('AuthMiddleware');
 

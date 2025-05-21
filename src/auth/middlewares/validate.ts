@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { ValidationChain, validationResult } from 'express-validator';
-import { createLogger } from '../../src/utils/logger/logger';
+import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('AuthMiddleware');
 

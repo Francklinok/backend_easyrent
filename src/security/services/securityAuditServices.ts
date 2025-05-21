@@ -23,7 +23,7 @@ export class SecurityAuditService {
   /**
    * Constructeur privé pour le pattern Singleton
    */
-  private constructor() {}
+  public constructor() {}
 
   /**
    * Obtient l'instance unique du service (pattern Singleton)

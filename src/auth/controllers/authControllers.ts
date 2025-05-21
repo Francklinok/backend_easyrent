@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { AuthService } from '../../src/users/services/authService';
-import { UserService } from '../../src/services/service';
-import { NotificationService } from '../../src/services/notificationServices';
-import { SecurityAuditService } from '../../src/services/auditservices';
+import { AuthService } from '../../users/services/authService';
+import { UserService } from '../../users/services/userService';
+import { NotificationService } from '../../services/notificationServices';
+import { SecurityAuditService } from '../../security/services/securityAuditServices';
 import { AppError } from '../utils/AppError';
-import { createLogger } from '../../src/utils/logger/logger';
+import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('AuthController');
 const authService = new AuthService();
