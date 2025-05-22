@@ -103,6 +103,17 @@ export class UserService {
       throw error;
     }
   }
+   /**
+   * Retrouve un utilisateur par son email
+   */
+  async getUserByUsername(username: string): Promise<IUser | null> {
+    try {
+      return await User.findOne({ username: username.toLowerCase() }).select('-resetPasswordToken -emailVerificationToken');
+    } catch (error) {
+      logger.error('Error fetching user by username', { error, username });
+      throw error;
+    }
+  }
 
   /**
    * Obtenir la liste des utilisateurs avec pagination et filtres
@@ -350,44 +361,87 @@ export class UserService {
   /**
    * Vérifie un compte utilisateur avec token
    */
-  async verifyUser(verificationToken: string): Promise<boolean> {
-    try {
-      logger.info('Verifying user account');
-      const user = await User.findOne({ emailVerificationToken: verificationToken });
+  async verifyUser(verificationToken: string): Promise<{
+  success: boolean;
+  message?: string;
+  userId?: string;
+}> {
+  try {
+    logger.info('Verifying user account');
+    const user = await User.findOne({ emailVerificationToken: verificationToken });
 
-      if (!user) {
-        logger.warn('Invalid verification token', { verificationToken });
-        return false;
-      }
-
-      // Mettre à jour le statut de vérification
-      user.isEmailVerified = true;
-      user.emailVerificationToken = undefined;
-      user.emailVerificationTokenExpires = undefined;
-      user.isActive = true; // Activer l'utilisateur après vérification
-      
-      await user.save();
-      
-      // Si c'est un agent, mettre à jour le statut de vérification
-      if (user.role === UserRole.AGENT && user.agentDetails) {
-        user.agentDetails.verificationStatus = VerificationStatus.PENDING;
-        await user.save();
-      }
-
-      logger.info('User verified successfully', { id: user.id });
-      await this.notificationService.sendWelcomeEmail(user.email, user.firstName);
-      
-      return true;
-    } catch (error) {
-      logger.error('Error verifying user', { error, verificationToken });
-      throw error;
+    if (!user) {
+      logger.warn('Invalid verification token', { verificationToken });
+      return {
+        success: false,
+        message: 'Token invalide ou expiré'
+      };
     }
+
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationTokenExpires = undefined;
+    user.isActive = true;
+
+    await user.save();
+
+    if (user.role === UserRole.AGENT && user.agentDetails) {
+      user.agentDetails.verificationStatus = VerificationStatus.PENDING;
+      await user.save();
+    }
+
+    logger.info('User verified successfully', { id: user.id });
+    await this.notificationService.sendWelcomeEmail(user.email, user.firstName);
+
+    return {
+      success: true,
+      userId: user.id
+    };
+  } catch (error) {
+    logger.error('Error verifying user', { error, verificationToken });
+    throw error;
   }
+}
+
+
+  // async verifyUser(verificationToken: string): Promise<boolean> {
+  //   try {
+  //     logger.info('Verifying user account');
+  //     const user = await User.findOne({ emailVerificationToken: verificationToken });
+
+  //     if (!user) {
+  //       logger.warn('Invalid verification token', { verificationToken });
+  //       return false;
+  //     }
+
+  //     // Mettre à jour le statut de vérification
+  //     user.isEmailVerified = true;
+  //     user.emailVerificationToken = undefined;
+  //     user.emailVerificationTokenExpires = undefined;
+  //     user.isActive = true; // Activer l'utilisateur après vérification
+      
+  //     await user.save();
+      
+  //     // Si c'est un agent, mettre à jour le statut de vérification
+  //     if (user.role === UserRole.AGENT && user.agentDetails) {
+  //       user.agentDetails.verificationStatus = VerificationStatus.PENDING;
+  //       await user.save();
+  //     }
+
+  //     logger.info('User verified successfully', { id: user.id });
+  //     await this.notificationService.sendWelcomeEmail(user.email, user.firstName);
+      
+  //     return true;
+  //   } catch (error) {
+  //     logger.error('Error verifying user', { error, verificationToken });
+  //     throw error;
+  //   }
+  // }
 
   /**
    * Initialise le processus de réinitialisation de mot de passe
    */
-  async initiatePasswordReset(email: string): Promise<boolean> {
+  async initiatePasswordReset(email: string, redirectUrl:string): Promise<boolean> {
     try {
       logger.info('Initiating password reset', { email });
       const user = await User.findOne({ email: email.toLowerCase() });
@@ -405,10 +459,11 @@ export class UserService {
       user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 heure
       
       await user.save();
-      
+      const resetLink = `${redirectUrl}?token=${resetToken}&email=${encodeURIComponent(email)}`;
+
       // Envoyer l'email de réinitialisation
-      await this.notificationService.sendPasswordResetEmail(email, resetToken, user.firstName);
-      
+      await this.notificationService.sendPasswordResetEmail(email, resetLink, user.firstName);
+
       logger.info('Password reset initiated successfully', { email });
       return true;
     } catch (error) {
@@ -416,7 +471,6 @@ export class UserService {
       throw error;
     }
   }
-
   /**
    * Réinitialise le mot de passe avec un jeton
    */

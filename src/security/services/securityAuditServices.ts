@@ -3,7 +3,10 @@
 import { ObjectId } from 'mongodb';
 import { createLogger } from '../../utils/logger/logger';
 import { SecurityAuditModel } from '../models/securityAuditModel';
-import { SecurityAuditEvent,AuditEventData,SecurityEventType,SecurityEventDetails,SecurityEventSearchCriteria,SecuritySearchOptions,PaginatedSecurityEvents,SuspiciousActivityResult } from '../type/auditType';
+import { SecurityAuditEvent,AuditEventData,SecurityEventType,SecuritySearchOptions,SuspiciousActivityResult } from '../type/auditType';
+import { AuditEventSeverity,SecurityAuditDocumentPopulated, PopulatedUser} from '../type/auditType';
+import { PipelineStage } from 'mongoose';
+
 /**
  * Service responsable de l'audit de sécurité
  * Enregistre les événements liés à la sécurité pour suivi et analyse
@@ -123,7 +126,7 @@ export class SecurityAuditService {
           error: 'Failed to save audit event',
           originalDetails: eventData.details
         }
-      } as SecurityAuditEvent;
+      } as unknown as  SecurityAuditEvent;
     }
   }
 
@@ -323,7 +326,7 @@ export class SecurityAuditService {
       // Vérifier les échecs de connexion récents
       const failedLogins = await SecurityAuditModel.countDocuments({
         userId: new ObjectId(userId),
-        eventType: StandardAuditEventType.LOGIN_FAILURE,
+        eventType: SecurityEventType.FAILED_LOGIN,
         timestamp: { $gte: timeWindow }
       });
 
@@ -335,7 +338,7 @@ export class SecurityAuditService {
       // Vérifier les connexions depuis différentes adresses IP
       const distinctIpAddresses = await SecurityAuditModel.distinct('ipAddress', {
         userId: new ObjectId(userId),
-        eventType: StandardAuditEventType.LOGIN_SUCCESS,
+        eventType: SecurityEventType.SUCCESSFUL_LOGIN,
         timestamp: { $gte: timeWindow }
       });
 
@@ -346,11 +349,11 @@ export class SecurityAuditService {
 
       // Vérifier les activités sensibles
       const sensitiveEventTypes = [
-        StandardAuditEventType.PASSWORD_CHANGED,
-        StandardAuditEventType.EMAIL_CHANGED,
-        StandardAuditEventType.TWO_FACTOR_DISABLED,
-        StandardAuditEventType.PASSWORD_RESET_REQUESTED,
-        StandardAuditEventType.SECURITY_SETTINGS_CHANGED
+        SecurityEventType.PASSWORD_CHANGED,
+        SecurityEventType.EMAIL_CHANGED,
+        SecurityEventType.TWO_FACTOR_DISABLED,
+        SecurityEventType.PASSWORD_RESET_REQUESTED,
+        SecurityEventType.SECURITY_SETTINGS_CHANGED
       ];
       
       const sensitiveEvents = await SecurityAuditModel.find({
@@ -367,7 +370,7 @@ export class SecurityAuditService {
       // Vérifier les actions administratives
       const adminActionEvents = await SecurityAuditModel.countDocuments({
         userId: new ObjectId(userId),
-        eventType: StandardAuditEventType.ADMIN_ACTION,
+        eventType: SecurityEventType.ADMIN_ACTION,
         timestamp: { $gte: timeWindow }
       });
       
@@ -447,21 +450,28 @@ export class SecurityAuditService {
         ...filter
       };
 
-      // Pipeline d'agrégation
-      const pipeline = [
-        {
-          $match: baseMatch
-        },
-        {
-          $group: {
-            _id: `$${groupBy}`,
-            count: { $sum: 1 }
-          }
-        },
-        {
-          $sort: { count: -1 }
-        }
-      ];
+  const pipeline: PipelineStage[] = [
+  {
+    $match: {
+      timestamp: {
+        $gte: startDate,
+        $lte: endDate
+      }
+    }
+  },
+  {
+    $group: {
+      _id: "$eventType",
+      count: { $sum: 1 }
+    }
+  },
+  {
+    $sort: {
+      count: -1
+    }
+  }
+];
+
 
       const stats = await SecurityAuditModel.aggregate(pipeline);
       
@@ -511,30 +521,33 @@ export class SecurityAuditService {
       }
 
       // Pipeline d'agrégation
-      const pipeline = [
-        {
-          $match: match
-        },
-        {
-          $group: {
-            _id: {
-              year: { $year: "$timestamp" },
-              month: { $month: "$timestamp" },
-              day: { $dayOfMonth: "$timestamp" }
-            },
-            count: { $sum: 1 }
-          }
-        },
-        {
-          $sort: {
-            "_id.year": 1,
-            "_id.month": 1,
-            "_id.day": 1
-          }
-        }
-      ];
 
-      const stats = await SecurityAuditModel.aggregate(pipeline);
+const pipeline: PipelineStage[] = [
+  {
+    $match: match
+  },
+  {
+    $group: {
+      _id: {
+        year: { $year: "$timestamp" },
+        month: { $month: "$timestamp" },
+        day: { $dayOfMonth: "$timestamp" }
+      },
+      count: { $sum: 1 }
+    }
+  },
+  {
+    $sort: {
+      "_id.year": 1 as 1,
+      "_id.month": 1 as 1,
+      "_id.day": 1 as 1
+    }
+  }
+];
+
+
+
+const stats = await SecurityAuditModel.aggregate(pipeline);
       
       // Formater les résultats
       return stats.map(item => {
@@ -678,8 +691,8 @@ export class SecurityAuditService {
       ]);
       
       // Calculer le ratio d'échecs de connexion
-      const loginAttempts = stats[StandardAuditEventType.LOGIN_SUCCESS] || 0;
-      const loginFailures = stats[StandardAuditEventType.LOGIN_FAILURE] || 0;
+      const loginAttempts = stats[SecurityEventType.SUCCESSFUL_LOGIN] || 0;
+      const loginFailures = stats[SecurityEventType.FAILED_LOGIN] || 0;
       const totalLoginAttempts = loginAttempts + loginFailures;
       const failureRatio = totalLoginAttempts > 0 ? loginFailures / totalLoginAttempts : 0;
       
@@ -751,7 +764,11 @@ export class SecurityAuditService {
    * @returns Résumé des événements de sécurité
    */
 
-  async generateSecuritySummary(
+  // First, create proper types for populated documents
+
+
+// Then use this in your method
+async generateSecuritySummary(
   startDate: Date,
   endDate: Date
 ): Promise<Record<string, any>> {
@@ -765,12 +782,15 @@ export class SecurityAuditService {
       this.analyzeSecurityTrends(startDate, endDate)
     ]);
     
-    // Récupérer les incidents critiques
+    // Récupérer les incidents critiques avec population des utilisateurs
     const criticalIncidents = await SecurityAuditModel.find({
       timestamp: { $gte: startDate, $lte: endDate },
       severity: AuditEventSeverity.CRITICAL
-    }).sort({ timestamp: -1 });
-
+    })
+    .populate<{ userId?: PopulatedUser }>('userId', 'email name')
+    .populate<{ targetUserId?: PopulatedUser }>('targetUserId', 'email name')
+    .sort({ timestamp: -1 }) as SecurityAuditDocumentPopulated[];
+    
     // Résumé final
     const summary = {
       period: {
@@ -782,21 +802,95 @@ export class SecurityAuditService {
       trends,
       criticalIncidents: criticalIncidents.map(incident => ({
         id: incident._id,
-        message: incident.message,
+        eventType: incident.eventType,
         timestamp: incident.timestamp,
-        source: incident.source,
-        affectedSystems: incident.affectedSystems,
-        user: incident.user,
+        severity: incident.severity,
+        ipAddress: incident.ipAddress,
+        userAgent: incident.userAgent,
+        
+        // User information (now properly typed)
+        user: incident.userId ? {
+          id: incident.userId._id,
+          email: incident.userId.email,
+          name: incident.userId.name
+        } : null,
+        
+        // Target user if applicable
+        targetUser: incident.targetUserId ? {
+          id: incident.targetUserId._id,
+          email: incident.targetUserId.email,
+          name: incident.targetUserId.name
+        } : null,
+        
+        // Description from details
+        description: incident.details?.description || `Critical ${incident.eventType} event`,
+        
+        // Status and additional info
+        status: incident.details?.status,
+        failureReason: incident.details?.failureReason,
+        targetResource: incident.targetResource || incident.details?.targetResource,
+        
+        // Admin action info if applicable
+        adminAction: incident.details?.actionTaken,
+        adminId: incident.details?.adminId,
+        
+        // Geolocation and device info
+        location: incident.details?.geolocation,
+        device: incident.details?.deviceInfo,
+        
+        // Session information
+        sessionId: incident.sessionId
       })),
-      totalCritical: criticalIncidents.length
+      totalCritical: criticalIncidents.length,
+      
+      // Add summary statistics
+      summaryStats: {
+        avgIncidentsPerDay: Math.round(criticalIncidents.length / periodDays * 100) / 100,
+        mostCommonEventType: this.getMostCommonEventType(criticalIncidents),
+        topRiskyIPs: this.getTopRiskyIPs(criticalIncidents),
+        affectedUsersCount: this.getUniqueUsersCount(criticalIncidents)
+      }
     };
-
+    
     return summary;
   } catch (error) {
     console.error('Erreur lors de la génération du résumé de sécurité:', error);
     throw new Error('Impossible de générer le résumé de sécurité.');
   }
 }
+
+// Helper methods with proper typing
+private getMostCommonEventType(incidents: SecurityAuditDocumentPopulated[]): string | null {
+  if (incidents.length === 0) return null;
+  
+  const eventCounts = incidents.reduce((acc, incident) => {
+    acc[incident.eventType] = (acc[incident.eventType] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  return Object.keys(eventCounts).reduce((a, b) => 
+    eventCounts[a] > eventCounts[b] ? a : b
+  );
 }
 
- 
+private getTopRiskyIPs(incidents: SecurityAuditDocumentPopulated[], limit = 5): string[] {
+  const ipCounts = incidents.reduce((acc, incident) => {
+    acc[incident.ipAddress] = (acc[incident.ipAddress] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  return Object.entries(ipCounts)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, limit)
+    .map(([ip]) => ip);
+}
+
+private getUniqueUsersCount(incidents: SecurityAuditDocumentPopulated[]): number {
+  const uniqueUsers = new Set<string>();
+  incidents.forEach(incident => {
+    if (incident.userId) uniqueUsers.add(incident.userId._id.toString());
+    if (incident.targetUserId) uniqueUsers.add(incident.targetUserId._id.toString());
+  });
+  return uniqueUsers.size;
+}
+}

@@ -252,7 +252,7 @@ class AuthControllers {
         const user = await userService.getUserByEmail(email);
         await securityAuditService.logEvent({
           eventType: 'PASSWORD_RESET_REQUESTED',
-          userId: user?._id.toString(),
+          userId: user?.id.toString(),
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
           details: { email }
@@ -295,9 +295,30 @@ class AuthControllers {
         ipAddress: req.ip,
         userAgent: req.headers['user-agent']
       });
-      
+
+      ///
+      if (!result.userId) {
+        res.status(500).json({
+          success: false,
+          message: "Erreur interne : ID utilisateur manquant après réinitialisation"
+        });
+        return;
+      }
+
+      const user = await userService.getUserById(result.userId);
+
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: "Utilisateur non trouvé"
+        });
+        return;
+      }
+
+
       // Envoyer une notification à l'utilisateur
-      await notificationService.sendPasswordChangedNotification(result.userId);
+      await notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName);
+
       
       res.status(200).json({
         success: true,
@@ -323,7 +344,7 @@ class AuthControllers {
         return;
       }
       
-      const result = await userService.verifyEmail(token);
+      const result = await userService.verifyUser(token);
       
       if (!result.success) {
         res.status(400).json({
@@ -355,46 +376,55 @@ class AuthControllers {
   /**
    * Renvoyer l'email de vérification
    */
-  async resendVerificationEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { email } = req.body;
-      
-      const user = await userService.getUserByEmail(email);
-      
-      if (!user) {
-        // Ne pas révéler si l'email existe ou non
-        res.status(200).json({
-          success: true,
-          message: 'Si un compte existe avec cet email et n\'est pas encore vérifié, un nouvel email de vérification sera envoyé'
-        });
-        return;
-      }
-
-      if (user.emailVerified) {
-        res.status(400).json({
-          success: false,
-          message: 'Ce compte est déjà vérifié'
-        });
-        return;
-      }
-      
-      await userService.sendVerificationEmail(user._id.toString());
-      
-      await securityAuditService.logEvent({
-        eventType: 'VERIFICATION_EMAIL_RESENT',
-        userId: user._id.toString(),
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent']
-      });
-      
+  
+async resendVerificationEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { email } = req.body;
+   
+    const user = await userService.getUserByEmail(email);
+   
+    if (!user) {
+      // Ne pas révéler si l'email existe ou non
       res.status(200).json({
         success: true,
-        message: 'Email de vérification renvoyé avec succès'
+        message: 'Si un compte existe avec cet email et n\'est pas encore vérifié, un nouvel email de vérification sera envoyé'
       });
-    } catch (error) {
-      next(error);
+      return;
     }
+    
+    if (user.emailVerified) {
+      res.status(400).json({
+        success: false,
+        message: 'Ce compte est déjà vérifié'
+      });
+      return;
+    }
+   
+    // Generate a new verification token
+    const verificationToken = await authService.generateVerificationToken(user.id.toString());
+   
+    // Send verification email with all required parameters
+    await notificationService.sendVerificationEmail(
+      user.email,           // email
+      user.firstName,       // firstName
+      verificationToken     // token
+    );
+   
+    await securityAuditService.logEvent({
+      eventType: 'VERIFICATION_EMAIL_RESENT',
+      userId: user.id.toString(),
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+   
+    res.status(200).json({
+      success: true,
+      message: 'Email de vérification renvoyé avec succès'
+    });
+  } catch (error) {
+    next(error);
   }
+}
 
   /**
    * Changement de mot de passe
@@ -895,3 +925,4 @@ class AuthControllers {
 }
 
 export default AuthControllers;
+

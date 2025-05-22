@@ -619,6 +619,82 @@ export class AuthService {
       throw new Error(`Mass session revocation failed: ${errorMessage}`);
     }
   }
+  // À ajouter dans votre AuthService
+
+/**
+ * Génère un token de vérification d'email
+ */
+async generateVerificationToken(userId: string): Promise<string> {
+  try {
+    // Générer un token alééatoire sécurisé
+    const token = crypto.randomBytes(32).toString('hex');
+    
+    // Stocker le token dans la base de données avec une expiration
+    await this.userService.updateVerificationToken(userId, token);
+    
+    logger.info('Verification token generated', { userId });
+    return token;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error generating verification token', { error: errorMessage, userId });
+    throw new Error(`Verification token generation failed: ${errorMessage}`);
+  }
+}
+
+
+/**
+ * Invalide toutes les autres sessions sauf la courante
+ * (Alias pour revokeAllSessionsExceptCurrent)
+ */
+async invalidateOtherSessions(userId: string, currentSessionId: string): Promise<number> {
+  try {
+    const revokedCount = await this.revokeAllSessionsExceptCurrent(userId, currentSessionId);
+    logger.info('Other sessions invalidated', { userId, revokedCount });
+    return revokedCount;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error invalidating other sessions', { error: errorMessage, userId });
+    throw new Error(`Other sessions invalidation failed: ${errorMessage}`);
+  }
+}
+
+/**
+ * Invalide toutes les sessions d'un utilisateur
+ * (Alias pour logoutAllDevices)
+ */
+async invalidateAllSessions(userId: string): Promise<void> {
+  try {
+    await this.logoutAllDevices(userId);
+    logger.info('All sessions invalidated', { userId });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error invalidating all sessions', { error: errorMessage, userId });
+    throw new Error(`All sessions invalidation failed: ${errorMessage}`);
+  }
+}
+/**
+ * Valide un token de vérification d'email
+ */
+async validateVerificationToken(token: string): Promise<{ userId: string; email: string } | null> {
+  try {
+    const user = await this.userService.getUserByVerificationToken(token);
+    
+    if (!user) {
+      logger.warn('Invalid verification token', { token: token.substring(0, 8) + '...' });
+      return null;
+    }
+    
+    logger.info('Verification token validated', { userId: user._id });
+    return {
+      userId: user._id.toString(),
+      email: user.email
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error validating verification token', { error: errorMessage });
+    return null;
+  }
+}
 
   /**
    * Récupère les informations de sécurité d'un utilisateur

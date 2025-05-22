@@ -126,6 +126,12 @@ export interface SecurityAuditEvent extends Document {
   ipAddress: string;
   userAgent: string;
   details: SecurityEventDetails;
+  severity?: AuditEventSeverity;
+  targetResource?: string; // <-- Correct spelling
+  targetUserId?: ObjectId;
+  sessionId?: string;
+
+
 }
 
 /**
@@ -218,4 +224,15 @@ export  interface SecurityAuditDocument extends Document, SecurityAuditEvent {
   targetResource?: string;
   targetUserId?: ObjectId;
   sessionId?: string;
+}
+
+export  interface PopulatedUser {
+  _id: ObjectId;
+  email: string;
+  name?: string;
+}
+
+export interface SecurityAuditDocumentPopulated extends Omit<SecurityAuditDocument, 'userId' | 'targetUserId'> {
+  userId?: PopulatedUser;
+  targetUserId?: PopulatedUser;
 }
