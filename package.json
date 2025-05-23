@@ -4,7 +4,7 @@
   "main": "server.ts",
   "scripts": {
     "dev": "nodemon",
-    "test":"ts-node ./server.ts",
+    "test": "ts-node ./server.ts",
     "build": "tsup",
     "start": "node dist/server.js"
   },
@@ -27,6 +27,7 @@
     "rate-limit-redis": "^4.2.0",
     "redis": "^5.0.1",
     "socket.io": "^4.8.1",
+    "speakeasy": "^2.0.0",
     "uuid": "^11.1.0",
     "validator": "^13.15.0",
     "winston": "^3.17.0",
@@ -41,7 +42,9 @@
     "@types/morgan": "^1.9.9",
     "@types/ms": "^2.1.0",
     "@types/node": "^22.15.18",
+    "@types/qrcode": "^1.5.5",
     "@types/socket.io": "^3.0.1",
+    "@types/speakeasy": "^2.0.10",
     "@types/uuid": "^10.0.0",
     "@types/validator": "^13.15.0",
     "nodemon": "^3.1.10",

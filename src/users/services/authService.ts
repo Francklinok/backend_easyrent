@@ -1,3 +1,4 @@
+
 import jwt from 'jsonwebtoken';
 import { Request } from 'express';
 import crypto from 'crypto';
@@ -69,6 +70,7 @@ export interface TokenPayload {
   role: string;
   sessionId?: string;
   deviceId?: string;
+  temp?: boolean; // For temporary tokens (2FA)
 }
 
 /**
@@ -91,10 +93,11 @@ interface LoginDetails {
 }
 
 /**
- * Interface pour les informations utilisateur étendues
+ * Interface étendue pour typer les utilisateurs avec leurs méthodes
+ * Compatible avec votre IUser existant
  */
-interface UserInfo {
-  _id: string;
+interface ExtendedUser {
+  _id: string | { toString(): string };
   id: string;
   email: string;
   role: string;
@@ -105,11 +108,14 @@ interface UserInfo {
   twoFactorSecret?: string;
   tempTwoFactorSecret?: string;
   lastPasswordChange?: Date;
+  passwordChangedAt?: Date; // Alternative field name
   createdAt: Date;
   accountLockout?: {
     isLocked: boolean;
     lockUntil?: Date;
   };
+  lockUntil?: Date; // Alternative structure
+  isLocked?: boolean; // Alternative structure
   comparePassword(password: string): Promise<boolean>;
   updateLastLogin(ip: string, userAgent: string): void;
   recordLoginAttempt(details: LoginDetails): void;
@@ -146,16 +152,18 @@ export class AuthService {
 
       logger.info('Authenticating user', { email });
       const loginDetails = this.extractLoginDetails(req);
-      const user = await this.userService.getUserByEmail(email);
+      const user = await this.userService.getUserByEmail(email) as ExtendedUser | null;
 
       if (!user) {
         logger.warn('Authentication failed: user not found', { email });
         return null;
       }
 
-      // Vérifier si le compte est verrouillé
-      if (user.accountLockout?.isLocked && user.accountLockout.lockUntil && user.accountLockout.lockUntil > new Date()) {
-        logger.warn('Authentication failed: account is locked', { email, userId: user._id });
+      // Vérifier si le compte est verrouillé (gérer les différentes structures)
+      const isAccountLocked = this.isUserAccountLocked(user);
+      if (isAccountLocked) {
+        const userId = this.getUserId(user);
+        logger.warn('Authentication failed: account is locked', { email, userId });
         return null;
       }
 
@@ -169,7 +177,8 @@ export class AuthService {
       }
 
       if (!user.isActive) {
-        logger.warn('Authentication failed: account is inactive', { email, userId: user._id });
+        const userId = this.getUserId(user);
+        logger.warn('Authentication failed: account is inactive', { email, userId });
         await user.save();
         return null;
       }
@@ -187,7 +196,8 @@ export class AuthService {
       // Si la 2FA est activée, retourner un token temporaire
       if (user.preferences?.twoFactorEnabled) {
         const tempToken = this.generateTemporaryToken(user, options?.deviceInfo?.deviceId);
-        logger.info('2FA required for authentication', { userId: user._id });
+        const userId = this.getUserId(user);
+        logger.info('2FA required for authentication', { userId });
         return {
           accessToken: tempToken,
           refreshToken: '',
@@ -196,7 +206,8 @@ export class AuthService {
       }
 
       const tokens = this.generateAuthTokens(user, options);
-      logger.info('Authentication successful', { userId: user._id });
+      const userId = this.getUserId(user);
+      logger.info('Authentication successful', { userId });
 
       return tokens;
     } catch (error) {
@@ -209,28 +220,33 @@ export class AuthService {
   /**
    * Génère un nouveau token d'accès à partir d'un token de rafraîchissement
    */
-  async refreshAccessToken(refreshToken: string): Promise<string | null> {
+  
+// Fixed refreshAccessToken method
+async refreshAccessToken(refreshToken: string): Promise<string | null> {
     try {
-      if (!config.auth?.jwtRefreshSecret) {
-        logger.error('JWT refresh secret not configured');
+      const jwtRefreshSecret = config.auth?.jwtRefreshSecret;
+      const jwtSecret = config.auth?.jwtSecret;
+
+      if (!jwtRefreshSecret || typeof jwtRefreshSecret !== 'string') {
+        logger.error('JWT refresh secret not configured or invalid');
         return null;
       }
 
-      const decoded = jwt.verify(refreshToken, config.auth.jwtRefreshSecret) as TokenPayload;
+      if (!jwtSecret || typeof jwtSecret !== 'string') {
+        logger.error('JWT secret not configured or invalid');
+        return null;
+      }
 
-      const user = await this.userService.getUserById(decoded.userId) as UserInfo;
+      const decoded = jwt.verify(refreshToken, jwtRefreshSecret) as TokenPayload;
+      const user = await this.userService.getUserById(decoded.userId) as ExtendedUser | null;
+      
       if (!user || !user.isActive) {
         logger.warn('Token refresh failed: user not found or inactive', { userId: decoded.userId });
         return null;
       }
-      
-      if (!config.auth?.jwtSecret) {
-        logger.error('JWT secret not configured');
-        return null;
-      }
 
       const payload: TokenPayload = {
-        userId: user._id.toString(),
+        userId: this.getUserId(user),
         email: user.email,
         role: user.role,
         sessionId: decoded.sessionId,
@@ -239,24 +255,24 @@ export class AuthService {
 
       const accessToken = jwt.sign(
         payload,
-        config.auth.jwtSecret,
+        jwtSecret,
         { expiresIn: config.auth?.jwtExpiresIn || '15m' }
       );
 
-      logger.info('Access token refreshed successfully', { userId: user._id });
+      const userId = this.getUserId(user);
+      logger.info('Access token refreshed successfully', { userId });
       return accessToken;
     } catch (error) {
       if (error instanceof jwt.JsonWebTokenError) {
         logger.warn('Invalid refresh token', { error: error.message });
         return null;
       }
-
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       logger.error('Error during token refresh', { error: errorMessage });
       throw new Error(`Token refresh failed: ${errorMessage}`);
     }
   }
-
+  
   /**
    * Déconnecte un utilisateur et met à jour sa présence
    */
@@ -265,7 +281,7 @@ export class AuthService {
       if (sessionId) {
         // Try to revoke session if the method exists, otherwise handle gracefully
         try {
-          await this.userService.revokeUserSession(userId, sessionId);
+          await this.userService.revokeSession(userId, sessionId);
         } catch (error) {
           // If method doesn't exist, log and continue
           logger.warn('Session revocation method not available', { userId, sessionId });
@@ -284,9 +300,9 @@ export class AuthService {
   /**
    * Déconnecte l'utilisateur de tous les appareils
    */
-  async logoutAllDevices(userId: string): Promise<void> {
+  async logoutAllDevices(userId: string,sessionId:string): Promise<void> {
     try {
-      await this.invalidateAllUserTokens(userId);
+      await this.invalidateAllUserTokens(userId,sessionId);
       await this.presenceService.setUserOffline(userId);
       
       logger.info('User logged out from all devices', { userId });
@@ -338,7 +354,7 @@ export class AuthService {
         return null;
       }
 
-      const user = await this.userService.getUserById(decoded.userId) as UserInfo;
+      const user = await this.userService.getUserById(decoded.userId) as ExtendedUser | null;
       if (!user || !user.isActive) {
         return null;
       }
@@ -358,7 +374,7 @@ export class AuthService {
    */
   async generateTwoFactorSecret(userId: string): Promise<TwoFactorSetup | null> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo;
+      const user = await this.userService.getUserById(userId) as ExtendedUser | null;
       if (!user) {
         logger.warn('User not found for 2FA setup', { userId });
         return null;
@@ -375,7 +391,7 @@ export class AuthService {
 
       // Store temporary secret using the existing method
       try {
-        await this.userService.storeTempTwoFactorSecret(userId, secret.base32, backupCodes);
+        await this.userService.storeTempTwoFactorSecret(userId, secret.base32);
       } catch (error) {
         // If method doesn't exist, try alternative approach
         logger.warn('storeTempTwoFactorSecret method not available, using alternative', { userId });
@@ -401,7 +417,7 @@ export class AuthService {
    */
   async verifyTwoFactorCode(userId: string, code: string): Promise<boolean> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo;
+      const user = await this.userService.getUserById(userId) as ExtendedUser | null;
       if (!user || !user.twoFactorSecret) {
         return false;
       }
@@ -432,12 +448,20 @@ export class AuthService {
    */
   async generateTokensAfter2FA(userId: string, deviceId?: string): Promise<AuthTokens> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo;
+      const user = await this.userService.getUserById(userId) as ExtendedUser | null;
       if (!user) {
         throw new Error('User not found');
       }
 
-      const options: AuthOptions = deviceId ? { deviceInfo: { deviceId, deviceName: '', platform: '', version: '' } } : undefined;
+      const options: AuthOptions | undefined = deviceId ? { 
+        deviceInfo: { 
+          deviceId, 
+          deviceName: '', 
+          platform: '', 
+          version: '' 
+        } 
+      } : undefined;
+
       const tokens = this.generateAuthTokens(user, options);
       logger.info('Tokens generated after successful 2FA', { userId });
       return tokens;
@@ -453,7 +477,7 @@ export class AuthService {
    */
   async verifyAndEnableTwoFactor(userId: string, code: string): Promise<boolean> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo;
+      const user = await this.userService.getUserById(userId) as ExtendedUser | null;
       if (!user || !user.tempTwoFactorSecret) {
         return false;
       }
@@ -467,7 +491,7 @@ export class AuthService {
       
       if (isValid) {
         // Use the correct method name based on the error message
-        await this.userService.enableTwoFactorAuth(userId, user.tempTwoFactorSecret);
+        await this.userService.enableTwoFactorAuth(userId);
         logger.info('2FA enabled successfully', { userId });
         return true;
       }
@@ -554,7 +578,7 @@ export class AuthService {
     try {
       // Try to use the method if it exists
       try {
-        const sessions = await this.userService.getActiveSessions(userId, includeExpired);
+        const sessions = await this.userService.getActiveSessions(userId);
         logger.info('Active sessions retrieved', { userId, count: sessions.length });
         return sessions;
       } catch (error) {
@@ -619,89 +643,109 @@ export class AuthService {
       throw new Error(`Mass session revocation failed: ${errorMessage}`);
     }
   }
-  // À ajouter dans votre AuthService
 
-/**
- * Génère un token de vérification d'email
- */
-async generateVerificationToken(userId: string): Promise<string> {
-  try {
-    // Générer un token alééatoire sécurisé
-    const token = crypto.randomBytes(32).toString('hex');
-    
-    // Stocker le token dans la base de données avec une expiration
-    await this.userService.updateVerificationToken(userId, token);
-    
-    logger.info('Verification token generated', { userId });
-    return token;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error generating verification token', { error: errorMessage, userId });
-    throw new Error(`Verification token generation failed: ${errorMessage}`);
+  /**
+   * Génère un token de vérification d'email
+   */
+  async generateVerificationToken(userId: string): Promise<string> {
+    try {
+      // Générer un token aléatoire sécurisé
+      const token = crypto.randomBytes(32).toString('hex');
+      
+      // Stocker le token dans la base de données avec une expiration
+      await this.userService.updateVerificationToken(userId);
+      
+      logger.info('Verification token generated', { userId });
+      return token;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error generating verification token', { error: errorMessage, userId });
+      throw new Error(`Verification token generation failed: ${errorMessage}`);
+    }
   }
-}
 
-
-/**
- * Invalide toutes les autres sessions sauf la courante
- * (Alias pour revokeAllSessionsExceptCurrent)
- */
-async invalidateOtherSessions(userId: string, currentSessionId: string): Promise<number> {
-  try {
-    const revokedCount = await this.revokeAllSessionsExceptCurrent(userId, currentSessionId);
-    logger.info('Other sessions invalidated', { userId, revokedCount });
-    return revokedCount;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error invalidating other sessions', { error: errorMessage, userId });
-    throw new Error(`Other sessions invalidation failed: ${errorMessage}`);
-  }
-}
-
-/**
- * Invalide toutes les sessions d'un utilisateur
- * (Alias pour logoutAllDevices)
- */
-async invalidateAllSessions(userId: string): Promise<void> {
-  try {
-    await this.logoutAllDevices(userId);
-    logger.info('All sessions invalidated', { userId });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error invalidating all sessions', { error: errorMessage, userId });
-    throw new Error(`All sessions invalidation failed: ${errorMessage}`);
-  }
-}
-/**
- * Valide un token de vérification d'email
- */
-async validateVerificationToken(token: string): Promise<{ userId: string; email: string } | null> {
-  try {
-    const user = await this.userService.getUserByVerificationToken(token);
-    
-    if (!user) {
-      logger.warn('Invalid verification token', { token: token.substring(0, 8) + '...' });
+  /**
+   * Valide un token de vérification d'email
+   */
+  async validateVerificationToken(token: string): Promise<{ userId: string; email: string } | null> {
+    try {
+      const user = await this.userService.getUserByVerificationToken(token) as ExtendedUser | null;
+      
+      if (!user) {
+        logger.warn('Invalid verification token', { token: token.substring(0, 8) + '...' });
+        return null;
+      }
+      
+      const userId = this.getUserId(user);
+      logger.info('Verification token validated', { userId });
+      return {
+        userId,
+        email: user.email
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error validating verification token', { error: errorMessage });
       return null;
     }
-    
-    logger.info('Verification token validated', { userId: user._id });
-    return {
-      userId: user._id.toString(),
-      email: user.email
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error validating verification token', { error: errorMessage });
-    return null;
   }
-}
+
+  /**
+   * Invalide toutes les autres sessions sauf la courante
+   * (Alias pour revokeAllSessionsExceptCurrent)
+   */
+  async invalidateOtherSessions(userId: string, currentSessionId: string): Promise<number> {
+    try {
+      const revokedCount = await this.revokeAllSessionsExceptCurrent(userId, currentSessionId);
+      logger.info('Other sessions invalidated', { userId, revokedCount });
+      return revokedCount;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error invalidating other sessions', { error: errorMessage, userId });
+      throw new Error(`Other sessions invalidation failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Invalide toutes les sessions d'un utilisateur
+   * (Alias pour logoutAllDevices)
+   */
+  async invalidateAllSessions(userId: string, sessionId:string): Promise<void> {
+    try {
+      await this.logoutAllDevices(userId,sessionId);
+      logger.info('All sessions invalidated', { userId });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error invalidating all sessions', { error: errorMessage, userId });
+      throw new Error(`All sessions invalidation failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Invalide tous les tokens d'un utilisateur
+   */
+  private async invalidateAllUserTokens(userId: string, sessionId:string): Promise<void> {
+    try {
+      // Try to revoke all sessions if the method exists
+      try {
+        await this.userService.revokeSession(userId,sessionId);
+      } catch (error) {
+        logger.warn('revokeAllSessions method not available', { userId });
+        // Alternative: you might want to implement token blacklisting here
+      }
+      logger.info('All user tokens invalidated', { userId });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Error invalidating all user tokens', { error: errorMessage, userId });
+      throw new Error(`Token invalidation failed: ${errorMessage}`);
+    }
+  }
 
   /**
    * Récupère les informations de sécurité d'un utilisateur
    */
   async getSecurityInfo(userId: string): Promise<SecurityInfo> {
     try {
-      const user = await this.userService.getUserById(userId);
+      const user = await this.userService.getUserById(userId) as ExtendedUser | null;
       if (!user) {
         throw new Error('User not found');
       }
@@ -722,15 +766,18 @@ async validateVerificationToken(token: string): Promise<{ userId: string; email:
         logger.warn('getRecentLoginAttemptsCount method not available', { userId });
       }
 
+      // Handle different password change field names
+      const lastPasswordChange = user.lastPasswordChange || user.passwordChangedAt || user.createdAt;
+
+      // Handle different account lockout structures
+      const accountLockout = this.getAccountLockoutInfo(user);
+
       const securityInfo: SecurityInfo = {
         twoFactorEnabled: user.preferences?.twoFactorEnabled || false,
-        lastPasswordChange: user.lastPasswordChange || user.createdAt,
+        lastPasswordChange,
         activeSessions,
         recentLoginAttempts,
-        accountLockout: user.accountLockout ? {
-          isLocked: user.accountLockout.isLocked,
-          lockUntil: user.accountLockout.lockUntil
-        } : { isLocked: false }
+        accountLockout
       };
 
       logger.info('Security info retrieved', { userId });
@@ -745,6 +792,54 @@ async validateVerificationToken(token: string): Promise<{ userId: string; email:
   // Méthodes utilitaires privées
 
   /**
+   * Extrait l'ID utilisateur en gérant les différents formats
+   */
+  private getUserId(user: ExtendedUser): string {
+    if (typeof user._id === 'string') {
+      return user._id;
+    } else if (user._id && typeof user._id.toString === 'function') {
+      return user._id.toString();
+    }
+    return user.id;
+  }
+
+  /**
+   * Vérifie si le compte utilisateur est verrouillé
+   */
+  private isUserAccountLocked(user: ExtendedUser): boolean {
+    // Handle nested accountLockout structure
+    if (user.accountLockout?.isLocked && user.accountLockout.lockUntil && user.accountLockout.lockUntil > new Date()) {
+      return true;
+    }
+    
+    // Handle flat structure
+    if (user.isLocked && user.lockUntil && user.lockUntil > new Date()) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Récupère les informations de verrouillage du compte
+   */
+  private getAccountLockoutInfo(user: ExtendedUser): { isLocked: boolean; lockUntil?: Date } {
+    // Handle nested structure
+    if (user.accountLockout) {
+      return {
+        isLocked: user.accountLockout.isLocked || false,
+        lockUntil: user.accountLockout.lockUntil
+      };
+    }
+    
+    // Handle flat structure
+    return {
+      isLocked: user.isLocked || false,
+      lockUntil: user.lockUntil
+    };
+  }
+
+  /**
    * Extrait les détails de connexion à partir de la requête
    */
   private extractLoginDetails(req: Request): LoginDetails {
@@ -757,59 +852,15 @@ async validateVerificationToken(token: string): Promise<{ userId: string; email:
   }
 
   /**
-   * Génère les tokens d'authentification pour un utilisateur
+   * Génère un token temporaire pour la 2FA
    */
-  private generateAuthTokens(user: UserInfo, options?: AuthOptions): AuthTokens {
-    const sessionId = crypto.randomUUID();
-    
+  private generateTemporaryToken(user: ExtendedUser, deviceId?: string): string {
+    if (!config.auth?.jwtSecret) {
+      throw new Error('JWT secret not configured');
+    }
+
     const payload: TokenPayload = {
-      userId: user._id.toString(),
-      email: user.email,
-      role: user.role,
-      sessionId,
-      deviceId: options?.deviceInfo?.deviceId
-    };
-
-    if (!config.auth?.jwtSecret) {
-      throw new Error('JWT secret not configured');
-    }
-
-    if (!config.auth?.jwtRefreshSecret) {
-      throw new Error('JWT refresh secret not configured');
-    }
-
-    const accessTokenExpiry = options?.rememberMe ? '30d' : (config.auth?.jwtExpiresIn || '15m');
-    const refreshTokenExpiry = options?.rememberMe ? '90d' : (config.auth?.jwtRefreshExpiresIn || '7d');
-
-    const accessToken = jwt.sign(
-      payload, 
-      config.auth.jwtSecret,
-      { expiresIn: accessTokenExpiry }
-    );
-
-    const refreshToken = jwt.sign(
-      payload, 
-      config.auth.jwtRefreshSecret,
-      { expiresIn: refreshTokenExpiry }
-    );
-
-    return { 
-      accessToken, 
-      refreshToken,
-      sessionId 
-    };
-  }
-
-  /**
-   * Génère un token temporaire pour l'authentification 2FA
-   */
-  private generateTemporaryToken(user: UserInfo, deviceId?: string): string {
-    if (!config.auth?.jwtSecret) {
-      throw new Error('JWT secret not configured');
-    }
-
-    const payload: TokenPayload & { temp: boolean } = {
-      userId: user._id.toString(),
+      userId: this.getUserId(user),
       email: user.email,
       role: user.role,
       deviceId,
@@ -819,41 +870,77 @@ async validateVerificationToken(token: string): Promise<{ userId: string; email:
     return jwt.sign(
       payload,
       config.auth.jwtSecret,
-      { expiresIn: '10m' }
+      { expiresIn: '10m' } // Token temporaire court
     );
   }
 
   /**
-   * Invalide toutes les sessions d'un utilisateur
+   * Génère les tokens d'authentification pour un utilisateur
    */
-  private async invalidateAllUserTokens(userId: string): Promise<void> {
+  // Fixed generateAuthTokens method
+private generateAuthTokens(user: ExtendedUser, options?: AuthOptions): AuthTokens {
+    const sessionId = crypto.randomUUID();
+   
+    const payload: TokenPayload = {
+      userId: this.getUserId(user),
+      email: user.email,
+      role: user.role,
+      sessionId,
+      deviceId: options?.deviceInfo?.deviceId
+    };
+
+    // Validation stricte des secrets JWT
+    const jwtSecret = config.auth?.jwtSecret;
+    const jwtRefreshSecret = config.auth?.jwtRefreshSecret;
+
+    if (!jwtSecret || typeof jwtSecret !== 'string') {
+      throw new Error('JWT secret not configured or invalid');
+    }
+    if (!jwtRefreshSecret || typeof jwtRefreshSecret !== 'string') {
+      throw new Error('JWT refresh secret not configured or invalid');
+    }
+
+    const accessTokenExpiry = options?.rememberMe ? '30d' : (config.auth?.jwtExpiresIn || '15m');
+    const refreshTokenExpiry = options?.rememberMe ? '90d' : (config.auth?.jwtRefreshExpiresIn || '7d');
+
     try {
-      // Try to use the method if it exists
-      try {
-        await this.userService.invalidateAllUserSessions(userId);
-        logger.info('All user tokens invalidated', { userId });
-      } catch (error) {
-        // If method doesn't exist, log and continue
-        logger.warn('invalidateAllUserSessions method not available', { userId });
-        // You might want to implement an alternative approach here
-      }
+      const accessToken = jwt.sign(
+        payload,
+        jwtSecret,
+        { expiresIn: accessTokenExpiry }
+      );
+
+      const refreshToken = jwt.sign(
+        payload,
+        jwtRefreshSecret,
+        { expiresIn: refreshTokenExpiry }
+      );
+
+      return {
+        accessToken,
+        refreshToken,
+        sessionId
+      };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Error invalidating all user tokens', { error: errorMessage, userId });
-      throw error;
+      logger.error('Error generating auth tokens', { error });
+      throw new Error('Failed to generate authentication tokens');
     }
   }
 
+  
+  
   /**
-   * Génère des codes de secours
+   * Génère des codes de secours pour la 2FA
    */
   private generateBackupCodes(): string[] {
     const codes: string[] = [];
-    
     for (let i = 0; i < 10; i++) {
-      codes.push(crypto.randomBytes(4).toString('hex').toUpperCase());
+      // Génère des codes de 8 caractères alphanumériques
+      const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+      codes.push(code);
     }
-    
     return codes;
+
+    
   }
 }

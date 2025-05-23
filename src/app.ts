@@ -100,7 +100,7 @@ app.get('/', (req, res) => {
 });
 
 // Routes API
-app.use('/api/v1/auth', auThrouter);
+app.use('/auth', auThrouter);
 
 
 

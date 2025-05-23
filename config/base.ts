@@ -1,11 +1,9 @@
+
 import dotenv from 'dotenv';
 import { Config } from './type';
+
 // Chargement des variables d'environnement
 dotenv.config();
-
-/**
- * Interface principale de configuration
- */
 
 /**
  * Validation des variables d'environnement obligatoires
@@ -23,6 +21,17 @@ for (const envVar of requiredEnvVars) {
 }
 
 /**
+ * Fonction helper pour valider et récupérer une variable d'environnement string
+ */
+function getRequiredEnvString(key: string): string {
+  const value = process.env[key];
+  if (!value || typeof value !== 'string') {
+    throw new Error(`Environment variable ${key} is required and must be a string`);
+  }
+  return value;
+}
+
+/**
  * Configuration de base commune à tous les environnements
  */
 const baseConfig: Config = {
@@ -31,19 +40,18 @@ const baseConfig: Config = {
     port: parseInt(process.env.PORT || '3000', 10),
     env: process.env.NODE_ENV || 'development',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
-    host: process.env.HOST || "localhost", // 👈 ajoute ceci
-
+    host: process.env.HOST || "localhost",
   },
   auth: {
-    jwtSecret: process.env.JWT_SECRET!,
-    jwtRefreshSecret: process.env.JWT_REFRESH_SECRET!,
+    jwtSecret: getRequiredEnvString('JWT_SECRET'),
+    jwtRefreshSecret: getRequiredEnvString('JWT_REFRESH_SECRET'),
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
     jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     passwordSaltRounds: parseInt(process.env.PASSWORD_SALT_ROUNDS || '10', 10),
     mfaEnabled: process.env.MFA_ENABLED === 'true',
   },
   database: {
-    url: process.env.DATABASE_URL!,
+    url: getRequiredEnvString('DATABASE_URL'),
     options: {
       useNewUrlParser: true,
       useUnifiedTopology: true,
@@ -77,9 +85,9 @@ const baseConfig: Config = {
   },
   cors: {
     origin: process.env.CORS_ORIGIN || '*',
-    methods: ['GET', 'POST' ,'HEAD','PUT','PATCH','DELETE'], // Tu peux le rendre configurable aussi si besoin
+    methods: ['GET', 'POST', 'HEAD', 'PUT', 'PATCH', 'DELETE'],
   },
-   rateLimit: {
+  rateLimit: {
     max: parseInt(process.env.RATE_LIMIT_MAX || '100')
   },
 };

@@ -256,7 +256,7 @@ export class NotificationService {
    * @param alertType Type d'alerte de sécurité (optionnel)
    * @returns Booléen indiquant si l'email a été envoyé avec succès
    */
-  async sendSecurityAlertEmail(
+  async sendSecurityNotification(
     email: string, 
     firstName: string, 
     comment?: string,

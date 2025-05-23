@@ -403,41 +403,110 @@ export class UserService {
   }
 }
 
-
-  // async verifyUser(verificationToken: string): Promise<boolean> {
-  //   try {
-  //     logger.info('Verifying user account');
-  //     const user = await User.findOne({ emailVerificationToken: verificationToken });
-
-  //     if (!user) {
-  //       logger.warn('Invalid verification token', { verificationToken });
-  //       return false;
-  //     }
-
-  //     // Mettre à jour le statut de vérification
-  //     user.isEmailVerified = true;
-  //     user.emailVerificationToken = undefined;
-  //     user.emailVerificationTokenExpires = undefined;
-  //     user.isActive = true; // Activer l'utilisateur après vérification
+  /**
+   * Retrouve un utilisateur par son token de vérification
+   */
+  async getUserByVerificationToken(verificationToken: string): Promise<IUser | null> {
+    try {
+      logger.info('Fetching user by verification token');
       
-  //     await user.save();
+      const user = await User.findOne({ 
+        emailVerificationToken: verificationToken,
+        emailVerificationTokenExpires: { $gt: new Date() } // Vérifier que le token n'est pas expiré
+      }).select('-password -resetPasswordToken');
       
-  //     // Si c'est un agent, mettre à jour le statut de vérification
-  //     if (user.role === UserRole.AGENT && user.agentDetails) {
-  //       user.agentDetails.verificationStatus = VerificationStatus.PENDING;
-  //       await user.save();
-  //     }
-
-  //     logger.info('User verified successfully', { id: user.id });
-  //     await this.notificationService.sendWelcomeEmail(user.email, user.firstName);
+      if (!user) {
+        logger.warn('User not found or token expired', { verificationToken });
+        return null;
+      }
       
-  //     return true;
-  //   } catch (error) {
-  //     logger.error('Error verifying user', { error, verificationToken });
-  //     throw error;
-  //   }
-  // }
+      logger.info('User found by verification token', { userId: user.id });
+      return user;
+    } catch (error) {
+      logger.error('Error fetching user by verification token', { error, verificationToken });
+      throw error;
+    }
+  }
 
+  /**
+   * Met à jour le token de vérification d'un utilisateur
+   */
+  async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
+    success: boolean;
+    verificationToken?: string;
+    message?: string;
+  }> {
+    try {
+      logger.info('Updating verification token', { userId });
+      
+      const user = await User.findById(userId);
+      if (!user) {
+        logger.warn('User not found for verification token update', { userId });
+        return {
+          success: false,
+          message: 'Utilisateur non trouvé'
+        };
+      }
+      
+      // Générer un nouveau token de vérification
+      const newVerificationToken = crypto.randomBytes(32).toString('hex');
+      const tokenExpiration = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
+      
+      // Mettre à jour l'utilisateur avec le nouveau token
+      user.emailVerificationToken = newVerificationToken;
+      user.emailVerificationTokenExpires = tokenExpiration;
+      
+      await user.save();
+      
+      // Envoyer le nouvel email de vérification si demandé
+      if (sendNewEmail) {
+        await this.notificationService.sendVerificationEmail(
+          user.email,
+          newVerificationToken,
+          user.firstName
+        );
+        logger.info('New verification email sent', { userId, email: user.email });
+      }
+      
+      logger.info('Verification token updated successfully', { userId });
+      
+      return {
+        success: true,
+        verificationToken: newVerificationToken
+      };
+    } catch (error) {
+      logger.error('Error updating verification token', { error, userId });
+      throw error;
+    }
+  }
+
+
+ /**
+   * Vérifie si le mot de passe fourni est correct pour l'utilisateur donné
+   */
+  async verifyPassword(userId: string, password: string): Promise<boolean> {
+    try {
+      logger.info('Vérification du mot de passe en cours', { userId });
+
+      const user = await User.findById(userId).select('+password');
+      if (!user) {
+        logger.warn('Utilisateur non trouvé lors de la vérification du mot de passe', { userId });
+        return false;
+      }
+
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        logger.warn('Mot de passe incorrect', { userId });
+        return false;
+      }
+
+      logger.info('Mot de passe valide', { userId });
+      return true;
+    } catch (error) {
+      logger.error('Erreur lors de la vérification du mot de passe', { error, userId });
+      throw error;
+    }
+  }
   /**
    * Initialise le processus de réinitialisation de mot de passe
    */
@@ -843,27 +912,28 @@ export class UserService {
   /**
    * Révoque toutes les sessions sauf celle en cours
    */
-  async revokeAllSessionsExceptCurrent(userId: string, currentSessionId: string): Promise<boolean> {
-    try {
-      logger.info('Revoking all sessions except current', { userId, currentSessionId });
-      
-      const user = await User.findById(userId);
-      if (!user) {
-        return false;
-      }
+  async revokeAllSessionsExceptCurrent(userId: string, currentSessionId: string): Promise<number> {
+  try {
+    logger.info('Revoking all sessions except current', { userId, currentSessionId });
 
-      const currentSession = user.refreshTokens?.find(token => token.tokenId === currentSessionId);
-      user.refreshTokens = currentSession ? [currentSession] : [];
-      
-      await user.save();
-      
-      logger.info('All sessions revoked except current', { userId, currentSessionId });
-      return true;
-    } catch (error) {
-      logger.error('Error revoking all sessions except current', { error, userId, currentSessionId });
-      throw error;
-    }
+    const user = await User.findById(userId);
+    if (!user) return 0;
+
+    const originalCount = user.refreshTokens?.length || 0;
+    const currentSession = user.refreshTokens?.find(token => token.tokenId === currentSessionId);
+    user.refreshTokens = currentSession ? [currentSession] : [];
+
+    await user.save();
+
+    const revokedCount = originalCount - user.refreshTokens.length;
+    logger.info('All sessions revoked except current', { userId, revokedCount });
+
+    return revokedCount;
+  } catch (error) {
+    logger.error('Error revoking all sessions except current', { error, userId, currentSessionId });
+    throw error;
   }
+}
 
   /**
    * Compte les tentatives de connexion récentes
@@ -915,7 +985,7 @@ export class UserService {
         logger.info('All user sessions invalidated successfully', { userId });
         
         // Envoyer une notification de sécurité
-        await this.notificationService.sendSecurityAlertEmail(
+        await this.notificationService.sendSecurityNotification(
           result.email,
           result.firstName,
           'Toutes vos sessions ont été invalidées'

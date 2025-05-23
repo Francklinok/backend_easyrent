@@ -6,6 +6,17 @@ import { SecurityAuditService } from '../../security/services/securityAuditServi
 import { AppError } from '../utils/AppError';
 import { createLogger } from '../../utils/logger/logger';
 
+// src/types/express/index.d.ts or anywhere you define global types
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    sessionId?: string,
+   user?: {
+        userId: string;
+        // add other properties if needed
+      };  }
+}
+
 const logger = createLogger('AuthController');
 const authService = new AuthService();
 const userService = new UserService();
@@ -19,67 +30,106 @@ class AuthControllers {
   /**
    * Inscription d'un nouvel utilisateur
    */
-  async register(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, ...userData } = req.body;
-      
-      // Vérifier si l'email est déjà utilisé
-      const existingUserByEmail = await userService.getUserByEmail(email);
-      if (existingUserByEmail) {
-        res.status(409).json({
-          success: false,
-          message: 'Cet email est déjà utilisé'
-        });
-        return;
-      }
 
-      // Vérifier si le nom d'utilisateur est déjà utilisé
-      const existingUserByUsername = await userService.getUserByUsername(username);
-      if (existingUserByUsername) {
-        res.status(409).json({
-          success: false,
-          message: 'Ce nom d\'utilisateur est déjà utilisé'
-        });
-        return;
-      }
-      
-      // Créer l'utilisateur avec tous les champs validés
-      const user = await userService.createUser({
-        firstName,
-        lastName,
-        username,
-        email,
-        password,
-        phoneNumber,
-        dateOfBirth,
-        address,
-        ...userData
-      }, true); // Envoyer l'email de vérification
-      
-      // Journaliser l'événement
+async register(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, ...userData } = req.body;
+    
+    // Validation des données requises
+    if (!email || !password || !username) {
+      res.status(400).json({
+        success: false,
+        message: 'Email, mot de passe et nom d\'utilisateur sont requis'
+      });
+      return;
+    }
+
+    // Vérifier si l'email est déjà utilisé
+    const existingUserByEmail = await userService.getUserByEmail(email);
+    if (existingUserByEmail) {
+      res.status(409).json({
+        success: false,
+        message: 'Cet email est déjà utilisé'
+      });
+      return;
+    }
+
+    // Vérifier si le nom d'utilisateur est déjà utilisé
+    const existingUserByUsername = await userService.getUserByUsername(username);
+    if (existingUserByUsername) {
+      res.status(409).json({
+        success: false,
+        message: 'Ce nom d\'utilisateur est déjà utilisé'
+      });
+      return;
+    }
+
+    // Créer l'utilisateur avec tous les champs validés
+    const user = await userService.createUser({
+      firstName,
+      lastName,
+      username,
+      email,
+      password,
+      phoneNumber,
+      dateOfBirth,
+      address,
+      ...userData
+    }, true);
+
+    // Vérifier que l'utilisateur a été créé avec succès
+    if (!user || !user.id) {
+      throw new Error('Échec de la création de l\'utilisateur');
+    }
+
+    // Envoyer l'email de vérification (avec gestion d'erreur)
+    try {
+      // await emailService.sendVerificationEmail(user.email, user.verificationToken);
+    } catch (emailError) {
+      logger.warn('Erreur lors de l\'envoi de l\'email de vérification', { 
+        error: emailError, 
+        userId: user.id 
+      });
+      // Ne pas faire crasher l'inscription si l'email échoue
+    }
+
+    // Journaliser l'événement (avec gestion d'erreur)
+    try {
       await securityAuditService.logEvent({
         eventType: 'USER_REGISTERED',
-        userId: user._id.toString(),
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
+        userId: user.id.toString(),
+        ipAddress: req.ip || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown',
         details: { email, username }
       });
-      
-      logger.info('Nouvel utilisateur inscrit', { userId: user._id, email, username });
-      
-      res.status(201).json({
-        success: true,
-        message: 'Inscription réussie. Veuillez vérifier votre email pour activer votre compte',
-        data: {
-          userId: user._id,
-          email: user.email,
-          username: user.username
-        }
-      });
-    } catch (error) {
-      next(error);
+    } catch (auditError) {
+      logger.warn('Erreur lors de la journalisation', { error: auditError });
     }
+
+    logger.info('Nouvel utilisateur inscrit', { 
+      userId: user._id || user.id, 
+      email, 
+      username 
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Inscription réussie. Veuillez vérifier votre email pour activer votre compte',
+      data: {
+        userId: user._id || user.id,
+        email: user.email,
+        username: user.username
+      }
+    });
+  } catch (error) {
+    logger.error('Erreur lors de l\'inscription', { 
+      // error: error.message, 
+      // stack: error.stack,
+      // body: req.body 
+    });
+    next(error);
   }
+}
   
   /**
    * Connexion d'un utilisateur
@@ -140,7 +190,7 @@ class AuthControllers {
       // Journaliser la connexion réussie
       await securityAuditService.logEvent({
         eventType: 'SUCCESSFUL_LOGIN',
-        userId: user._id.toString(),
+        userId: user.id.toString(),
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
         details: { rememberMe, deviceInfo }
@@ -175,7 +225,7 @@ class AuthControllers {
       const { allDevices } = req.body;
       
       if (allDevices) {
-        await authService.logoutAllDevices(userId);
+        await authService.logout(userId);
       } else {
         await authService.logout(userId);
       }
@@ -446,8 +496,16 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
       }
       
       // Changer le mot de passe
-      await userService.changePassword(userId, password);
-      
+      await userService.changePassword(userId,currentPassword, password);
+      if (!req.sessionId) {
+         res.status(400).json({
+        success: false,
+        message: 'Session ID manquant'
+      });
+      return ;
+    }
+
+
       // Invalider toutes les sessions sauf la courante
       await authService.invalidateOtherSessions(userId, req.sessionId);
       
@@ -457,9 +515,16 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
         ipAddress: req.ip,
         userAgent: req.headers['user-agent']
       });
-      
+      const user = await userService.getUserById(userId)
+
+      if(!user){
+          res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+          return
+      }
+      const {email, firstName} = user
+
       // Envoyer une notification à l'utilisateur
-      await notificationService.sendPasswordChangedNotification(userId);
+      await notificationService.sendSecurityNotification(email, firstName,'password_changed')
       
       res.status(200).json({
         success: true,
@@ -583,7 +648,7 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
       const { code, backupCodes } = req.body;
       
       // Vérifier le code 2FA pour activer définitivement
-      const isValid = await authService.verifyAndEnableTwoFactor(userId, code, backupCodes);
+      const isValid = await authService.verifyAndEnableTwoFactor(userId, code);
       
       if (!isValid) {
         res.status(401).json({
@@ -599,11 +664,19 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
         ipAddress: req.ip,
         userAgent: req.headers['user-agent']
       });
+      const user = await userService.getUserById(userId)
+
+      if(!user){
+          res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+          return
+      }
+      const {email, firstName} = user
+
       
       // Envoyer une notification à l'utilisateur
       await notificationService.sendSecurityNotification(
-        userId,
-        'Authentification à deux facteurs activée',
+        email,
+        firstName,
         'L\'authentification à deux facteurs a été activée avec succès sur votre compte.'
       );
       
@@ -656,13 +729,23 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
         ipAddress: req.ip,
         userAgent: req.headers['user-agent']
       });
-      
+      const user = await userService.getUserById(userId)
+
+      if(!user){
+          res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+          return
+      }
+      const {email, firstName} = user
+
+     
       // Envoyer une notification à l'utilisateur
+     
       await notificationService.sendSecurityNotification(
-        userId,
-        'Authentification à deux facteurs désactivée',
-        'L\'authentification à deux facteurs a été désactivée sur votre compte. Si vous n\'êtes pas à l\'origine de cette action, contactez immédiatement notre support.'
-      );
+          email,
+          firstName,
+          'L\'authentification à deux facteurs a été désactivée sur votre compte. Si vous n\'êtes pas à l\'origine de cette action, contactez immédiatement notre support.',
+          'other'
+        );
       
       res.status(200).json({
         success: true,
@@ -748,12 +831,19 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
         userAgent: req.headers['user-agent']
       });
       
+      const user = await userService.getUserById(userId)
+      if(!user){
+          res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+          return
+      }
+      const {email, firstName} = user
       // Envoyer une notification à l'utilisateur
       await notificationService.sendSecurityNotification(
-        userId,
-        'Code de secours utilisé',
-        'Un code de secours a été utilisé pour accéder à votre compte. Si vous n\'êtes pas à l\'origine de cette action, veuillez sécuriser votre compte immédiatement.'
-      );
+      email,
+      firstName,
+      'Un code de secours a été utilisé pour accéder à votre compte. Si vous n\'êtes pas à l\'origine de cette action, veuillez sécuriser votre compte immédiatement.',
+      'account_accessed'
+      )
       
       res.status(200).json({
         success: true,
@@ -830,7 +920,13 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
     try {
       const { userId } = req.user as { userId: string };
       const currentSessionId = req.sessionId; // Suppose que le middleware authentifie et ajoute sessionId
-      
+      if (!currentSessionId) {
+          res.status(400).json({
+            success: false,
+            message: 'Session ID manquant'
+          });
+          return;
+        }
       const revokedCount = await authService.revokeAllSessionsExceptCurrent(userId, currentSessionId);
       
       await securityAuditService.logEvent({
@@ -868,7 +964,7 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
       }
       
       // Exclure le mot de passe et autres informations sensibles
-      const { password, twoFactorSecret, ...safeUserData } = user;
+      const { password, ...safeUserData } = user;
       
       res.status(200).json({
         success: true,
@@ -907,7 +1003,7 @@ async resendVerificationEmail(req: Request, res: Response, next: NextFunction): 
       const { userId } = req.user as { userId: string };
       const { limit = 10, page = 1 } = req.query;
       
-      const history = await securityAuditService.getLoginHistory(
+      const history = await securityAuditService.getUserSecurityHistory(
         userId, 
         parseInt(limit as string), 
         parseInt(page as string)
