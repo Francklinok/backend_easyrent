@@ -1,6 +1,7 @@
 
 
 import { Document } from 'mongoose';
+import { Types } from 'mongoose';
 
 export enum UserRole {
   CLIENT = "client",
@@ -322,6 +323,8 @@ export interface TokenPayload {
   role: string;
   sessionId?: string;
   deviceId?: string;
+  temp?: boolean; // For temporary tokens (2FA)
+
 }
 
 /**
@@ -347,7 +350,7 @@ export interface LoginDetails {
  * Interface pour les informations utilisateur étendues
  */
 export interface UserInfo {
-  _id: string;
+  _id: string| Types.ObjectId;
   id: string;
   email: string;
   role: string;
@@ -358,11 +361,14 @@ export interface UserInfo {
   twoFactorSecret?: string;
   tempTwoFactorSecret?: string;
   lastPasswordChange?: Date;
+  passwordChangedAt?: Date; // Alternative field name
   createdAt: Date;
   accountLockout?: {
     isLocked: boolean;
     lockUntil?: Date;
   };
+   lockUntil?: Date; // Alternative structure
+  isLocked?: boolean;
   comparePassword(password: string): Promise<boolean>;
   updateLastLogin(ip: string, userAgent: string): void;
   recordLoginAttempt(details: LoginDetails): void;
@@ -390,3 +396,31 @@ export interface UserSearchOptions {
   sortOrder?: 'asc' | 'desc';
 }
 
+
+/**
+ * Interface for deletion options
+ */
+export interface DeleteUserOptions {
+  softDelete?: boolean;
+  reason?: string;
+  deletedBy?: string;
+  preserveData?: boolean;
+}
+
+/**
+ * Interface for user deletion result
+ */
+export interface DeleteUserResult {
+  success: boolean;
+  userId: string;
+  deletionType: 'soft' | 'hard';
+  deletedAt: Date;
+  message?: string;
+}
+
+ export  interface TwoFactorValidationResult {
+    success: boolean;
+    message?: string;
+    userId?: string;
+    tokens?: AuthTokens;
+  }

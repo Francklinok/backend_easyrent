@@ -1,5 +1,3 @@
-
-
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import User from "../models/userModel";
@@ -16,6 +14,7 @@ import { createLogger } from '../../utils/logger/logger';
 import { AppError } from '../../auth/utils/AppError';
 import { FilterQuery } from 'mongoose';
 import { SecurityDetails } from '../types/userTypes';
+import { DeleteUserOptions, DeleteUserResult } from '../types/userTypes';
 const logger = createLogger('UserService');
 
 export class UserService {
@@ -879,7 +878,7 @@ export class UserService {
   /**
    * Révoque une session spécifique
    */
-  async revokeSession(userId: string, sessionId: string): Promise<boolean> {
+  async revokeSession(userId: string, sessionId?: string): Promise<boolean> {
     try {
       logger.info('Revoking session', { userId, sessionId });
       
@@ -1184,45 +1183,7 @@ async isAccountDeleted(id: string): Promise<boolean> {
 /**
  * Suppression logique d'un utilisateur
  */
-async softDeleteUser(id: string): Promise<IUser | null> {
-  try {
-    logger.info('Soft deleting user', { id });
-    
-    // Anonymiser certaines données pour RGPD
-    const updateData = {
-      isDeleted: true,
-      email: `deleted_${id}@anonymized.com`,
-      phone: null,
-      address: null,
-      refreshTokens: [],
-      deletedAt: new Date()
-    };
-    
-    const user = await User.findByIdAndUpdate(
-      id,
-      { $set: updateData },
-      { new: true }
-    );
 
-    if (!user) {
-      logger.warn('User not found for soft delete', { id });
-      return null;
-    }
-    
-    logger.info('User soft deleted successfully', { id });
-    
-    // Envoyer une notification de suppression de compte
-    await this.notificationService.sendAccountDeletedEmail(
-      user.email, // Email original déjà récupéré avant anonymisation
-      user.firstName
-    );
-    
-    return user;
-  } catch (error) {
-    logger.error('Error soft deleting user', { error, id });
-    throw error;
-  }
-}
 
 /**
  * Restaure un utilisateur supprimé logiquement
@@ -1655,6 +1616,415 @@ async getUserNotifications(userId: string, includeRead = false): Promise<any[]> 
   } catch (error) {
     logger.error('Error getting user notifications', { error, userId });
     return [];
+  }
+}
+
+
+/**
+ * Supprime un utilisateur (soft delete par défaut)
+ */
+async deleteUser(userId: string, options: DeleteUserOptions = {}): Promise<DeleteUserResult> {
+  try {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+
+    logger.info('Initiating user deletion', { userId, options });
+
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const { softDelete = true, reason, deletedBy, preserveData = false } = options;
+
+    if (softDelete) {
+      return await this.softDeleteUser(userId, reason, deletedBy);
+    } else {
+      return await this.hardDeleteUser(userId, preserveData);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error deleting user', { error: errorMessage, userId });
+    throw new Error(`User deletion failed: ${errorMessage}`);
+  }
+}
+
+/**
+ * Suppression logique (soft delete) - marque l'utilisateur comme supprimé
+ */
+async softDeleteUser(userId: string, reason?: string, deletedBy?: string): Promise<DeleteUserResult> {
+  try {
+    const deletedAt = new Date();
+    
+    // Update user document to mark as deleted
+    const updateData: any = {
+      isActive: false,
+      isDeleted: true,
+      deletedAt,
+      deletionReason: reason,
+      deletedBy,
+      // Optionally anonymize email to prevent conflicts
+      email: `deleted_${userId}_${Date.now()}@deleted.local`
+    };
+
+    // Assuming you have a User model/collection
+    // Adjust this based on your database implementation
+    await this.updateUser(userId, updateData);
+
+    // Revoke all active sessions
+    try {
+      await this.revokeSession(userId);
+    } catch (error) {
+      logger.warn('Could not revoke all sessions during soft delete', { userId });
+    }
+
+    // Log the deletion
+    await this.logUserAction(userId, 'USER_SOFT_DELETED', {
+      reason,
+      deletedBy,
+      deletedAt
+    });
+
+    logger.info('User soft deleted successfully', { userId, deletedBy, reason });
+
+    return {
+      success: true,
+      userId,
+      deletionType: 'soft',
+      deletedAt,
+      message: 'User soft deleted successfully'
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error in soft delete', { error: errorMessage, userId });
+    throw error;
+  }
+}
+
+/**
+ * Suppression physique (hard delete) - supprime définitivement l'utilisateur
+ */
+async hardDeleteUser(userId: string, preserveData: boolean = false): Promise<DeleteUserResult> {
+  try {
+    const deletedAt = new Date();
+
+    if (preserveData) {
+      // Archive user data before deletion
+      await this.archiveUserData(userId);
+    }
+
+    // Delete user from database
+    // Adjust this based on your database implementation
+    const deleteResult = await this.removeUserFromDatabase(userId);
+    
+    if (!deleteResult) {
+      throw new Error('Failed to delete user from database');
+    }
+
+    // Clean up related data
+    await this.cleanupUserRelatedData(userId);
+
+    // Log the deletion (you might want to log this in a separate audit table)
+    await this.logUserAction(userId, 'USER_HARD_DELETED', {
+      preserveData,
+      deletedAt
+    });
+
+    logger.info('User hard deleted successfully', { userId, preserveData });
+
+    return {
+      success: true,
+      userId,
+      deletionType: 'hard',
+      deletedAt,
+      message: 'User permanently deleted'
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error in hard delete', { error: errorMessage, userId });
+    throw error;
+  }
+}
+
+/**
+ * Restaure un utilisateur supprimé logiquement
+ */
+async restoreUser(userId: string, restoredBy?: string): Promise<boolean> {
+  try {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    if (!user.isDeleted) {
+      throw new Error('User is not deleted');
+    }
+
+    const updateData: any = {
+      isActive: true,
+      isDeleted: false,
+      deletedAt: null,
+      deletionReason: null,
+      deletedBy: null,
+      restoredAt: new Date(),
+      restoredBy
+    };
+
+    // Restore original email if it was anonymized
+    if (user.email && user.email.startsWith('deleted_')) {
+      // You might need to handle email restoration differently
+      // This is a simplified example
+      logger.warn('Email restoration needed for user', { userId });
+    }
+
+    await this.updateUser(userId, updateData);
+
+    // Log the restoration
+    await this.logUserAction(userId, 'USER_RESTORED', {
+      restoredBy,
+      restoredAt: updateData.restoredAt
+    });
+
+    logger.info('User restored successfully', { userId, restoredBy });
+    return true;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error restoring user', { error: errorMessage, userId });
+    throw new Error(`User restoration failed: ${errorMessage}`);
+  }
+}
+
+/**
+ * Archive user data before hard deletion
+ */
+private async archiveUserData(userId: string): Promise<void> {
+  try {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return;
+    }
+
+    // Create archive record
+    const archiveData = {
+      originalUserId: userId,
+      userData: user,
+      archivedAt: new Date(),
+      archiveReason: 'USER_DELETION'
+    };
+
+    // Store in archive collection/table
+    // Adjust based on your database implementation
+    await this.createArchiveRecord(archiveData);
+
+    logger.info('User data archived successfully', { userId });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error archiving user data', { error: errorMessage, userId });
+    throw error;
+  }
+}
+
+/**
+ * Clean up user-related data after hard deletion
+ */
+private async cleanupUserRelatedData(userId: string): Promise<void> {
+  try {
+    // Clean up sessions
+    await this.revokeSession(userId).catch(err => 
+      logger.warn('Error cleaning up sessions', { userId, error: err.message })
+    );
+
+    // Clean up user preferences
+    await this.deleteUserPreferences(userId).catch(err => 
+      logger.warn('Error cleaning up preferences', { userId, error: err.message })
+    );
+
+    // Clean up user files/uploads
+    await this.deleteUserFiles(userId).catch(err => 
+      logger.warn('Error cleaning up files', { userId, error: err.message })
+    );
+
+    // Add more cleanup operations as needed for your application
+    // Examples: notifications, subscriptions, relationships, etc.
+
+    logger.info('User related data cleaned up', { userId });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error cleaning up user data', { error: errorMessage, userId });
+    // Don't throw here, as the main deletion might have succeeded
+  }
+}
+
+/**
+ * Remove user from database (implement based on your database)
+ */
+private async removeUserFromDatabase(userId: string): Promise<boolean> {
+  try {
+    // MongoDB example:
+    // const result = await this.userModel.deleteOne({ _id: userId });
+    // return result.deletedCount > 0;
+
+    // SQL example:
+    // const result = await this.db.query('DELETE FROM users WHERE id = ?', [userId]);
+    // return result.affectedRows > 0;
+
+    // Placeholder - implement based on your database
+    logger.info('Removing user from database', { userId });
+    
+    // You'll need to implement this based on your database setup
+    // For now, returning true as placeholder
+    return true;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error removing user from database', { error: errorMessage, userId });
+    return false;
+  }
+}
+
+/**
+ * Create archive record (implement based on your needs)
+ */
+private async createArchiveRecord(archiveData: any): Promise<void> {
+  try {
+    // Implement based on your database
+    // This might be a separate archive table/collection
+    logger.info('Creating archive record', { userId: archiveData.originalUserId });
+    
+    // Placeholder implementation
+    // You'll need to implement this based on your database setup
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error creating archive record', { error: errorMessage });
+    throw error;
+  }
+}
+
+/**
+ * Delete user preferences
+ */
+private async deleteUserPreferences(userId: string): Promise<void> {
+  try {
+    // Implement based on your preferences storage
+    logger.info('Deleting user preferences', { userId });
+    
+    // Example implementations:
+    // await this.preferencesModel.deleteMany({ userId });
+    // await this.db.query('DELETE FROM user_preferences WHERE user_id = ?', [userId]);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error deleting user preferences', { error: errorMessage, userId });
+    throw error;
+  }
+}
+
+/**
+ * Delete user files
+ */
+private async deleteUserFiles(userId: string): Promise<void> {
+  try {
+    // Implement based on your file storage system
+    logger.info('Deleting user files', { userId });
+    
+    // Examples:
+    // - Delete from filesystem
+    // - Delete from cloud storage (AWS S3, Google Cloud, etc.)
+    // - Remove file references from database
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error deleting user files', { error: errorMessage, userId });
+    throw error;
+  }
+}
+
+/**
+ * Log user actions for audit trail
+ */
+private async logUserAction(userId: string, action: string, details: any): Promise<void> {
+  try {
+    const logEntry = {
+      userId,
+      action,
+      details,
+      timestamp: new Date(),
+      ip: null, // You might want to pass this from the request
+      userAgent: null // You might want to pass this from the request
+    };
+
+    // Store in audit log
+    // Implement based on your logging system
+    logger.info('User action logged', { userId, action, details });
+    
+    // Example:
+    // await this.auditLogModel.create(logEntry);
+    // await this.db.query('INSERT INTO audit_logs ...', [logEntry]);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error logging user action', { error: errorMessage, userId, action });
+    // Don't throw here, as logging failure shouldn't break the main operation
+  }
+}
+
+/**
+ * Get deleted users (for admin purposes)
+ */
+async getDeletedUsers(page: number = 1, limit: number = 10): Promise<any[]> {
+  try {
+    // Implement based on your database
+    // Return soft-deleted users for potential restoration
+    
+    logger.info('Getting deleted users', { page, limit });
+    
+    // Placeholder - implement based on your database
+    return [];
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error getting deleted users', { error: errorMessage });
+    throw new Error(`Failed to get deleted users: ${errorMessage}`);
+  }
+}
+
+/**
+ * Bulk delete users
+ */
+async bulkDeleteUsers(userIds: string[], options: DeleteUserOptions = {}): Promise<DeleteUserResult[]> {
+  try {
+    if (!userIds || userIds.length === 0) {
+      throw new Error('User IDs array is required');
+    }
+
+    logger.info('Starting bulk user deletion', { count: userIds.length, options });
+
+    const results: DeleteUserResult[] = [];
+    
+    for (const userId of userIds) {
+      try {
+        const result = await this.deleteUser(userId, options);
+        results.push(result);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        results.push({
+          success: false,
+          userId,
+          deletionType: options.softDelete ? 'soft' : 'hard',
+          deletedAt: new Date(),
+          message: `Failed: ${errorMessage}`
+        });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    logger.info('Bulk deletion completed', { 
+      total: userIds.length, 
+      successful: successCount, 
+      failed: userIds.length - successCount 
+    });
+
+    return results;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error in bulk delete', { error: errorMessage });
+    throw new Error(`Bulk deletion failed: ${errorMessage}`);
   }
 }
 

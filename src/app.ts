@@ -16,10 +16,12 @@ import config from '../config';
 import auThrouter from './auth/routers/authrouters';
 // import router from '../auth/routers/authrouters';
 import { errorHandler } from './auth/utils/errorHandler';
-import logger from './utils/logger/logger';
 import { UserPresenceService } from './users/services/userPresence';
 import { trackUserActivity } from './users/middleware/trackUserActivity';
+import { createLogger } from './utils/logger/logger';
 
+const logger = createLogger("app")
+// import { propertyErrorHandler } from './property/middlewares/propertyErrorHandler';
 
 // Configuration pour ES modules avec __dirname
 // const __filename = fileURLToPath(import.meta.url);
@@ -99,8 +101,14 @@ app.get('/', (req, res) => {
   });
 });
 
-// Routes API
-app.use('/auth', auThrouter);
+// // Routes API
+try{
+  app.use('/api/v1/auth', auThrouter);
+
+}catch(error){
+    console.error('❌ Erreur lors du chargement des routes:', error);
+
+}
 
 
 
