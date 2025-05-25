@@ -144,3 +144,4 @@ authRouter.post(
 // );
 
 export default authRouter;
+

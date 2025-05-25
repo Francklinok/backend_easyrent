@@ -18,7 +18,6 @@ declare module 'express-serve-static-core' {
 }
 
 const logger = createLogger('AuthController');
-
 /**
  * Contrôleur pour les opérations d'authentification
  */
@@ -873,71 +872,71 @@ const logger = createLogger('AuthController');
   
   /**
    * Configuration de l'authentification à deux facteurs
-  //  */
-  // async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
-  //   const startTime = Date.now();
+   */
+  async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const startTime = Date.now();
     
-  //   try {
-  //     const { userId } = req.user as { userId: string };
-  //     const { password } = req.body;
+    try {
+      const { userId } = req.user as { userId: string };
+      const { password } = req.body;
       
-  //     if (!password) {
-  //       logger.warn('Tentative de configuration 2FA sans mot de passe', { userId });
+      if (!password) {
+        logger.warn('Tentative de configuration 2FA sans mot de passe', { userId });
         
-  //       res.status(400).json({
-  //         success: false,
-  //         message: 'Mot de passe requis pour configurer l\'authentification à deux facteurs'
-  //       });
-  //       return;
-  //     }
+        res.status(400).json({
+          success: false,
+          message: 'Mot de passe requis pour configurer l\'authentification à deux facteurs'
+        });
+        return;
+      }
       
-  //     logger.info('Configuration de l\'authentification à deux facteurs', { userId, ip: req.ip });
+      logger.info('Configuration de l\'authentification à deux facteurs', { userId, ip: req.ip });
       
-  //     // Vérifier le mot de passe
-  //     const isPasswordValid = await this.userService.verifyPassword(userId, password);
+      // Vérifier le mot de passe
+      const isPasswordValid = await this.userService.verifyPassword(userId, password);
       
-  //     if (!isPasswordValid) {
-  //       logger.warn('Configuration 2FA échouée - mot de passe incorrect', { userId });
+      if (!isPasswordValid) {
+        logger.warn('Configuration 2FA échouée - mot de passe incorrect', { userId });
         
-  //       res.status(401).json({
-  //         success: false,
-  //         message: 'Mot de passe incorrect'
-  //       });
-  //       return;
-  //     }
+        res.status(401).json({
+          success: false,
+          message: 'Mot de passe incorrect'
+        });
+        return;
+      }
       
-  //     // Générer le secret 2FA
-  //     const twoFactorData = await this.authService.generateTwoFactorSecret(userId);
+      // Générer le secret 2FA
+      const twoFactorData = await this.authService.generateTwoFactorSecret(userId);
       
-  //     await this.securityAuditService.logEvent({
-  //       eventType: 'TWO_FACTOR_SETUP_INITIATED',
-  //       userId,
-  //       ipAddress: req.ip,
-  //       userAgent: req.headers['user-agent']
-  //     });
+      await this.securityAuditService.logEvent({
+        eventType: 'TWO_FACTOR_SETUP_INITIATED',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
       
-  //     const executionTime = Date.now() - startTime;
-  //     logger.info('Secret 2FA généré avec succès', { 
-  //       userId,
-  //       executionTime: `${executionTime}ms`
-  //     });
+      const executionTime = Date.now() - startTime;
+      logger.info('Secret 2FA généré avec succès', { 
+        userId,
+        executionTime: `${executionTime}ms`
+      });
       
-  //     res.status(200).json({
-  //       success: true,
-  //       message: 'Secret 2FA généré avec succès',
-  //       data: twoFactorData
-  //     });
-  //   } catch (error: any) {
-  //     const executionTime = Date.now() - startTime;
-  //     logger.error('Erreur lors de la configuration 2FA', { 
-  //       error: error.message,
-  //       stack: error.stack,
-  //       userId: req.user?.userId,
-  //       executionTime: `${executionTime}ms`
-  //     });
-  //     next(error);
-  //   }
-  // }
+      res.status(200).json({
+        success: true,
+        message: 'Secret 2FA généré avec succès',
+        data: twoFactorData
+      });
+    } catch (error: any) {
+      const executionTime = Date.now() - startTime;
+      logger.error('Erreur lors de la configuration 2FA', { 
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.userId,
+        executionTime: `${executionTime}ms`
+      });
+      next(error);
+    }
+  }
   
   /**
    * Validation de l'authentification à deux facteurs

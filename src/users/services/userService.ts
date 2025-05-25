@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 import User from "../models/userModel";
 import { IUser } from "../types/userTypes";
 import { CreateUserDto } from '../types/userTypes';
@@ -83,12 +84,16 @@ export class UserService {
    * Retrouve un utilisateur par son ID
    */
   async getUserById(id: string): Promise<IUser | null> {
-    try {
-      return await User.findById(id).select('-password -resetPasswordToken -emailVerificationToken');
-    } catch (error) {
-      logger.error('Error fetching user by ID', { error, id });
-      throw error;
-    }
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        logger.warn('Invalid user ID format', { id });
+        return null;
+      }
+        try {
+          return await User.findById(id).select('-password -resetPasswordToken -emailVerificationToken');
+        } catch (error) {
+          logger.error('Error fetching user by ID', { error, id });
+          throw error;
+        }
   }
 
   /**
@@ -775,6 +780,13 @@ export class UserService {
       throw error;
     }
   }
+//   async storeTempTwoFactorSecret(userId: string, secret: string): Promise<void> {
+//   // Stocker le secret temporaire dans votre base de données
+//   await this.userRepository.update(userId, { 
+//     tempTwoFactorSecret: secret,
+//     tempSecretExpires: new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
+//   });
+// }
 
   /**
    * Alias pour enableTwoFactorAuth pour compatibilité

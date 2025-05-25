@@ -156,7 +156,7 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
   /**
    * Déconnecte l'utilisateur de tous les appareils
    */
-  async logoutAllDevices(userId: string,sessionId:string): Promise<void> {
+  async logoutAllDevices(userId: string, sessionId:string): Promise<void> {
     try {
       await this.invalidateAllUserTokens(userId,sessionId);
       await this.presenceService.setUserOffline(userId);
@@ -225,54 +225,89 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
     }
   }
 
-  /**
-   * Génère un secret 2FA et retourne les informations de configuration
-   */
+async generateTwoFactorSecret(userId: string) {
+  try {
+    logger.info('[2FA] Step 1 - Getting user', { userId });
 
-  // async generateTwoFactorSecret(userId: string): Promise<TwoFactorSetup | null> {
-  //   try {
-  //     const user = await this.userService.getUserById(userId);
-  //     if (!user) {
-  //       logger.warn('User not found for 2FA setup', { userId });
-  //       return null;
-  //     }
+    const user = await this.userService.getUserById(userId);
+    if (!user) {
+      logger.warn('[2FA] User not found', { userId });
+      return null;
+    }
 
-  //     const secret = speakeasy.generateSecret({
-  //       name: user.email,
-  //       issuer: config.app.name,
-  //       length: 32
-  //     });
+    logger.info('[2FA] Step 2 - Generating secret');
+    
+    if (!user.email) {
+      logger.error('[2FA] User is missing email', { userId });
+      throw new Error('User is missing email');
+    }
 
-  //     if (!secret.otpauth_url) {
-  //       throw new Error('OTP Auth URL could not be generated');
-  //     }
-      
-  //     const qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url!);
-  //     const backupCodes = this.generateBackupCodes();
+    const secret = speakeasy.generateSecret({
+      name: user.email,
+      issuer: config?.app?.name || 'MyApp',
+      length: 32
+    });
 
-  //     // Store temporary secret using the existing method
-  //     try {
-  //       await this.userService.storeTempTwoFactorSecret(userId, secret.base32);
-  //     } catch (error) {
-  //       // If method doesn't exist, try alternative approach
-  //       logger.warn('storeTempTwoFactorSecret method not available, using alternative', { userId });
-  //       // You might need to implement this differently based on your UserService
-  //       // For now, we'll just log the warning and continue
-  //     }
+    if (!secret.otpauth_url) {
+      logger.error('[2FA] Missing OTP Auth URL', { userId });
+      throw new Error('OTP Auth URL could not be generated');
+    }
 
-  //     logger.info('2FA setup initiated', { userId });
-  //     return {
-  //       secret: secret.base32,
-  //       qrCodeUrl,
-  //       backupCodes
-  //     };
-  //   } catch (error) {
-  //     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-  //     logger.error('Error generating 2FA secret', { error: errorMessage, userId });
-  //     throw new Error(`2FA setup failed: ${errorMessage}`);
-  //   }
-  // }
-  
+    logger.debug('[2FA] OTP Auth URL:', secret.otpauth_url);
+
+    logger.info('[2FA] Step 3 - Generating QR code');
+
+    let qrCodeUrl: string;
+
+    // try {
+    //   qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
+    // } catch (err: any) {
+    //   logger.error('[2FA] QR code generation failed', {
+    //     userId,
+    //     error: err.message,
+    //     stack: err.stack
+    //   });
+    //   throw new Error('QR code generation failed');
+    // }
+
+    logger.info('[2FA] Step 4 - Generating backup codes');
+    const backupCodes = this.generateBackupCodes();
+
+    logger.info('[2FA] Step 5 - Updating user with temporary secret');
+
+    try {
+      await this.userService.updateUser(userId, {
+        secret: secret.base32
+      });
+    } catch (error: any) {
+      logger.warn('[2FA] Could not store temporary 2FA secret in DB', {
+        userId,
+        error: error.message
+      });
+      // Ce n’est pas bloquant, on continue quand même
+    }
+
+    logger.info('[2FA] Step 6 - 2FA setup completed', { userId });
+
+    return {
+      tempTwoFactorSecret: secret.base32,
+      otpauthUrl: secret.otpauth_url,
+      // qrCodeUrl,
+      backupCodes,
+      // tempTwoFactorSecret: secret.base32
+
+    };
+  } catch (error: any) {
+    logger.error('[2FA] Error generating 2FA secret', {
+      error: error.message,
+      stack: error.stack,
+      userId
+    });
+    throw new Error(`2FA setup failed: ${error.message}`);
+  }
+ }
+
+
   /**
    * Vérifie un code 2FA
    */
@@ -842,7 +877,7 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
    */
 
 
-private è(user: UserInfo, deviceId?: string): string {
+private temporary2FAToken(user: UserInfo, deviceId?: string): string {
   if (!config.auth?.jwtSecret) {
     throw new Error('JWT secret not configured');
   }

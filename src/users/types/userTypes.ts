@@ -248,6 +248,8 @@ export interface UpdateUserDto {
     };
   };
   dateOfBirth?: Date;
+  secret:string;
+  tempTwoFactorSecret?:string;
   profilePicture?: string;
   preferences?: Partial<IUser['preferences']>;
   agentDetails?: Partial<NonNullable<IUser['agentDetails']>>;
@@ -282,7 +284,8 @@ export interface AuthOptions {
  * Interface pour la configuration 2FA
  */
 export interface TwoFactorSetup {
-  secret: string;
+  // secret: string;
+  tempTwoFactorSecret:string,
   qrCodeUrl: string;
   backupCodes: string[];
 }
