@@ -8,7 +8,8 @@ import config from '../../../config';
 import { UserService } from './userService';
 import { createLogger } from '../../utils/logger/logger';
 import { UserPresenceService } from './userPresence';
-import { AuthOptions,TwoFactorSetup ,SecurityInfo,ActiveSession,TokenPayload,AuthTokens,LoginDetails,UserInfo,TwoFactorValidationResult} from '../types/userTypes';
+import { AuthOptions,TwoFactorSetup ,SecurityInfo,ActiveSession,TokenPayload,AuthTokens,LoginDetails,UserInfo,TwoFactorValidationResult, IUser} from '../types/userTypes';
+import  bcrypt from  "bcrypt"
 // Création d'une instance du logger
 const logger = createLogger("AuthService");
 
@@ -27,51 +28,184 @@ export class AuthService {
   /**
    * Authentifie un utilisateur avec des options supplémentaires
    */
-  async authenticate(email: string, password: string, req: Request, options?: AuthOptions): Promise<AuthTokens | null> {
+
+//   async authenticate(email: string, password: string, req: Request, options?: AuthOptions): Promise<AuthTokens | null> {
+//   try {
+//     if (!email || !password) {
+//       logger.warn('Authentication attempt with missing credentials');
+//       return null;
+//     }
+ 
+//     const user = await this.userService.getUserByEmail(email) as IUser;
+//     if (!user) {
+//       logger.warn('Authentication failed: user not found', { email });
+//       return null;
+//     }
+//     // if (!user.emailVerified) {
+//     //   logger.warn('Authentication denied: email not verified', { email });
+//     //   return null;
+//     // }
+//     // Vérification sécurisée des méthodes
+//     logger.info(`l utilisateur  est : '${user}'`)
+//     if (typeof user.comparePassword !== 'function') {
+//       logger.error('comparePassword method not available on user object');
+//       throw new Error('User authentication method not available');
+//     }
+//     logger.info(`[AuthController] Mot de passe reçu: '${password}'`);
+
+
+//     const isPasswordValid = await user.comparePassword(password);
+//     if (!isPasswordValid) {
+//       logger.warn('Authentication failed: invalid password', { email });
+//       return null;
+//     }
+
+//     // Mise à jour sécurisée
+//     if (typeof user.updateLastLogin === 'function') {
+//       const loginDetails = this.extractLoginDetails(req);
+//       user.updateLastLogin(loginDetails.ipAddress, loginDetails.userAgent);
+//     }
+
+//     if (typeof user.save === 'function') {
+//       await user.save();
+//     }
+
+//     // Génération des tokens
+//     const tokens = this.generateAuthTokens(user, options);
+//     return tokens;
+
+//   } catch (error) {
+//     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+//     logger.error('Error during authentication', { error: errorMessage, email });
+//     throw new Error(`Authentication failed: ${errorMessage}`);
+//   }
+// }
+
+
+
+async authenticate(email: string, password: string, req: Request, options?: AuthOptions): Promise<AuthTokens | null> {
   try {
     if (!email || !password) {
       logger.warn('Authentication attempt with missing credentials');
       return null;
     }
+     this.testPasswordComparison(email, password)
+    const user = await this.userService.getUserByEmail(email) as IUser;
+    logger.info(`[Auth] user  is : ${user}`);
+    await  this.userService.debugUser(email)
 
-    const user = await this.userService.getUserByEmail(email) as UserInfo | null;
+
     if (!user) {
       logger.warn('Authentication failed: user not found', { email });
       return null;
     }
+        await this.userService.reactivateUser(user.id)
 
-    // Vérification sécurisée des méthodes
+
+    // Check if user is active
+    if (!user.isActive) {
+      logger.warn('Authentication failed: user account is inactive', { email });
+      return null;
+    }
+
+    
+    // Log user info (without sensitive data)
+    logger.info(`User found: ${user.email}, isActive: ${user.isActive}, hasPassword: ${!!user.password}`);
+    
     if (typeof user.comparePassword !== 'function') {
       logger.error('comparePassword method not available on user object');
       throw new Error('User authentication method not available');
     }
-
+    
+    logger.info(`[AuthController] Attempting password verification for user: ${email}`);
     const isPasswordValid = await user.comparePassword(password);
+    
     if (!isPasswordValid) {
       logger.warn('Authentication failed: invalid password', { email });
+      
+      // Record failed login attempt
+      if (typeof user.recordLoginAttempt === 'function') {
+        const loginDetails = this.extractLoginDetails(req);
+        user.recordLoginAttempt({
+          ipAddress: loginDetails.ipAddress,
+          userAgent: loginDetails.userAgent,
+          successful: false
+        });
+        await user.save();
+      }
+      
       return null;
     }
-
-    // Mise à jour sécurisée
+    
+    // Successful authentication
+    logger.info('Authentication successful', { email });
+    
+    // Update last login info
     if (typeof user.updateLastLogin === 'function') {
       const loginDetails = this.extractLoginDetails(req);
       user.updateLastLogin(loginDetails.ipAddress, loginDetails.userAgent);
     }
-
+    
+    // Record successful login attempt
+    if (typeof user.recordLoginAttempt === 'function') {
+      const loginDetails = this.extractLoginDetails(req);
+      user.recordLoginAttempt({
+        ipAddress: loginDetails.ipAddress,
+        userAgent: loginDetails.userAgent,
+        successful: true
+      });
+    }
+    
     if (typeof user.save === 'function') {
       await user.save();
     }
-
-    // Génération des tokens
+    
+    // Generate tokens
     const tokens = this.generateAuthTokens(user, options);
     return tokens;
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Error during authentication', { error: errorMessage, email });
     throw new Error(`Authentication failed: ${errorMessage}`);
   }
 }
+
+// Add this method to your AuthService for debugging
+async testPasswordComparison(email: string, password: string): Promise<void> {
+  try {
+    const user = await this.userService.getUserByEmail(email);
+    if (!user) {
+      logger.error('User not found for password test');
+      return;
+    }
+    
+    logger.info('=== PASSWORD COMPARISON TEST ===');
+    logger.info('Input password:', password);
+    logger.info('Input password length:', password.length);
+    logger.info('User password hash:', user.password);
+    logger.info('User password hash length:', user.password?.length);
+    
+    // Direct bcrypt comparison
+    const directResult = await bcrypt.compare(password, user.password);
+    logger.info('Direct bcrypt comparison result:', directResult);
+    
+    // Method comparison
+    if (typeof user.comparePassword === 'function') {
+      const methodResult = await user.comparePassword(password);
+      logger.info('Method comparison result:', methodResult);
+    } else {
+      logger.error('comparePassword method not available');
+    }
+    
+    logger.info('=== END PASSWORD TEST ===');
+  } catch (error) {
+    logger.error('Error in password test:', error);
+  }
+}
+
+// 4. Check your User Schema method binding
+// Make sure your schema methods are properly bound:
+
   
   
 // Fixed refreshAccessToken method
@@ -91,7 +225,7 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
       }
 
       const decoded = jwt.verify(refreshToken, jwtRefreshSecret) as TokenPayload;
-      const user = await this.userService.getUserById(decoded.userId) as UserInfo | null;
+      const user = await this.userService.getUserById(decoded.userId)
       
       if (!user || !user.isActive) {
         logger.warn('Token refresh failed: user not found or inactive', { userId: decoded.userId });
@@ -344,7 +478,7 @@ async generateTwoFactorSecret(userId: string) {
    */
   async generateTokensAfter2FA(userId: string, deviceId?: string): Promise<AuthTokens> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo | null;
+      const user = await this.userService.getUserById(userId) 
       if (!user) {
         throw new Error('User not found');
       }
@@ -584,7 +718,7 @@ async generateTwoFactorSecret(userId: string) {
    */
   async validateVerificationToken(token: string): Promise<{ userId: string; email: string } | null> {
     try {
-      const user = await this.userService.getUserByVerificationToken(token) as UserInfo | null;
+      const user = await this.userService.getUserByVerificationToken(token) 
       
       if (!user) {
         logger.warn('Invalid verification token', { token: token.substring(0, 8) + '...' });
@@ -673,7 +807,7 @@ async generateTwoFactorSecret(userId: string) {
         };
       }
 
-      const user = await this.userService.getUserById(tempTokenData.userId) as UserInfo | null;
+      const user = await this.userService.getUserById(tempTokenData.userId)
       if (!user || !user.isActive) {
         logger.warn('User not found or inactive for 2FA validation', { userId: tempTokenData.userId });
         return {
@@ -815,7 +949,7 @@ async generateTwoFactorSecret(userId: string) {
   /**
    * Extrait l'ID utilisateur en gérant les différents formats
    */
-  private getUserId(user: UserInfo): string {
+  private getUserId(user: IUser): string {
     if (typeof user._id === 'string') {
       return user._id;
     } else if (user._id && typeof user._id.toString === 'function') {
@@ -877,7 +1011,7 @@ async generateTwoFactorSecret(userId: string) {
    */
 
 
-private temporary2FAToken(user: UserInfo, deviceId?: string): string {
+private temporary2FAToken(user: IUser, deviceId?: string): string {
   if (!config.auth?.jwtSecret) {
     throw new Error('JWT secret not configured');
   }
@@ -901,7 +1035,7 @@ private temporary2FAToken(user: UserInfo, deviceId?: string): string {
    * Génère les tokens d'authentification pour un utilisateur
    */
   // Fixed generateAuthTokens method
-  private generateAuthTokens(user: UserInfo, options?: AuthOptions): AuthTokens {
+  private generateAuthTokens(user: IUser, options?: AuthOptions): AuthTokens {
   try {
     const sessionId = crypto.randomUUID();
     

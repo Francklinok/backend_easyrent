@@ -370,6 +370,7 @@ export interface UserInfo {
     isLocked: boolean;
     lockUntil?: Date;
   };
+  emailVerified:Boolean;
    lockUntil?: Date; // Alternative structure
   isLocked?: boolean;
   comparePassword(password: string): Promise<boolean>;

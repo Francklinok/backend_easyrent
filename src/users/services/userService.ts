@@ -99,12 +99,37 @@ export class UserService {
   /**
    * Retrouve un utilisateur par son email
    */
-  async getUserByEmail(email: string): Promise<IUser | null> {
+ 
+async getUserByEmail(email: string): Promise<IUser | null> {
+  try {
+    // The issue is here - you need to include the password field explicitly
+    // since it's marked as select: false in the schema
+    return await User.findOne({ 
+      email: email.toLowerCase(),
+      isDeleted: { $ne: true } // Also check if user is not deleted
+    }).select('+password'); // This is the correct way to include password
+  } catch (error) {
+    logger.error('Error fetching user by email', { error, email });
+    throw error;
+  }
+}
+  async debugUser(email: string): Promise<void> {
     try {
-      return await User.findOne({ email: email.toLowerCase() }).select('-resetPasswordToken -emailVerificationToken');
+      const userWithoutPassword = await User.findOne({ email: email.toLowerCase() });
+      const userWithPassword = await User.findOne({ email: email.toLowerCase() }).select('+password');
+      
+      console.log('User without password select:', {
+        email: userWithoutPassword?.email,
+        hasPassword: !!userWithoutPassword?.password
+      });
+      
+      console.log('User with password select:', {
+        email: userWithPassword?.email,
+        hasPassword: !!userWithPassword?.password,
+        passwordLength: userWithPassword?.password?.length
+      });
     } catch (error) {
-      logger.error('Error fetching user by email', { error, email });
-      throw error;
+      console.error('Debug error:', error);
     }
   }
    /**

@@ -176,145 +176,276 @@ const logger = createLogger('AuthController');
   /**
    * Connexion d'un utilisateur
    */
+
   async login(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const startTime = Date.now();
-    logger.info('Tentative de connexion', { 
-      email: req.body.email?.substring(0, 5) + '***',
-      ip: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+  const startTime = Date.now();
+  const { email, password, rememberMe, deviceInfo } = req.body;
 
-    try {
-      const { email, password, rememberMe, deviceInfo } = req.body;
-      
-      if (!email || !password) {
-        logger.warn('Tentative de connexion avec données manquantes', { 
-          hasEmail: !!email,
-          hasPassword: !!password,
-          ip: req.ip 
-        });
-        
-        res.status(400).json({
-          success: false,
-          message: 'Email et mot de passe requis'
-        });
-        return;
-      }
-      
-      // Authentifier l'utilisateur avec les informations supplémentaires
-      const tokens = await this.authService.authenticate(email, password, req, { rememberMe, deviceInfo });
-      
-      if (!tokens) {
-        await this.securityAuditService.logEvent({
-          eventType: 'FAILED_LOGIN',
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent'],
-          details: { email: email.substring(0, 5) + '***' }
-        });
-        
-        logger.warn('Échec de connexion - identifiants invalides', { 
-          email: email.substring(0, 5) + '***',
-          ip: req.ip 
-        });
-        
-        res.status(401).json({
-          success: false,
-          message: 'Email ou mot de passe incorrect'
-        });
-        return;
-      }
-      
-      // Obtenir les informations de l'utilisateur
-      const user: IUser | null = await this.userService.getUserByEmail(email);
-      
-      if (!user) {
-        logger.error('Utilisateur authentifié mais non trouvé en base', { 
-          email: email.substring(0, 5) + '***' 
-        });
-        
-        res.status(401).json({
-          success: false,
-          message: 'Utilisateur non trouvé'
-        });
-        return;
-      }
+  logger.info('Tentative de connexion', {
+    email: email?.substring(0, 5) + '***',
+    ip: req.ip,
+    userAgent: req.headers['user-agent']
+  });
 
-      const userId = user._id || user.id;
-
-      // Vérifier si le compte est vérifié
-      if (!user.emailVerified) {
-        logger.warn('Tentative de connexion avec compte non vérifié', { 
-          userId: userId.toString(),
-          email: email.substring(0, 5) + '***'
-        });
-        
-        res.status(403).json({
-          success: false,
-          message: 'Veuillez vérifier votre email avant de vous connecter'
-        });
-        return;
-      }
-      
-      // Vérifier si 2FA est activé
-      if (user.preferences?.twoFactorEnabled) {
-        logger.info('Connexion réussie - 2FA requis', { 
-          userId: userId.toString(),
-          email: email.substring(0, 5) + '***'
-        });
-        
-        res.status(200).json({
-          success: true,
-          message: 'Authentification réussie, validation 2FA requise',
-          requireTwoFactor: true,
-          temporaryToken: tokens.accessToken
-        });
-        return;
-      }
-      
-      // Journaliser la connexion réussie
-      await this.securityAuditService.logEvent({
-        eventType: 'SUCCESSFUL_LOGIN',
-        userId: userId.toString(),
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-        details: { rememberMe, deviceInfo }
-      });
-      
-      const executionTime = Date.now() - startTime;
-      logger.info('Connexion réussie', { 
-        userId: userId.toString(),
-        email: email.substring(0, 5) + '***',
-        rememberMe,
-        executionTime: `${executionTime}ms`
-      });
-      
-      // Envoyer les tokens
-      res.status(200).json({
-        success: true,
-        message: 'Connexion réussie',
-        data: {
-          ...tokens,
-          user: {
-            id: userId,
-            email: user.email,
-            username: user.username,
-            firstName: user.firstName,
-            lastName: user.lastName
-          }
-        }
-      });
-    } catch (error: any) {
-      const executionTime = Date.now() - startTime;
-      logger.error('Erreur lors de la connexion', { 
-        error: error.message,
-        stack: error.stack,
-        email: req.body.email?.substring(0, 5) + '***',
-        executionTime: `${executionTime}ms`,
+  try {
+    // Vérifier la présence des champs
+    if (!email || !password) {
+      logger.warn('Tentative de connexion avec données manquantes', {
+        hasEmail: !!email,
+        hasPassword: !!password,
         ip: req.ip
       });
-      next(error);
+
+      res.status(400).json({
+        success: false,
+        message: 'Email et mot de passe requis'
+      });
+      return;
     }
+
+    // Étape 1 - Récupération de l'utilisateur
+    const user: IUser | null = await this.userService.getUserByEmail(email);
+
+    if (!user) {
+      logger.warn('Échec de connexion - utilisateur non trouvé', {
+        email: email.substring(0, 5) + '***',
+        ip: req.ip
+      });
+
+      res.status(401).json({
+        success: false,
+        message: 'Email ou mot de passe incorrect'
+      });
+      return;
+    }
+
+    const userId = user._id || user.id;
+    const tokens = await this.authService.authenticate(email, password, req, {
+      rememberMe,
+      deviceInfo
+    });
+
+    if (!tokens) {
+      await this.securityAuditService.logEvent({
+        eventType: 'FAILED_LOGIN',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        details: { email: email.substring(0, 5) + '***' }
+      });
+
+      logger.warn('Échec de connexion - identifiants invalides', {
+        email: email.substring(0, 5) + '***',
+        ip: req.ip
+      });
+
+      res.status(401).json({
+        success: false,
+        message: 'Email ou mot de passe incorrect'
+      });
+      return;
+    }
+
+    // Étape 4 - Vérifier si 2FA est activé
+    if (user.preferences?.twoFactorEnabled) {
+      logger.info('Connexion réussie - 2FA requis', {
+        userId: userId.toString(),
+        email: email.substring(0, 5) + '***'
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Authentification réussie, validation 2FA requise',
+        requireTwoFactor: true,
+        temporaryToken: tokens.accessToken
+      });
+      return;
+    }
+
+    // Étape 5 - Connexion réussie, log et réponse
+    await this.securityAuditService.logEvent({
+      eventType: 'SUCCESSFUL_LOGIN',
+      userId: userId.toString(),
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      details: { rememberMe, deviceInfo }
+    });
+
+    const executionTime = Date.now() - startTime;
+    logger.info('Connexion réussie', {
+      userId: userId.toString(),
+      email: email.substring(0, 5) + '***',
+      rememberMe,
+      executionTime: `${executionTime}ms`
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Connexion réussie',
+      data: {
+        ...tokens,
+        user: {
+          id: userId,
+          email: user.email,
+          username: user.username,
+          firstName: user.firstName,
+          lastName: user.lastName
+        }
+      }
+    });
+
+  } catch (error: any) {
+    const executionTime = Date.now() - startTime;
+    logger.error('Erreur lors de la connexion', {
+      error: error.message,
+      stack: error.stack,
+      email: email?.substring(0, 5) + '***',
+      executionTime: `${executionTime}ms`,
+      ip: req.ip
+    });
+    next(error);
   }
+}
+
+
+  // async login(req: Request, res: Response, next: NextFunction): Promise<void> {
+  //   const startTime = Date.now();
+  //   logger.info('Tentative de connexion', { 
+  //     email: req.body.email?.substring(0, 5) + '***',
+  //     ip: req.ip,
+  //     userAgent: req.headers['user-agent']
+  //   });
+
+  //   try {
+  //     const { email, password, rememberMe, deviceInfo } = req.body;
+      
+  //     if (!email || !password) {
+  //       logger.warn('Tentative de connexion avec données manquantes', { 
+  //         hasEmail: !!email,
+  //         hasPassword: !!password,
+  //         ip: req.ip 
+  //       });
+        
+  //       res.status(400).json({
+  //         success: false,
+  //         message: 'Email et mot de passe requis'
+  //       });
+  //       return;
+  //     }
+      
+  //     // Authentifier l'utilisateur avec les informations supplémentaires
+  //     const tokens = await this.authService.authenticate(email, password, req, { rememberMe, deviceInfo });
+      
+  //     if (!tokens) {
+  //       await this.securityAuditService.logEvent({
+  //         eventType: 'FAILED_LOGIN',
+  //         ipAddress: req.ip,
+  //         userAgent: req.headers['user-agent'],
+  //         details: { email: email.substring(0, 5) + '***' }
+  //       });
+        
+  //       logger.warn('Échec de connexion - identifiants invalides', { 
+  //         email: email.substring(0, 5) + '***',
+  //         ip: req.ip 
+  //       });
+        
+  //       res.status(401).json({
+  //         success: false,
+  //         message: 'Email ou mot de passe incorrect'
+  //       });
+  //       return;
+  //     }
+      
+  //     // Obtenir les informations de l'utilisateur
+  //     const user: IUser | null = await this.userService.getUserByEmail(email);
+      
+  //     if (!user) {
+  //       logger.error('Utilisateur authentifié mais non trouvé en base', { 
+  //         email: email.substring(0, 5) + '***' 
+  //       });
+        
+  //       res.status(401).json({
+  //         success: false,
+  //         message: 'Utilisateur non trouvé'
+  //       });
+  //       return;
+  //     }
+
+  //     const userId = user._id || user.id;
+
+  //     // Vérifier si le compte est vérifié
+  //     if (!user.emailVerified) {
+  //       logger.warn('Tentative de connexion avec compte non vérifié', { 
+  //         userId: userId.toString(),
+  //         email: email.substring(0, 5) + '***'
+  //       });
+        
+  //       res.status(403).json({
+  //         success: false,
+  //         message: 'Veuillez vérifier votre email avant de vous connecter'
+  //       });
+  //       return;
+  //     }
+      
+  //     // Vérifier si 2FA est activé
+  //     if (user.preferences?.twoFactorEnabled) {
+  //       logger.info('Connexion réussie - 2FA requis', { 
+  //         userId: userId.toString(),
+  //         email: email.substring(0, 5) + '***'
+  //       });
+        
+  //       res.status(200).json({
+  //         success: true,
+  //         message: 'Authentification réussie, validation 2FA requise',
+  //         requireTwoFactor: true,
+  //         temporaryToken: tokens.accessToken
+  //       });
+  //       return;
+  //     }
+      
+  //     // Journaliser la connexion réussie
+  //     await this.securityAuditService.logEvent({
+  //       eventType: 'SUCCESSFUL_LOGIN',
+  //       userId: userId.toString(),
+  //       ipAddress: req.ip,
+  //       userAgent: req.headers['user-agent'],
+  //       details: { rememberMe, deviceInfo }
+  //     });
+      
+  //     const executionTime = Date.now() - startTime;
+  //     logger.info('Connexion réussie', { 
+  //       userId: userId.toString(),
+  //       email: email.substring(0, 5) + '***',
+  //       rememberMe,
+  //       executionTime: `${executionTime}ms`
+  //     });
+      
+  //     // Envoyer les tokens
+  //     res.status(200).json({
+  //       success: true,
+  //       message: 'Connexion réussie',
+  //       data: {
+  //         ...tokens,
+  //         user: {
+  //           id: userId,
+  //           email: user.email,
+  //           username: user.username,
+  //           firstName: user.firstName,
+  //           lastName: user.lastName
+  //         }
+  //       }
+  //     });
+  //   } catch (error: any) {
+  //     const executionTime = Date.now() - startTime;
+  //     logger.error('Erreur lors de la connexion', { 
+  //       error: error.message,
+  //       stack: error.stack,
+  //       email: req.body.email?.substring(0, 5) + '***',
+  //       executionTime: `${executionTime}ms`,
+  //       ip: req.ip
+  //     });
+  //     next(error);
+  //   }
+  // }
   
   /**
    * Déconnexion d'un utilisateur

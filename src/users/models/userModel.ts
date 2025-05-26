@@ -13,7 +13,10 @@ import { generateVerificationToken } from '../utils/generateVerificationToken';
 import { isPasswordResetTokenValid } from '../utils/isPasswordResetTokenValid';
 import { recordLoginAttempt } from '../utils/recordLoginAttempt';
 import { updateLastLogin } from '../utils/updateLastLogin';
+import bcrypt from  "bcrypt"
+import { createLogger } from '../../utils/logger/logger';
 
+const   logger = createLogger('models')
 
 const UserSchema = new Schema<IUser>(
   {
@@ -177,14 +180,16 @@ UserSchema.methods.updateLastLogin = updateLastLogin;
 
 
 // Méthode pour mettre à jour les informations de dernière connexion
-UserSchema.methods.updateLastLogin = function(ip: string, userAgent: string): void {
+
+UserSchema.methods.updateLastLogin = function(ip: string, userAgent?: string): void {
   this.lastLogin = new Date();
   this.lastIp = ip;
-  this.lastUserAgent = userAgent;
+  if (userAgent) {
+    this.lastUserAgent = userAgent; // Make sure this field exists in your schema
+  }
   this.lastActive = new Date();
   this.presenceStatus = 'online';
-};
-
+}
 // Méthode pour enregistrer une tentative de connexion
 UserSchema.methods.recordLoginAttempt = function(attempt: Omit<LoginHistory, 'timestamp'>): void {
   const { ipAddress, userAgent, successful } = attempt;
