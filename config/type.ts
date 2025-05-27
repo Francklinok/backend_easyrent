@@ -32,12 +32,23 @@ export interface Config {
     options?: Record<string, any>;
   };
   email: {
+    strategy: 'smtp-first' | 'sendgrid-first';
     host?: string;
     port?: number;
     secure?: boolean;
     user?: string;
     password?: string;
     fromAddress?: string;
+    enabled:boolean,
+    timeout: number;
+    pool: boolean;
+    maxConnections: number;
+
+  };
+    sendgrid: {
+    apiKey?: string;
+    enabled: boolean;
+    fromAddress: string;
   };
   security: {
     level: 'low' | 'medium' | 'high' | 'adaptive';

@@ -41,138 +41,290 @@ const logger = createLogger('AuthController');
    * Inscription d'un nouvel utilisateur
    */
 
-  async register(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const startTime = Date.now();
-    logger.info('Début de la tentative d\'inscription', { 
-      ip: req.ip, 
-      userAgent: req.headers['user-agent'],
-      email: req.body.email?.substring(0, 5) + '***' // Log partiel pour sécurité
+  // async register(req: Request, res: Response, next: NextFunction): Promise<void> {
+  //   const startTime = Date.now();
+  //   logger.info('Début de la tentative d\'inscription', { 
+  //     ip: req.ip, 
+  //     userAgent: req.headers['user-agent'],
+  //     email: req.body.email?.substring(0, 5) + '***' // Log partiel pour sécurité
+  //   });
+
+  //   try {
+  //     const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, ...userData }: IUser = req.body;
+      
+  //     // Validation des données requises
+  //     if (!email || !password || !username) {
+  //       logger.warn('Tentative d\'inscription avec données manquantes', { 
+  //         hasEmail: !!email, 
+  //         hasPassword: !!password, 
+  //         hasUsername: !!username,
+  //         ip: req.ip 
+  //       });
+        
+  //       res.status(400).json({
+  //         success: false,
+  //         message: 'Email, mot de passe et nom d\'utilisateur sont requis'
+  //       });
+  //       return;
+  //     }
+
+  //     // Vérifications parallèles pour optimiser les performances
+  //     const [existingUserByEmail, existingUserByUsername] = await Promise.all([
+  //       this.userService.getUserByEmail(email),
+  //       this.userService.getUserByUsername(username)
+  //     ]);
+
+  //     if (existingUserByEmail) {
+  //       logger.warn('Tentative d\'inscription avec email déjà utilisé', { 
+  //         email: email.substring(0, 5) + '***',
+  //         ip: req.ip 
+  //       });
+        
+  //       res.status(409).json({
+  //         success: false,
+  //         message: 'Cet email est déjà utilisé'
+  //       });
+  //       return;
+  //     }
+
+  //     if (existingUserByUsername) {
+  //       logger.warn('Tentative d\'inscription avec nom d\'utilisateur déjà utilisé', { 
+  //         username: username.substring(0, 3) + '***',
+  //         ip: req.ip 
+  //       });
+        
+  //       res.status(409).json({
+  //         success: false,
+  //         message: 'Ce nom d\'utilisateur est déjà utilisé'
+  //       });
+  //       return;
+  //     }
+
+  //     // Créer l'utilisateur avec tous les champs validés
+  //     const user: IUser = await this.userService.createUser({
+  //       firstName,
+  //       lastName,
+  //       username,
+  //       email,
+  //       password,
+  //       phoneNumber,
+  //       dateOfBirth,
+  //       ...userData
+  //     }, true);
+
+  //     // Vérifier que l'utilisateur a été créé avec succès
+  //     if (!user || (!user.id && !user._id)) {
+  //       logger.error('Échec de la création de l\'utilisateur - utilisateur null ou sans ID', { 
+  //         email: email.substring(0, 5) + '***',
+  //         username: username.substring(0, 3) + '***'
+  //       });
+  //       throw new AppError('Échec de la création de l\'utilisateur', 500);
+  //     }
+
+  //     const userId = user._id || user.id;
+
+  //     // Opérations asynchrones non bloquantes
+  //     const asyncOperations = [
+  //       // Journalisation de sécurité
+  //       this.securityAuditService.logEvent({
+  //         eventType: 'USER_REGISTERED',
+  //         userId: userId.toString(),
+  //         ipAddress: req.ip || 'unknown',
+  //         userAgent: req.headers['user-agent'] || 'unknown',
+  //         details: { email, username }
+  //       }).catch(auditError => {
+  //         logger.warn('Erreur lors de la journalisation d\'inscription', { 
+  //           error: auditError.message,
+  //           userId: userId.toString()
+  //         });
+  //       })
+  //     ];
+
+  //     // Exécuter les opérations asynchrones sans attendre
+  //     Promise.all(asyncOperations);
+
+  //     const executionTime = Date.now() - startTime;
+  //     logger.info('Nouvel utilisateur inscrit avec succès', { 
+  //       userId: userId.toString(),
+  //       email: email.substring(0, 5) + '***',
+  //       username: username.substring(0, 3) + '***',
+  //       executionTime: `${executionTime}ms`
+  //     });
+
+  //     res.status(201).json({
+  //       success: true,
+  //       message: 'Inscription réussie. Veuillez vérifier votre email pour activer votre compte',
+  //       data: {
+  //         userId: userId.toString(),
+  //         email: user.email,
+  //         username: user.username
+  //       }
+  //     });
+  //   } catch (error: any) {
+  //     const executionTime = Date.now() - startTime;
+  //     logger.error('Erreur lors de l\'inscription', { 
+  //       error: error.message,
+  //       stack: error.stack,
+  //       email: req.body.email?.substring(0, 5) + '***',
+  //       executionTime: `${executionTime}ms`,
+  //       ip: req.ip
+  //     });
+  //     next(error);
+  //   }
+  // }
+  // AuthController.ts - Méthode register corrigée
+
+
+  // AuthController.ts - Méthode register corrigée
+async register(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const startTime = Date.now();
+  logger.info('Début de la tentative d\'inscription', { 
+    ip: req.ip, 
+    userAgent: req.headers['user-agent'],
+    email: req.body.email?.substring(0, 5) + '***'
+  });
+
+  try {
+    const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, ...userData }: IUser = req.body;
+    
+    // Validation des données requises
+    if (!email || !password || !username) {
+      logger.warn('Tentative d\'inscription avec données manquantes', { 
+        hasEmail: !!email, 
+        hasPassword: !!password, 
+        hasUsername: !!username,
+        ip: req.ip 
+      });
+      
+      res.status(400).json({
+        success: false,
+        message: 'Email, mot de passe et nom d\'utilisateur sont requis'
+      });
+      return;
+    }
+
+    // Validation du format email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      res.status(400).json({
+        success: false,
+        message: 'Format d\'email invalide'
+      });
+      return;
+    }
+
+    // Validation de la force du mot de passe
+    if (password.length < 8) {
+      res.status(400).json({
+        success: false,
+        message: 'Le mot de passe doit contenir au moins 8 caractères'
+      });
+      return;
+    }
+
+    // ⚠️ CORRECTION : Vérifications parallèles pour optimiser les performances
+    const [existingUserByEmail, existingUserByUsername] = await Promise.all([
+      this.userService.getUserByEmail(email),
+      this.userService.getUserByUsername(username)
+    ]);
+
+    if (existingUserByEmail) {
+      logger.warn('Tentative d\'inscription avec email déjà utilisé', { 
+        email: email.substring(0, 5) + '***',
+        ip: req.ip 
+      });
+      
+      res.status(409).json({
+        success: false,
+        message: 'Cet email est déjà utilisé'
+      });
+      return;
+    }
+
+    if (existingUserByUsername) {
+      logger.warn('Tentative d\'inscription avec nom d\'utilisateur déjà utilisé', { 
+        username: username.substring(0, 3) + '***',
+        ip: req.ip 
+      });
+      
+      res.status(409).json({
+        success: false,
+        message: 'Ce nom d\'utilisateur est déjà utilisé'
+      });
+      return;
+    }
+
+    // ⚠️ CORRECTION MAJEURE : Créer l'utilisateur avec sendVerificationEmail = true
+    const user: IUser = await this.userService.createUser({
+      firstName,
+      lastName,
+      username,
+      email,
+      password, // Le mot de passe sera haché dans createUser
+      phoneNumber,
+      dateOfBirth,
+      address,
+      ...userData
+    }, true); // ← IMPORTANT : true pour envoyer l'email de vérification
+
+    // Vérifier que l'utilisateur a été créé avec succès
+    if (!user || (!user.id && !user._id)) {
+      logger.error('Échec de la création de l\'utilisateur - utilisateur null ou sans ID', { 
+        email: email.substring(0, 5) + '***',
+        username: username.substring(0, 3) + '***'
+      });
+      throw new AppError('Échec de la création de l\'utilisateur', 500);
+    }
+
+    const userId = user._id || user.id;
+
+    // ⚠️ CORRECTION : Attendre la journalisation de sécurité au lieu de l'ignorer
+    try {
+      await this.securityAuditService.logEvent({
+        eventType: 'USER_REGISTERED',
+        userId: userId.toString(),
+        ipAddress: req.ip || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown',
+        details: { email: email.substring(0, 5) + '***', username: username.substring(0, 3) + '***' }
+      });
+    } catch (auditError) {
+      logger.warn('Erreur lors de la journalisation d\'inscription', { 
+        error: auditError instanceof Error ? auditError.message : 'Erreur inconnue',
+        userId: userId.toString()
+      });
+    }
+
+    const executionTime = Date.now() - startTime;
+    logger.info('Nouvel utilisateur inscrit avec succès', { 
+      userId: userId.toString(),
+      email: email.substring(0, 5) + '***',
+      username: username.substring(0, 3) + '***',
+      executionTime: `${executionTime}ms`,
+      emailSent: !!user.emailVerificationToken
     });
 
-    try {
-      const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, ...userData }: IUser = req.body;
-      
-      // Validation des données requises
-      if (!email || !password || !username) {
-        logger.warn('Tentative d\'inscription avec données manquantes', { 
-          hasEmail: !!email, 
-          hasPassword: !!password, 
-          hasUsername: !!username,
-          ip: req.ip 
-        });
-        
-        res.status(400).json({
-          success: false,
-          message: 'Email, mot de passe et nom d\'utilisateur sont requis'
-        });
-        return;
-      }
-
-      // Vérifications parallèles pour optimiser les performances
-      const [existingUserByEmail, existingUserByUsername] = await Promise.all([
-        this.userService.getUserByEmail(email),
-        this.userService.getUserByUsername(username)
-      ]);
-
-      if (existingUserByEmail) {
-        logger.warn('Tentative d\'inscription avec email déjà utilisé', { 
-          email: email.substring(0, 5) + '***',
-          ip: req.ip 
-        });
-        
-        res.status(409).json({
-          success: false,
-          message: 'Cet email est déjà utilisé'
-        });
-        return;
-      }
-
-      if (existingUserByUsername) {
-        logger.warn('Tentative d\'inscription avec nom d\'utilisateur déjà utilisé', { 
-          username: username.substring(0, 3) + '***',
-          ip: req.ip 
-        });
-        
-        res.status(409).json({
-          success: false,
-          message: 'Ce nom d\'utilisateur est déjà utilisé'
-        });
-        return;
-      }
-
-      // Créer l'utilisateur avec tous les champs validés
-      const user: IUser = await this.userService.createUser({
-        firstName,
-        lastName,
-        username,
-        email,
-        password,
-        phoneNumber,
-        dateOfBirth,
-        ...userData
-      }, true);
-
-      // Vérifier que l'utilisateur a été créé avec succès
-      if (!user || (!user.id && !user._id)) {
-        logger.error('Échec de la création de l\'utilisateur - utilisateur null ou sans ID', { 
-          email: email.substring(0, 5) + '***',
-          username: username.substring(0, 3) + '***'
-        });
-        throw new AppError('Échec de la création de l\'utilisateur', 500);
-      }
-
-      const userId = user._id || user.id;
-
-      // Opérations asynchrones non bloquantes
-      const asyncOperations = [
-        // Journalisation de sécurité
-        this.securityAuditService.logEvent({
-          eventType: 'USER_REGISTERED',
-          userId: userId.toString(),
-          ipAddress: req.ip || 'unknown',
-          userAgent: req.headers['user-agent'] || 'unknown',
-          details: { email, username }
-        }).catch(auditError => {
-          logger.warn('Erreur lors de la journalisation d\'inscription', { 
-            error: auditError.message,
-            userId: userId.toString()
-          });
-        })
-      ];
-
-      // Exécuter les opérations asynchrones sans attendre
-      Promise.all(asyncOperations);
-
-      const executionTime = Date.now() - startTime;
-      logger.info('Nouvel utilisateur inscrit avec succès', { 
+    res.status(201).json({
+      success: true,
+      message: 'Inscription réussie. Veuillez vérifier votre email pour activer votre compte',
+      data: {
         userId: userId.toString(),
-        email: email.substring(0, 5) + '***',
-        username: username.substring(0, 3) + '***',
-        executionTime: `${executionTime}ms`
-      });
-
-      res.status(201).json({
-        success: true,
-        message: 'Inscription réussie. Veuillez vérifier votre email pour activer votre compte',
-        data: {
-          userId: userId.toString(),
-          email: user.email,
-          username: user.username
-        }
-      });
-    } catch (error: any) {
-      const executionTime = Date.now() - startTime;
-      logger.error('Erreur lors de l\'inscription', { 
-        error: error.message,
-        stack: error.stack,
-        email: req.body.email?.substring(0, 5) + '***',
-        executionTime: `${executionTime}ms`,
-        ip: req.ip
-      });
-      next(error);
-    }
+        email: user.email,
+        username: user.username,
+        requiresEmailVerification: !!user.emailVerificationToken
+      }
+    });
+  } catch (error: any) {
+    const executionTime = Date.now() - startTime;
+    logger.error('Erreur lors de l\'inscription', { 
+      error: error.message,
+      stack: error.stack,
+      email: req.body.email?.substring(0, 5) + '***',
+      executionTime: `${executionTime}ms`,
+      ip: req.ip
+    });
+    next(error);
   }
-  
+}
   /**
    * Connexion d'un utilisateur
    */

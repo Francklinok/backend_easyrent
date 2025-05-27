@@ -31,6 +31,14 @@ function getRequiredEnvString(key: string): string {
   return value;
 }
 
+function getEmailStrategy(): 'smtp-first' | 'sendgrid-first' {
+  const val = process.env.EMAIL_STRATEGY;
+  if (val !== 'smtp-first' && val !== 'sendgrid-first') {
+    throw new Error(`EMAIL_STRATEGY must be either 'smtp-first' or 'sendgrid-first'`);
+  }
+  return val;
+}
+
 /**
  * Configuration de base commune à tous les environnements
  */
@@ -64,14 +72,27 @@ const baseConfig: Config = {
     provider: (process.env.STORAGE_PROVIDER as 'local' | 's3' | 'azure') || 'local',
     bucketName: process.env.STORAGE_BUCKET || 'easyrent-local',
   },
+  // ✅ Configuration email corrigée
   email: {
+    strategy: getEmailStrategy(),
     host: process.env.SMTP_HOST,
     port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587,
     secure: process.env.SMTP_SECURE === 'true',
     user: process.env.SMTP_USER,
     password: process.env.SMTP_PASS,
     fromAddress: process.env.SMTP_FROM || 'noreply@easyrent.com',
+    // Nouvelles options pour améliorer la fiabilité
+    enabled: process.env.SMTP_ENABLED !== 'false', // Permet de désactiver l'email en dev
+    timeout: parseInt(process.env.SMTP_TIMEOUT || '15000', 10),
+    pool: process.env.SMTP_POOL === 'true',
+    maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS || '5', 10),
   },
+  sendgrid: {
+  apiKey: process.env.SENDGRID_API_KEY,
+  enabled: process.env.SENDGRID_ENABLED === 'true',
+  fromAddress: 'noreply@easyrent.com'
+},
+
   security: {
     level: (process.env.SECURITY_LEVEL as 'low' | 'medium' | 'high' | 'adaptive') || 'adaptive',
     rateLimit: {
