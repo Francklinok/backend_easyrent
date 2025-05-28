@@ -32,7 +32,7 @@ try {
         const addr = server.address();
         const bind = typeof addr === 'string' ? `pipe ${addr}` : `port ${addr?.port}`;
         logger.info(`🚀 Serveur démarré sur ${bind} en mode ${config.app.env}`);
-        logger.info(`🌐 URL locale: http://${config.database.url|| 'localhost'}:${port}`);
+        logger.info(`🌐 URL locale: http://${'localhost'}:${port}`);
       };
 
       // Démarrage du serveur

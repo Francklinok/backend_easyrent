@@ -96,13 +96,13 @@ authRouter.post(
 );
 
 // 2FA Setup (auth + sensible)
-// authRouter.post(
-//   '/2fa/setup',
+authRouter.post(
+  '/2fa/setup',
 //   // authenticate,
 //   // sensitiveOperationLimiter,
 //   // sensitiveRequestLogger,
-//   authController.setupTwoFactor.bind(authController)
-// );
+  authController.setupTwoFactor.bind(authController)
+);
 
 // 2FA Verify (auth + sensible)
 authRouter.post(
@@ -144,4 +144,5 @@ authRouter.post(
 // );
 
 export default authRouter;
+
 

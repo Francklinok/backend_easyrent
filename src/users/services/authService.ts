@@ -695,23 +695,54 @@ async generateTwoFactorSecret(userId: string) {
 
   /**
    * Génère un token de vérification d'email
-   */
-  async generateVerificationToken(userId: string): Promise<string> {
-    try {
-      // Générer un token aléatoire sécurisé
-      const token = crypto.randomBytes(32).toString('hex');
+  //  */
+  // async generateVerificationToken(userId: string): Promise<string> {
+  //   try {
+  //     // Générer un token aléatoire sécurisé
+  //     const token = crypto.randomBytes(32).toString('hex');
+  //      logger.info('🔍 DEBUG - Generated token:', {
+  //       userId,
+  //       token: token.substring(0, 10) + '...',
+  //       tokenLength: token.length
+  //     });
+  //     // Stocker le token dans la base de données avec une expiration
+  //     await this.userService.updateVerificationToken(userId);
       
-      // Stocker le token dans la base de données avec une expiration
-      await this.userService.updateVerificationToken(userId);
-      
-      logger.info('Verification token generated', { userId });
-      return token;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Error generating verification token', { error: errorMessage, userId });
-      throw new Error(`Verification token generation failed: ${errorMessage}`);
-    }
+  //     logger.info('Verification token generated', { userId });
+  //     return token;
+  //   } catch (error) {
+  //     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  //     logger.error('Error generating verification token', { error: errorMessage, userId });
+  //     throw new Error(`Verification token generation failed: ${errorMessage}`);
+  //   }
+  // }
+async generateVerificationToken(userId: string): Promise<string> {
+  try {
+    // Générer un token aléatoire sécurisé
+    const token = crypto.randomBytes(32).toString('hex');
+    
+    logger.info('🔍 DEBUG - Generated token:', {
+      userId,
+      token: token.substring(0, 10) + '...',
+      tokenLength: token.length
+    });
+    
+    // ✅ FIX: Stocker le token généré dans la base de données
+    const tokenExpiration = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
+    
+    await this.userService.updateUser(userId, {
+      emailVerificationToken: token,
+      emailVerificationTokenExpires: tokenExpiration
+    });
+    
+    logger.info('Verification token generated and saved', { userId });
+    return token; // ✅ Retourner le token généré
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error generating verification token', { error: errorMessage, userId });
+    throw new Error(`Verification token generation failed: ${errorMessage}`);
   }
+}
 
   /**
    * Valide un token de vérification d'email

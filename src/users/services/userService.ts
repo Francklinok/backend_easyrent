@@ -460,55 +460,55 @@ async getUserByEmail(email: string): Promise<IUser | null> {
   /**
    * Met à jour le token de vérification d'un utilisateur
    */
-  async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
-    success: boolean;
-    verificationToken?: string;
-    message?: string;
-  }> {
-    try {
-      logger.info('Updating verification token', { userId });
-      
-      const user = await User.findById(userId);
-      if (!user) {
-        logger.warn('User not found for verification token update', { userId });
-        return {
-          success: false,
-          message: 'Utilisateur non trouvé'
-        };
-      }
-      
-      // Générer un nouveau token de vérification
-      const newVerificationToken = crypto.randomBytes(32).toString('hex');
-      const tokenExpiration = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
-      
-      // Mettre à jour l'utilisateur avec le nouveau token
-      user.emailVerificationToken = newVerificationToken;
-      user.emailVerificationTokenExpires = tokenExpiration;
-      
-      await user.save();
-      
-      // Envoyer le nouvel email de vérification si demandé
-      if (sendNewEmail) {
-        await this.notificationService.sendVerificationEmail(
-          user.email,
-          newVerificationToken,
-          user.firstName
-        );
-        logger.info('New verification email sent', { userId, email: user.email });
-      }
-      
-      logger.info('Verification token updated successfully', { userId });
-      
-      return {
-        success: true,
-        verificationToken: newVerificationToken
-      };
-    } catch (error) {
-      logger.error('Error updating verification token', { error, userId });
-      throw error;
-    }
-  }
 
+async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
+  success: boolean;
+  verificationToken?: string;
+  message?: string;
+}> {
+  try {
+    logger.info('Updating verification token', { userId });
+   
+    const user = await User.findById(userId);
+    if (!user) {
+      logger.warn('User not found for verification token update', { userId });
+      return {
+        success: false,
+        message: 'Utilisateur non trouvé'
+      };
+    }
+   
+    // Générer un nouveau token de vérification
+    const newVerificationToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiration = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
+   
+    // Mettre à jour l'utilisateur avec le nouveau token
+    user.emailVerificationToken = newVerificationToken;
+    user.emailVerificationTokenExpires = tokenExpiration;
+   
+    await user.save();
+   
+    // ✅ FIX: Envoyer le nouvel email de vérification avec les bons paramètres
+    if (sendNewEmail) {
+      await this.notificationService.sendVerificationEmail(
+        user.email,
+        user.firstName,      // ✅ firstName en 2ème position
+        newVerificationToken // ✅ token en 3ème position
+      );
+      logger.info('New verification email sent', { userId, email: user.email });
+    }
+   
+    logger.info('Verification token updated successfully', { userId });
+   
+    return {
+      success: true,
+      verificationToken: newVerificationToken
+    };
+  } catch (error) {
+    logger.error('Error updating verification token', { error, userId });
+    throw error;
+  }
+}
 
  /**
    * Vérifie si le mot de passe fourni est correct pour l'utilisateur donné

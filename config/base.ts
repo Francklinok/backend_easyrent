@@ -81,17 +81,22 @@ const baseConfig: Config = {
     user: process.env.SMTP_USER,
     password: process.env.SMTP_PASS,
     fromAddress: process.env.SMTP_FROM || 'noreply@easyrent.com',
-    // Nouvelles options pour améliorer la fiabilité
-    enabled: process.env.SMTP_ENABLED !== 'false', // Permet de désactiver l'email en dev
     timeout: parseInt(process.env.SMTP_TIMEOUT || '15000', 10),
     pool: process.env.SMTP_POOL === 'true',
     maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS || '5', 10),
-  },
+    enabled: process.env.SMTP_ENABLED !== 'false' &&
+      !!(
+            process.env.SMTP_HOST &&
+            process.env.SMTP_USER &&
+            process.env.SMTP_PASS &&
+            process.env.SMTP_PORT
+          ),
+        },
   sendgrid: {
-  apiKey: process.env.SENDGRID_API_KEY,
-  enabled: process.env.SENDGRID_ENABLED === 'true',
-  fromAddress: 'noreply@easyrent.com'
-},
+    apiKey: process.env.SENDGRID_API_KEY,
+    enabled: process.env.SENDGRID_ENABLED === 'true',
+    fromAddress:process.env.SENDGRID_FROM_EMAIL || 'noreply@easyrent.com'
+  },
 
   security: {
     level: (process.env.SECURITY_LEVEL as 'low' | 'medium' | 'high' | 'adaptive') || 'adaptive',

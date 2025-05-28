@@ -1,86 +1,53 @@
 import nodemailer, { Transporter } from 'nodemailer';
-import sgMail from '@sendgrid/mail';
 import { createLogger } from '../utils/logger/logger';
 import { VerificationStatus } from '../users/types/userTypes';
 import config from '../../config';
+import sgMail from '@sendgrid/mail';
+
 
 const logger = createLogger('NotificationService');
-
-interface EmailOptions {
-  to: string;
-  subject: string;
-  html: string;
-  text?: string;
-}
 
 export class NotificationService {
   private transporter!: Transporter;
   private fromEmail: string;
-  private isSendGridEnabled: boolean;
-  private isSMTPEnabled: boolean;
-  private emailStrategy: 'sendgrid-first' | 'smtp-first';
-
+  private isEmailEnabled: boolean;
 
   constructor() {
-    this.fromEmail = config.sendgrid.fromAddress || config.email.fromAddress || 'noreply@easyrent.com';
-      this.emailStrategy = config.email.strategy;
-
-    // Vérifier et initialiser SendGrid
-    this.isSendGridEnabled = this.initializeSendGrid();
+    this.fromEmail = config.email.fromAddress || 'noreply@easyrent.com';
+    this.isEmailEnabled = config.email.enabled && this.isEmailConfigValid();
     
-    // Vérifier et initialiser SMTP
-    this.isSMTPEnabled = this.initializeSMTP();
-    
-    // Vérifier qu'au moins un service est disponible
-    if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
-      logger.error('Aucun service email configuré ! Vérifiez vos variables d\'environnement.');
+    if (this.isEmailEnabled) {
+      this.initializeTransporter();
     } else {
-      logger.info('Services email initialisés', {
-        sendgrid: this.isSendGridEnabled,
-        smtp: this.isSMTPEnabled,
-        primaryService: this.isSendGridEnabled ? 'SendGrid' : 'SMTP'
+      logger.warn('Email service disabled or configuration invalid', {
+        enabled: config.email.enabled,
+        configValid: this.isEmailConfigValid()
       });
     }
   }
 
   /**
-   * Initialise SendGrid
+   * Vérifie si la configuration email est valide
    */
-  private initializeSendGrid(): boolean {
-    if (!config.sendgrid.enabled || !config.sendgrid.apiKey) {
-      logger.warn('SendGrid non configuré', {
-        enabled: config.sendgrid.enabled,
-        hasApiKey: !!config.sendgrid.apiKey
-      });
-      return false;
-    }
-
-    try {
-      sgMail.setApiKey(config.sendgrid.apiKey);
-      logger.info('SendGrid initialisé avec succès');
-      return true;
-    } catch (error) {
-      logger.error('Erreur lors de l\'initialisation de SendGrid', {
-        error: error instanceof Error ? error.message : 'Erreur inconnue'
-      });
-      return false;
-    }
+  private isEmailConfigValid(): boolean {
+    return !!(
+      config.email.host &&
+      config.email.user &&
+      config.email.password &&
+      config.email.port
+    );
   }
 
   /**
-   * Initialise SMTP
+   * Initialise le transporteur email avec gestion d'erreur améliorée
    */
-  private initializeSMTP(): boolean {
-    if (!config.email.enabled) {
-      logger.warn('SMTP non configuré');
-      return false;
-    }
-
+  private initializeTransporter(): void {
     try {
+      // Configuration SMTP avec options de production
       this.transporter = nodemailer.createTransport({
         host: config.email.host,
         port: config.email.port,
-        secure: config.email.secure,
+        secure: config.email.secure, // true pour port 465, false pour autres ports
         auth: {
           user: config.email.user,
           pass: config.email.password
@@ -100,185 +67,170 @@ export class NotificationService {
           rejectUnauthorized: config.app.env === 'production',
           minVersion: 'TLSv1.2'
         },
-        // Debug en développement
+        // Options pour debug en développement
         debug: config.app.env === 'development',
         logger: config.app.env === 'development'
       });
 
-      // Vérification de connexion asynchrone
+      // Vérifier la configuration au démarrage (en mode non-bloquant)
       this.verifyConnectionAsync();
       
-      logger.info('SMTP initialisé avec succès', {
+      logger.info('Email transporter initialized successfully', {
         host: config.email.host,
         port: config.email.port,
-        secure: config.email.secure
+        secure: config.email.secure,
+        fromEmail: this.fromEmail
       });
-      
-      return true;
     } catch (error) {
-      logger.error('Erreur lors de l\'initialisation SMTP', {
-        error: error instanceof Error ? error.message : 'Erreur inconnue'
+      logger.error('Failed to initialize email transporter', { 
+        error: error instanceof Error ? error.message : 'Erreur inconnue' 
       });
-      return false;
+      this.isEmailEnabled = false;
     }
   }
 
   /**
-   * Vérification de connexion SMTP asynchrone
+   * Vérification de connexion asynchrone pour ne pas bloquer le démarrage
    */
   private async verifyConnectionAsync(): Promise<void> {
-    if (!this.transporter) return;
-
     try {
+      // Timeout pour éviter de bloquer trop longtemps
       await Promise.race([
         this.transporter.verify(),
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Connection verification timeout')), 10000)
         )
       ]);
-      logger.info('Connexion SMTP vérifiée avec succès');
+      logger.info('SMTP connection verified successfully');
     } catch (error) {
-      logger.error('Échec de la vérification SMTP', {
+      logger.error('SMTP connection verification failed', { 
         error: error instanceof Error ? error.message : 'Erreur inconnue',
         host: config.email.host,
-        port: config.email.port
+        port: config.email.port,
       });
-    }
-  }
-
-  /**
-   * Envoie un email via SendGrid
-   */
-  private async sendWithSendGrid(mailOptions: EmailOptions): Promise<boolean> {
-    if (!this.isSendGridEnabled) {
-      return false;
-    }
-
-    try {
-      const msg = {
-        to: mailOptions.to,
-        from: {
-          email: this.fromEmail,
-          name: 'EasyRent'
-        },
-        subject: mailOptions.subject,
-        html: mailOptions.html,
-        text: mailOptions.text || ''
-      };
-
-      const response = await sgMail.send(msg);
-
-      logger.info('Email envoyé avec SendGrid', {
-        to: this.maskEmail(mailOptions.to),
-        subject: mailOptions.subject,
-        messageId: response[0].headers['x-message-id'],
-        statusCode: response[0].statusCode
-      });
-
-      return true;
-    } catch (error: any) {
-      logger.error('Erreur SendGrid', {
-        to: this.maskEmail(mailOptions.to),
-        subject: mailOptions.subject,
-        error: error.message || 'Erreur inconnue',
-        code: error.code,
-        statusCode: error.response?.status
-      });
-
-      return false;
-    }
-  }
-
-  /**
-   * Envoie un email via SMTP
-   */
-  private async sendWithSMTP(mailOptions: EmailOptions): Promise<boolean> {
-    if (!this.isSMTPEnabled || !this.transporter) {
-      return false;
-    }
-
-    try {
-      const smtpOptions = {
-        from: {
-          name: 'EasyRent',
-          address: this.fromEmail
-        },
-        to: mailOptions.to,
-        subject: mailOptions.subject,
-        html: mailOptions.html,
-        text: mailOptions.text
-      };
-
-      const result = await Promise.race([
-        this.transporter.sendMail(smtpOptions),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Email send timeout after 30 seconds')), 30000)
-        )
-      ]) as any;
-
-      logger.info('Email envoyé avec SMTP', {
-        to: this.maskEmail(mailOptions.to),
-        subject: mailOptions.subject,
-        messageId: result.messageId
-      });
-
-      return true;
-    } catch (error) {
-      logger.error('Erreur SMTP', {
-        to: this.maskEmail(mailOptions.to),
-        subject: mailOptions.subject,
-        error: error instanceof Error ? error.message : 'Erreur inconnue'
-      });
-
-      return false;
-    }
-  }
-
-  /**
-   * Méthode principale d'envoi d'email avec fallback automatique
-   */
-  private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
-    // Vérifier qu'au moins un service est disponible
-    if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
-      logger.error('Aucun service email disponible', {
-        to: this.maskEmail(mailOptions.to),
-        subject: mailOptions.subject
-      });
-      return false;
-    }
-
-    // Essayer SendGrid en priorité
-    if (this.isSendGridEnabled) {
-      logger.debug('Tentative d\'envoi via SendGrid...');
-      const sendGridSuccess = await this.sendWithSendGrid(mailOptions);
-      
-      if (sendGridSuccess) {
-        return true;
-      }
-      
-      logger.warn('SendGrid a échoué, tentative SMTP...');
-    }
-
-    // Fallback vers SMTP
-    if (this.isSMTPEnabled) {
-      logger.debug('Tentative d\'envoi via SMTP...');
-      const smtpSuccess = await this.sendWithSMTP(mailOptions);
-      
-      if (smtpSuccess) {
-        return true;
+      // En développement, on peut continuer sans email
+      if (config.app.env === 'development') {
+        logger.warn('Continuing without email service in development mode');
       }
     }
+  }
 
-    // Tous les services ont échoué
-    logger.error('Échec de tous les services email', {
+private async sendWithSendGrid(mailOptions: { to: string; subject: string; html: string; text?: string }): Promise<boolean> {
+  if (!config.sendgrid.enabled || !config.sendgrid.apiKey) {
+    logger.warn('SendGrid non activé ou mal configuré');
+    return false;
+  }
+
+  try {
+    sgMail.setApiKey(config.sendgrid.apiKey);
+
+    const msg = {
+      to: mailOptions.to,
+      from: this.fromEmail, // ou config.sendgrid.fromAddress
+      subject: mailOptions.subject,
+      html: mailOptions.html,
+      text: mailOptions.text || '',
+    };
+
+    const response = await sgMail.send(msg);
+
+    logger.info('Email envoyé avec SendGrid', {
       to: this.maskEmail(mailOptions.to),
       subject: mailOptions.subject,
-      sendgridEnabled: this.isSendGridEnabled,
-      smtpEnabled: this.isSMTPEnabled
+      responseStatus: response[0].statusCode
+    });
+
+    return true;
+  } catch (error) {
+    logger.error('Erreur lors de l’envoi via SendGrid', {
+      to: this.maskEmail(mailOptions.to),
+      subject: mailOptions.subject,
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
 
     return false;
   }
+}
+
+
+  /**
+   * Méthode helper pour envoyer un email avec gestion d'erreur unifiée
+  //  */
+  // private async sendEmailSafely(mailOptions: any): Promise<boolean> {
+  //   if (!this.isEmailEnabled) {
+  //     logger.warn('Email service disabled, skipping email send', {
+  //       to: mailOptions.to,
+  //       subject: mailOptions.subject
+  //     });
+  //     return false;
+  //   }
+
+  //   try {
+  //     // Vérifier que le transporter est toujours actif
+  //     if (!this.transporter) {
+  //       logger.error('Email transporter not initialized');
+  //       return false;
+  //     }
+
+  //     // Envoyer avec timeout
+  //     const result = await Promise.race([
+  //       this.transporter.sendMail(mailOptions),
+  //       new Promise((_, reject) => 
+  //         setTimeout(() => reject(new Error('Email send timeout after 30 seconds')), 30000)
+  //       )
+  //     ]) as any;
+
+  //     logger.info('Email sent successfully', { 
+  //       to: this.maskEmail(mailOptions.to),
+  //       subject: mailOptions.subject,
+  //       messageId: result.messageId 
+  //     });
+  //     return true;
+  //   } catch (error) {
+  //     logger.error('Error sending email', { 
+  //       error: error instanceof Error ? error.message : 'Erreur inconnue',
+  //       to: this.maskEmail(mailOptions.to),
+  //       subject: mailOptions.subject,
+  //       stack: error instanceof Error ? error.stack : undefined
+  //     });
+  //     return false;
+  //   }
+  // }
+  private async sendEmailSafely(mailOptions: any): Promise<boolean> {
+  if (!this.isEmailEnabled) {
+    logger.warn('Transport SMTP désactivé, tentative avec SendGrid...');
+    return this.sendWithSendGrid(mailOptions);
+  }
+
+  try {
+    if (!this.transporter) {
+      throw new Error('Transport SMTP non initialisé');
+    }
+
+    const result = await Promise.race([
+      this.transporter.sendMail(mailOptions),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Email send timeout after 30 seconds')), 30000)
+      )
+    ]) as any;
+
+    logger.info('Email envoyé avec SMTP', {
+      to: this.maskEmail(mailOptions.to),
+      subject: mailOptions.subject,
+      messageId: result.messageId
+    });
+
+    return true;
+  } catch (smtpError) {
+    logger.warn('Échec SMTP, tentative SendGrid...', {
+      error: smtpError instanceof Error ? smtpError.message : 'Erreur SMTP inconnue'
+    });
+
+    // ⛑️ Fallback vers SendGrid
+    return this.sendWithSendGrid(mailOptions);
+  }
+}
+
 
   /**
    * Masque l'email pour les logs
@@ -290,57 +242,14 @@ export class NotificationService {
     return local.substring(0, Math.min(3, local.length)) + '***@' + domain;
   }
 
-  /**
-   * Test de la configuration email
-   */
-  async testEmailConfiguration(): Promise<{
-    sendgrid: boolean;
-    smtp: boolean;
-    overall: boolean;
-  }> {
-    const testResults = {
-      sendgrid: false,
-      smtp: false,
-      overall: false
-    };
+  // ✅ Méthodes d'envoi d'email refactorisées
 
-    // Test SendGrid
-    if (this.isSendGridEnabled) {
-      try {
-        // SendGrid n'a pas de méthode verify(), on teste avec un faux email
-        testResults.sendgrid = true;
-        logger.info('SendGrid configuré et prêt');
-      } catch (error) {
-        logger.error('Test SendGrid échoué', { error });
-      }
-    }
-
-    // Test SMTP
-    if (this.isSMTPEnabled && this.transporter) {
-      try {
-        await this.transporter.verify();
-        testResults.smtp = true;
-        logger.info('SMTP configuré et prêt');
-      } catch (error) {
-        logger.error('Test SMTP échoué', { error });
-      }
-    }
-
-    testResults.overall = testResults.sendgrid || testResults.smtp;
-
-    logger.info('Résultats des tests email', testResults);
-    return testResults;
-  }
-
-  // ==========================================
-  // Méthodes publiques d'envoi d'emails
-  // ==========================================
   async sendAccountReactivationEmail(email: string, firstName: string): Promise<boolean> {
-    const mailOptions : EmailOptions= {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+    const mailOptions = {
+      from: {
+        name: 'EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: 'Votre compte a été réactivé - EasyRent',
       html: this.getAccountReactivationTemplate(firstName)
@@ -348,11 +257,15 @@ export class NotificationService {
 
     return this.sendEmailSafely(mailOptions);
   }
-  
+
   async sendVerificationEmail(email: string, firstName: string, token: string): Promise<boolean> {
     const verificationUrl = `${config.app.frontendUrl}/verify-account?token=${token}`;
     
-    const mailOptions: EmailOptions = {
+    const mailOptions = {
+      from: {
+        name: 'EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: 'Vérifiez votre compte - EasyRent',
       html: this.getVerificationEmailTemplate(firstName, verificationUrl),
@@ -363,7 +276,11 @@ export class NotificationService {
   }
 
   async sendWelcomeEmail(email: string, firstName: string): Promise<boolean> {
-    const mailOptions: EmailOptions = {
+    const mailOptions = {
+      from: {
+        name: 'EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: 'Bienvenue sur EasyRent !',
       html: this.getWelcomeEmailTemplate(firstName)
@@ -375,7 +292,11 @@ export class NotificationService {
   async sendPasswordResetEmail(email: string, firstName: string, resetToken: string): Promise<boolean> {
     const resetUrl = `${config.app.frontendUrl}/reset-password?token=${resetToken}`;
     
-    const mailOptions: EmailOptions = {
+    const mailOptions = {
+      from: {
+        name: 'EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: 'Réinitialisation de votre mot de passe - EasyRent',
       html: this.getPasswordResetEmailTemplate(firstName, resetUrl)
@@ -384,13 +305,12 @@ export class NotificationService {
     return this.sendEmailSafely(mailOptions);
   }
 
-
   async sendPasswordChangeConfirmationEmail(email: string, firstName: string): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+      from: {
+        name: 'EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: 'Confirmation de changement de mot de passe - EasyRent',
       html: this.getPasswordChangeConfirmationTemplate(firstName)
@@ -398,7 +318,7 @@ export class NotificationService {
 
     return this.sendEmailSafely(mailOptions);
   }
-  
+
   async sendAgentVerificationStatusEmail(
     email: string, 
     firstName: string, 
@@ -422,10 +342,10 @@ export class NotificationService {
     }
     
     const mailOptions = {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+      from: {
+        name: 'EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject,
       html: this.getAgentVerificationStatusTemplate(firstName, status, comment)
@@ -460,10 +380,10 @@ export class NotificationService {
     }
     
     const mailOptions = {
-    //   from: {
-    //     name: 'Équipe Sécurité - EasyRent',
-    //     address: this.fromEmail
-    //   },
+      from: {
+        name: 'Équipe Sécurité - EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject,
       html: this.getSecurityAlertEmailTemplate(firstName, alertType, comment)
@@ -474,10 +394,10 @@ export class NotificationService {
 
   async sendAccountDeactivationEmail(email: string, firstName: string): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+      from: {
+        name: 'EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: 'Votre compte a été désactivé - EasyRent',
       html: this.getAccountDeactivationTemplate(firstName)
@@ -493,10 +413,10 @@ export class NotificationService {
     lockDuration?: string
   ): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'Équipe Sécurité - EasyRent',
-    //     address: this.fromEmail
-    //   },
+      from: {
+        name: 'Équipe Sécurité - EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: '🔒 Votre compte a été temporairement verrouillé - EasyRent',
       html: this.getAccountLockedEmailTemplate(firstName, reason, lockDuration)
@@ -507,10 +427,10 @@ export class NotificationService {
 
   async sendAccountDeletedEmail(email: string, firstName: string, comment?: string): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+      from: {
+        name: 'EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: 'Confirmation de suppression de votre compte - EasyRent',
       html: this.getAccountDeletedTemplate(firstName, comment)
@@ -525,10 +445,10 @@ export class NotificationService {
     comment?: string
   ): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'Équipe Support - EasyRent',
-    //     address: this.fromEmail
-    //   },
+      from: {
+        name: 'Équipe Support - EasyRent',
+        address: this.fromEmail
+      },
       to: email,
       subject: '✅ Votre compte a été restauré - EasyRent',
       html: this.getAccountRestoredEmailTemplate(firstName, comment)
@@ -537,110 +457,34 @@ export class NotificationService {
     return this.sendEmailSafely(mailOptions);
   }
 
+  /**
+   * Méthode pour tester la configuration email
+   */
+  async testEmailConfiguration(): Promise<boolean> {
+    if (!this.isEmailEnabled) {
+      logger.info('Email service is disabled');
+      return false;
+    }
 
-  // ==========================================
-  // Templates d'emails (gardez vos templates existants)
-  // ==========================================
-
-  private getVerificationEmailTemplate(firstName: string, verificationUrl: string): string {
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Vérification de compte - EasyRent</title>
-      </head>
-      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
-          <h1 style="color: #007bff; text-align: center; margin-bottom: 30px;">Bienvenue sur EasyRent, ${firstName}!</h1>
-          
-          <p style="font-size: 16px; margin-bottom: 20px;">
-            Merci de vous être inscrit sur EasyRent. Pour finaliser votre inscription et activer votre compte, 
-            veuillez cliquer sur le bouton ci-dessous :
-          </p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${verificationUrl}" 
-               style="background-color: #007bff; color: white; padding: 15px 30px; text-decoration: none; 
-                      border-radius: 5px; display: inline-block; font-weight: bold; font-size: 16px;">
-              ✅ Vérifier mon compte
-            </a>
-          </div>
-          
-          <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 20px 0;">
-            <p style="margin: 0; color: #856404;">
-              <strong>⏰ Important :</strong> Ce lien est valide pendant 24 heures seulement.
-            </p>
-          </div>
-          
-          <p style="color: #666; font-size: 14px; margin-top: 30px;">
-            Si vous n'avez pas créé de compte, vous pouvez ignorer cet email en toute sécurité.
-          </p>
-          
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          
-          <div style="font-size: 12px; color: #999;">
-            <p><strong>Problème avec le bouton ?</strong></p>
-            <p>Copiez et collez ce lien dans votre navigateur :</p>
-            <p style="word-break: break-all; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">
-              ${verificationUrl}
-            </p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
+    try {
+      await Promise.race([
+        this.transporter.verify(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Test timeout')), 10000)
+        )
+      ]);
+      logger.info('Email configuration test successful');
+      return true;
+    } catch (error) {
+      logger.error('Email configuration test failed', { 
+        error: error instanceof Error ? error.message : 'Erreur inconnue' 
+      });
+      return false;
+    }
   }
 
-  private getWelcomeEmailTemplate(firstName: string): string {
-    return `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center;">
-          <h1 style="color: #28a745; margin-bottom: 20px;">🎉 Bienvenue sur EasyRent, ${firstName}!</h1>
-          <p style="font-size: 16px; margin-bottom: 20px;">
-            Votre compte a été vérifié avec succès. Vous pouvez maintenant profiter de tous les services de notre plateforme de location.
-          </p>
-          <div style="margin: 30px 0;">
-            <a href="${config.app.frontendUrl}/dashboard" 
-               style="background-color: #28a745; color: white; padding: 15px 30px; text-decoration: none; 
-                      border-radius: 5px; display: inline-block; font-weight: bold;">
-              🚀 Accéder à mon tableau de bord
-            </a>
-          </div>
-        </div>
-      </div>
-    `;
-  }
+  // ✅ Templates d'emails optimisés
 
-  private getPasswordResetEmailTemplate(firstName: string, resetUrl: string): string {
-    return `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
-          <h1 style="color: #dc3545;">Réinitialisation de mot de passe</h1>
-          <p>Bonjour ${firstName},</p>
-          <p>Vous avez demandé la réinitialisation de votre mot de passe EasyRent. Cliquez sur le bouton ci-dessous pour créer un nouveau mot de passe :</p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" 
-               style="background-color: #dc3545; color: white; padding: 15px 30px; text-decoration: none; 
-                      border-radius: 5px; display: inline-block; font-weight: bold;">
-              🔑 Réinitialiser mon mot de passe
-            </a>
-          </div>
-          
-          <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px;">
-            <p style="margin: 0; color: #856404;">
-              <strong>⏰ Important :</strong> Ce lien expire dans 1 heure.
-            </p>
-          </div>
-          
-          <p style="margin-top: 20px;">Si vous n'avez pas demandé cette réinitialisation, vous pouvez ignorer cet email.</p>
-        </div>
-      </div>
-    `;
-  }
-  
   private getAccountReactivationTemplate(firstName: string): string {
     return `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -861,6 +705,105 @@ export class NotificationService {
             Merci pour votre patience. Nous nous efforçons de maintenir la sécurité de tous nos utilisateurs.
           </p>
           <p style="font-weight: bold;">L'équipe de support</p>
+        </div>
+      </div>
+    `;
+  }
+
+  private getVerificationEmailTemplate(firstName: string, verificationUrl: string): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Vérification de compte - EasyRent</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
+          <h1 style="color: #007bff; text-align: center; margin-bottom: 30px;">Bienvenue sur EasyRent, ${firstName}!</h1>
+          
+          <p style="font-size: 16px; margin-bottom: 20px;">
+            Merci de vous être inscrit sur EasyRent. Pour finaliser votre inscription et activer votre compte, 
+            veuillez cliquer sur le bouton ci-dessous :
+          </p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${verificationUrl}" 
+               style="background-color: #007bff; color: white; padding: 15px 30px; text-decoration: none; 
+                      border-radius: 5px; display: inline-block; font-weight: bold; font-size: 16px;">
+              ✅ Vérifier mon compte
+            </a>
+          </div>
+          
+          <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 20px 0;">
+            <p style="margin: 0; color: #856404;">
+              <strong>⏰ Important :</strong> Ce lien est valide pendant 24 heures seulement.
+            </p>
+          </div>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            Si vous n'avez pas créé de compte, vous pouvez ignorer cet email en toute sécurité.
+          </p>
+          
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+          
+          <div style="font-size: 12px; color: #999;">
+            <p><strong>Problème avec le bouton ?</strong></p>
+            <p>Copiez et collez ce lien dans votre navigateur :</p>
+            <p style="word-break: break-all; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">
+              ${verificationUrl}
+            </p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private getWelcomeEmailTemplate(firstName: string): string {
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center;">
+          <h1 style="color: #28a745; margin-bottom: 20px;">🎉 Bienvenue sur EasyRent, ${firstName}!</h1>
+          <p style="font-size: 16px; margin-bottom: 20px;">
+            Votre compte a été vérifié avec succès. Vous pouvez maintenant profiter de tous les services de notre plateforme de location.
+          </p>
+          <div style="margin: 30px 0;">
+            <a href="${config.app.frontendUrl}/dashboard" 
+               style="background-color: #28a745; color: white; padding: 15px 30px; text-decoration: none; 
+                      border-radius: 5px; display: inline-block; font-weight: bold;">
+              🚀 Accéder à mon tableau de bord
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private getPasswordResetEmailTemplate(firstName: string, resetUrl: string): string {
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
+          <h1 style="color: #dc3545;">Réinitialisation de mot de passe</h1>
+          <p>Bonjour ${firstName},</p>
+          <p>Vous avez demandé la réinitialisation de votre mot de passe EasyRent. Cliquez sur le bouton ci-dessous pour créer un nouveau mot de passe :</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetUrl}" 
+               style="background-color: #dc3545; color: white; padding: 15px 30px; text-decoration: none; 
+                      border-radius: 5px; display: inline-block; font-weight: bold;">
+              🔑 Réinitialiser mon mot de passe
+            </a>
+          </div>
+          
+          <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px;">
+            <p style="margin: 0; color: #856404;">
+              <strong>⏰ Important :</strong> Ce lien expire dans 1 heure.
+            </p>
+          </div>
+          
+          <p style="margin-top: 20px;">Si vous n'avez pas demandé cette réinitialisation, vous pouvez ignorer cet email.</p>
         </div>
       </div>
     `;

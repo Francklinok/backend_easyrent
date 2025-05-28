@@ -39,10 +39,10 @@ export interface Config {
     user?: string;
     password?: string;
     fromAddress?: string;
-    enabled:boolean,
     timeout: number;
     pool: boolean;
     maxConnections: number;
+    enabled:boolean,
 
   };
     sendgrid: {

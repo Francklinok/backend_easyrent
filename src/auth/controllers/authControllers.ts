@@ -41,140 +41,6 @@ const logger = createLogger('AuthController');
    * Inscription d'un nouvel utilisateur
    */
 
-  // async register(req: Request, res: Response, next: NextFunction): Promise<void> {
-  //   const startTime = Date.now();
-  //   logger.info('Début de la tentative d\'inscription', { 
-  //     ip: req.ip, 
-  //     userAgent: req.headers['user-agent'],
-  //     email: req.body.email?.substring(0, 5) + '***' // Log partiel pour sécurité
-  //   });
-
-  //   try {
-  //     const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, ...userData }: IUser = req.body;
-      
-  //     // Validation des données requises
-  //     if (!email || !password || !username) {
-  //       logger.warn('Tentative d\'inscription avec données manquantes', { 
-  //         hasEmail: !!email, 
-  //         hasPassword: !!password, 
-  //         hasUsername: !!username,
-  //         ip: req.ip 
-  //       });
-        
-  //       res.status(400).json({
-  //         success: false,
-  //         message: 'Email, mot de passe et nom d\'utilisateur sont requis'
-  //       });
-  //       return;
-  //     }
-
-  //     // Vérifications parallèles pour optimiser les performances
-  //     const [existingUserByEmail, existingUserByUsername] = await Promise.all([
-  //       this.userService.getUserByEmail(email),
-  //       this.userService.getUserByUsername(username)
-  //     ]);
-
-  //     if (existingUserByEmail) {
-  //       logger.warn('Tentative d\'inscription avec email déjà utilisé', { 
-  //         email: email.substring(0, 5) + '***',
-  //         ip: req.ip 
-  //       });
-        
-  //       res.status(409).json({
-  //         success: false,
-  //         message: 'Cet email est déjà utilisé'
-  //       });
-  //       return;
-  //     }
-
-  //     if (existingUserByUsername) {
-  //       logger.warn('Tentative d\'inscription avec nom d\'utilisateur déjà utilisé', { 
-  //         username: username.substring(0, 3) + '***',
-  //         ip: req.ip 
-  //       });
-        
-  //       res.status(409).json({
-  //         success: false,
-  //         message: 'Ce nom d\'utilisateur est déjà utilisé'
-  //       });
-  //       return;
-  //     }
-
-  //     // Créer l'utilisateur avec tous les champs validés
-  //     const user: IUser = await this.userService.createUser({
-  //       firstName,
-  //       lastName,
-  //       username,
-  //       email,
-  //       password,
-  //       phoneNumber,
-  //       dateOfBirth,
-  //       ...userData
-  //     }, true);
-
-  //     // Vérifier que l'utilisateur a été créé avec succès
-  //     if (!user || (!user.id && !user._id)) {
-  //       logger.error('Échec de la création de l\'utilisateur - utilisateur null ou sans ID', { 
-  //         email: email.substring(0, 5) + '***',
-  //         username: username.substring(0, 3) + '***'
-  //       });
-  //       throw new AppError('Échec de la création de l\'utilisateur', 500);
-  //     }
-
-  //     const userId = user._id || user.id;
-
-  //     // Opérations asynchrones non bloquantes
-  //     const asyncOperations = [
-  //       // Journalisation de sécurité
-  //       this.securityAuditService.logEvent({
-  //         eventType: 'USER_REGISTERED',
-  //         userId: userId.toString(),
-  //         ipAddress: req.ip || 'unknown',
-  //         userAgent: req.headers['user-agent'] || 'unknown',
-  //         details: { email, username }
-  //       }).catch(auditError => {
-  //         logger.warn('Erreur lors de la journalisation d\'inscription', { 
-  //           error: auditError.message,
-  //           userId: userId.toString()
-  //         });
-  //       })
-  //     ];
-
-  //     // Exécuter les opérations asynchrones sans attendre
-  //     Promise.all(asyncOperations);
-
-  //     const executionTime = Date.now() - startTime;
-  //     logger.info('Nouvel utilisateur inscrit avec succès', { 
-  //       userId: userId.toString(),
-  //       email: email.substring(0, 5) + '***',
-  //       username: username.substring(0, 3) + '***',
-  //       executionTime: `${executionTime}ms`
-  //     });
-
-  //     res.status(201).json({
-  //       success: true,
-  //       message: 'Inscription réussie. Veuillez vérifier votre email pour activer votre compte',
-  //       data: {
-  //         userId: userId.toString(),
-  //         email: user.email,
-  //         username: user.username
-  //       }
-  //     });
-  //   } catch (error: any) {
-  //     const executionTime = Date.now() - startTime;
-  //     logger.error('Erreur lors de l\'inscription', { 
-  //       error: error.message,
-  //       stack: error.stack,
-  //       email: req.body.email?.substring(0, 5) + '***',
-  //       executionTime: `${executionTime}ms`,
-  //       ip: req.ip
-  //     });
-  //     next(error);
-  //   }
-  // }
-  // AuthController.ts - Méthode register corrigée
-
-
   // AuthController.ts - Méthode register corrigée
 async register(req: Request, res: Response, next: NextFunction): Promise<void> {
   const startTime = Date.now();
@@ -277,6 +143,13 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     }
 
     const userId = user._id || user.id;
+     const verificationToken = await this.authService.generateVerificationToken(userId.toString());
+         // Envoyer l'email de vérification avec le bon token
+    await this.notificationService.sendVerificationEmail(
+      user.email,
+      user.firstName || '',
+      verificationToken
+    );
 
     // ⚠️ CORRECTION : Attendre la journalisation de sécurité au lieu de l'ignorer
     try {
@@ -285,7 +158,10 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
         userId: userId.toString(),
         ipAddress: req.ip || 'unknown',
         userAgent: req.headers['user-agent'] || 'unknown',
-        details: { email: email.substring(0, 5) + '***', username: username.substring(0, 3) + '***' }
+        details: {
+           email: email.substring(0, 5) + '***', 
+           username: username.substring(0, 3) + '***'
+           }
       });
     } catch (auditError) {
       logger.warn('Erreur lors de la journalisation d\'inscription', { 
@@ -300,7 +176,8 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
       email: email.substring(0, 5) + '***',
       username: username.substring(0, 3) + '***',
       executionTime: `${executionTime}ms`,
-      emailSent: !!user.emailVerificationToken
+      verificationTokenGenerated: !!verificationToken
+      // emailSent: !!user.emailVerificationToken
     });
 
     res.status(201).json({
@@ -310,7 +187,7 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
         userId: userId.toString(),
         email: user.email,
         username: user.username,
-        requiresEmailVerification: !!user.emailVerificationToken
+        requiresEmailVerification:true
       }
     });
   } catch (error: any) {
@@ -458,146 +335,32 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
   }
 }
 
+// //verify count endpoint
+// async verifyAccount (req: Request, res: Response):Promise<void>{
+//   const token = req.query.token as string;
 
-  // async login(req: Request, res: Response, next: NextFunction): Promise<void> {
-  //   const startTime = Date.now();
-  //   logger.info('Tentative de connexion', { 
-  //     email: req.body.email?.substring(0, 5) + '***',
-  //     ip: req.ip,
-  //     userAgent: req.headers['user-agent']
-  //   });
+//   if (!token) {
+//     return res.status(400).json({ message: 'Token manquant dans la requête' });
+//   }
 
-  //   try {
-  //     const { email, password, rememberMe, deviceInfo } = req.body;
-      
-  //     if (!email || !password) {
-  //       logger.warn('Tentative de connexion avec données manquantes', { 
-  //         hasEmail: !!email,
-  //         hasPassword: !!password,
-  //         ip: req.ip 
-  //       });
-        
-  //       res.status(400).json({
-  //         success: false,
-  //         message: 'Email et mot de passe requis'
-  //       });
-  //       return;
-  //     }
-      
-  //     // Authentifier l'utilisateur avec les informations supplémentaires
-  //     const tokens = await this.authService.authenticate(email, password, req, { rememberMe, deviceInfo });
-      
-  //     if (!tokens) {
-  //       await this.securityAuditService.logEvent({
-  //         eventType: 'FAILED_LOGIN',
-  //         ipAddress: req.ip,
-  //         userAgent: req.headers['user-agent'],
-  //         details: { email: email.substring(0, 5) + '***' }
-  //       });
-        
-  //       logger.warn('Échec de connexion - identifiants invalides', { 
-  //         email: email.substring(0, 5) + '***',
-  //         ip: req.ip 
-  //       });
-        
-  //       res.status(401).json({
-  //         success: false,
-  //         message: 'Email ou mot de passe incorrect'
-  //       });
-  //       return;
-  //     }
-      
-  //     // Obtenir les informations de l'utilisateur
-  //     const user: IUser | null = await this.userService.getUserByEmail(email);
-      
-  //     if (!user) {
-  //       logger.error('Utilisateur authentifié mais non trouvé en base', { 
-  //         email: email.substring(0, 5) + '***' 
-  //       });
-        
-  //       res.status(401).json({
-  //         success: false,
-  //         message: 'Utilisateur non trouvé'
-  //       });
-  //       return;
-  //     }
+//   try {
+//     // Exemple : tu stockes le token dans un champ "verificationToken"
+//     const user = await User.findOne({ verificationToken: token });
 
-  //     const userId = user._id || user.id;
+//     if (!user) {
+//       return res.status(404).json({ message: 'Token invalide ou expiré' });
+//     }
 
-  //     // Vérifier si le compte est vérifié
-  //     if (!user.emailVerified) {
-  //       logger.warn('Tentative de connexion avec compte non vérifié', { 
-  //         userId: userId.toString(),
-  //         email: email.substring(0, 5) + '***'
-  //       });
-        
-  //       res.status(403).json({
-  //         success: false,
-  //         message: 'Veuillez vérifier votre email avant de vous connecter'
-  //       });
-  //       return;
-  //     }
-      
-  //     // Vérifier si 2FA est activé
-  //     if (user.preferences?.twoFactorEnabled) {
-  //       logger.info('Connexion réussie - 2FA requis', { 
-  //         userId: userId.toString(),
-  //         email: email.substring(0, 5) + '***'
-  //       });
-        
-  //       res.status(200).json({
-  //         success: true,
-  //         message: 'Authentification réussie, validation 2FA requise',
-  //         requireTwoFactor: true,
-  //         temporaryToken: tokens.accessToken
-  //       });
-  //       return;
-  //     }
-      
-  //     // Journaliser la connexion réussie
-  //     await this.securityAuditService.logEvent({
-  //       eventType: 'SUCCESSFUL_LOGIN',
-  //       userId: userId.toString(),
-  //       ipAddress: req.ip,
-  //       userAgent: req.headers['user-agent'],
-  //       details: { rememberMe, deviceInfo }
-  //     });
-      
-  //     const executionTime = Date.now() - startTime;
-  //     logger.info('Connexion réussie', { 
-  //       userId: userId.toString(),
-  //       email: email.substring(0, 5) + '***',
-  //       rememberMe,
-  //       executionTime: `${executionTime}ms`
-  //     });
-      
-  //     // Envoyer les tokens
-  //     res.status(200).json({
-  //       success: true,
-  //       message: 'Connexion réussie',
-  //       data: {
-  //         ...tokens,
-  //         user: {
-  //           id: userId,
-  //           email: user.email,
-  //           username: user.username,
-  //           firstName: user.firstName,
-  //           lastName: user.lastName
-  //         }
-  //       }
-  //     });
-  //   } catch (error: any) {
-  //     const executionTime = Date.now() - startTime;
-  //     logger.error('Erreur lors de la connexion', { 
-  //       error: error.message,
-  //       stack: error.stack,
-  //       email: req.body.email?.substring(0, 5) + '***',
-  //       executionTime: `${executionTime}ms`,
-  //       ip: req.ip
-  //     });
-  //     next(error);
-  //   }
-  // }
+//     user.isVerified = true;
+//     user.verificationToken = undefined; // on efface le token
+//     await user.save();
+
+//     return res.status(200).json({ message: 'Compte vérifié avec succès' });
+//   } catch (err) {
+//     return res.status(500).json({ message: 'Erreur serveur', error: err });
+//   }
+// };
+
   
   /**
    * Déconnexion d'un utilisateur
