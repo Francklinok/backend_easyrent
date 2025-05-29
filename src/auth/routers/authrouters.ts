@@ -32,6 +32,18 @@ authRouter.post(
   
 );
 
+
+authRouter.post('/verifyAccount',  
+  authController.verifyAccount.bind(authController)
+)
+
+authRouter.get('/verify-email', 
+  authController.verifyEmail.bind(authController)
+);
+
+authRouter.post('/resend-verification', 
+  authController.resendVerificationEmail.bind(authController));
+  
 // Login
 authRouter.post(
   '/login',

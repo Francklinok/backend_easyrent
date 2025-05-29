@@ -29,56 +29,63 @@ export class UserService {
 
   /**
    * Crée un nouvel utilisateur
+   * 
    */
-  async createUser(userData: CreateUserDto | Partial<IUser>, sendVerificationEmail = true): Promise<IUser> {
-    try {
-      logger.info('Creating new user', { email: userData.email });
-      
-      // Vérifier si l'utilisateur existe déjà
-      const existingUser = await User.findOne({ email: userData.email });
-      if (existingUser) {
-        logger.warn('User already exists', { email: userData.email });
-        throw new AppError('Un utilisateur avec cet email existe déjà', 409);
-      }
+  async createUser(userData: Partial<IUser>, sendVerificationEmail: boolean = false): Promise<IUser> {
+  try {
+    logger.info('Creating new user', { 
+      email: userData.email?.substring(0, 5) + '***',
+      sendVerificationEmail 
+    });
 
-      // Hasher le mot de passe
-      if (userData.password) {
-        userData.password = await bcrypt.hash(userData.password, 12);
-      }
-      
-      // Créer le nouvel utilisateur
-      const user = new User({
-        ...userData,
-        isActive: !sendVerificationEmail, // Actif immédiatement si pas de vérification d'email
-        createdAt: new Date()
-      });
-      
-      // Générer un jeton de vérification si demandé
-      if (sendVerificationEmail) {
-        const verificationToken = crypto.randomBytes(32).toString('hex');
-        user.emailVerificationToken = verificationToken;
-        user.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
-        
+    // Hasher le mot de passe
+    if (userData.password) {
+      userData.password = await bcrypt.hash(userData.password, 12);
+    }
+
+    // ✅ CORRECTION : Ne générer le token que si nécessaire
+    if (sendVerificationEmail) {
+      userData.emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      userData.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    }
+
+    // Créer l'utilisateur
+    const user = await User.create(userData);
+
+    // ✅ CORRECTION : N'envoyer l'email que si demandé ET si le token existe
+    if (sendVerificationEmail && userData.emailVerificationToken && user.email && user.firstName) {
+      try {
         await this.notificationService.sendVerificationEmail(
           user.email,
-          verificationToken,
-          user.firstName
+          user.firstName,
+          userData.emailVerificationToken
         );
+        logger.info('Email de vérification envoyé depuis createUser', {
+          userId: user.id.toString(),
+          email: user.email.substring(0, 5) + '***'
+        });
+      } catch (emailError) {
+        logger.warn('Erreur lors de l\'envoi de l\'email depuis createUser', {
+          error: emailError instanceof Error ? emailError.message : 'Erreur inconnue',
+          userId: user.id.toString()
+        });
       }
-
-      // Enregistrer l'utilisateur
-      await user.save();
-      logger.info('User created successfully', { id: user.id });
-      
-      return user;
-    } catch (error) {
-      logger.error('Error creating user', { 
-        error: error instanceof Error ? error.message : 'Erreur inconnue',
-        userData 
-      });
-      throw error;
     }
+
+    logger.info('User created successfully', { 
+      userId: user.id.toString(),
+      emailSentFromCreate: sendVerificationEmail 
+    });
+    
+    return user;
+  } catch (error) {
+    logger.error('Error creating user', { 
+      error: error instanceof Error ? error.message : 'Erreur inconnue',
+      email: userData.email?.substring(0, 5) + '***'
+    });
+    throw error;
   }
+}
 
   /**
    * Retrouve un utilisateur par son ID
@@ -104,16 +111,20 @@ async getUserByEmail(email: string): Promise<IUser | null> {
   try {
     // The issue is here - you need to include the password field explicitly
     // since it's marked as select: false in the schema
-    return await User.findOne({ 
+    const  user = await User.findOne({ 
       email: email.toLowerCase(),
       isDeleted: { $ne: true } // Also check if user is not deleted
-    }).select('+password'); // This is the correct way to include password
+    }).select('+password');
+    console.log('les  utilisateur  sont', user)
+
+    return user  // This is the correct way to include password
   } catch (error) {
     logger.error('Error fetching user by email', { error, email });
     throw error;
   }
 }
-  async debugUser(email: string): Promise<void> {
+
+async debugUser(email: string): Promise<void> {
     try {
       const userWithoutPassword = await User.findOne({ email: email.toLowerCase() });
       const userWithPassword = await User.findOne({ email: email.toLowerCase() }).select('+password');
@@ -273,66 +284,101 @@ async getUserByEmail(email: string): Promise<IUser | null> {
     }
   }
     
-  /**
-   * Met à jour un utilisateur existant
-   */
-  async updateUser(id: string, updateData: UpdateUserDto | Partial<IUser>): Promise<IUser | null> {
+  
+  async updateUserLoginInfo(user: IUser, loginDetails: { ipAddress: string; userAgent: string }, successful: boolean): Promise<void> {
     try {
-      logger.info('Updating user', { id });
-      
-      // Supprimer les champs sensibles ou spéciaux
-      const { password, email, isDeleted, ...safeUpdateData } = updateData as any;
-      
-      // Si le mot de passe est fourni, le hasher
-      let updateObject: Record<string, any> = { ...safeUpdateData };
-      if (password) {
-        updateObject.password = await bcrypt.hash(password, 12);
+      // Enregistrer la tentative de connexion
+      if (typeof user.recordLoginAttempt === 'function') {
+        user.recordLoginAttempt({
+          ...loginDetails,
+          successful
+        });
       }
-      
-      // Si l'email est fourni, vérifier qu'il n'est pas déjà utilisé
-      if (email) {
-        const existingUser = await User.findOne({ email, _id: { $ne: id } });
-        if (existingUser) {
-          throw new AppError('Cet email est déjà utilisé par un autre compte', 409);
-        }
-        
-        // Réinitialiser le statut de vérification d'email
-        updateObject.email = email;
-        updateObject.isEmailVerified = false;
-        updateObject.emailVerificationToken = crypto.randomBytes(32).toString('hex');
-        updateObject.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        
-        // Envoyer un email de vérification
-        await this.notificationService.sendVerificationEmail(
-          email,
-          updateObject.emailVerificationToken,
-          updateObject.firstName || ""
-        );
+
+      // Mettre à jour le dernier login si succès
+      if (successful && typeof user.updateLastLogin === 'function') {
+        user.updateLastLogin(loginDetails.ipAddress, loginDetails.userAgent);
       }
-      
-      const user = await User.findByIdAndUpdate(
-        id,
-        { 
-          $set: updateObject,
-          $currentDate: { updatedAt: true }
-        },
-        { new: true, runValidators: true }
-      ).select('-password -resetPasswordToken -emailVerificationToken');
-      
-      if (!user) {
-        logger.warn('User not found for update', { id });
-        throw new AppError('Utilisateur non trouvé', 404);
-      } else {
-        logger.info('User updated successfully', { id });
+
+      if (typeof user.save === 'function') {
+        await user.save();
       }
-      
-      return user;
     } catch (error) {
-      logger.error('Error updating user', { error, id, updateData });
-      throw error;
+      logger.warn('Failed to update user login info', { error});
     }
   }
 
+
+  /**
+   * Met à jour un utilisateur existant
+    */
+
+  async updateUser(id: string, updateData: UpdateUserDto | Partial<IUser>): Promise<IUser | null> {
+  try {
+    logger.info('Updating user', { id });
+   
+    // Supprimer les champs sensibles ou spéciaux
+    const { password, email, isDeleted, ...safeUpdateData } = updateData as any;
+   
+    // Si le mot de passe est fourni, le hasher
+    let updateObject: Record<string, any> = { ...safeUpdateData };
+    if (password) {
+      updateObject.password = await bcrypt.hash(password, 12);
+    }
+   
+    // Si l'email est fourni, vérifier qu'il n'est pas déjà utilisé
+    if (email) {
+      const existingUser = await User.findOne({ email, _id: { $ne: id } });
+      if (existingUser) {
+        throw new AppError('Cet email est déjà utilisé par un autre compte', 409);
+      }
+     
+      // Réinitialiser le statut de vérification d'email
+      updateObject.email = email;
+      updateObject.isEmailVerified = false;
+      updateObject.emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      updateObject.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+     
+      try {
+        await this.notificationService.sendVerificationEmail(
+          email,                                   
+          updateObject.firstName || "",            
+          updateObject.emailVerificationToken  
+        );
+        logger.info('Email de vérification envoyé lors de la mise à jour', {
+          userId: id,
+          newEmail: email.substring(0, 5) + '***'
+        });
+      } catch (emailError) {
+        logger.warn('Erreur lors de l\'envoi de l\'email de vérification', {
+          error: emailError instanceof Error ? emailError.message : 'Erreur inconnue',
+          userId: id
+        });
+      }
+    }
+   
+    const user = await User.findByIdAndUpdate(
+      id,
+      {
+        $set: updateObject,
+        $currentDate: { updatedAt: true }
+      },
+      { new: true, runValidators: true }
+    ).select('-password -resetPasswordToken -emailVerificationToken');
+   
+    if (!user) {
+      logger.warn('User not found for update', { id });
+      throw new AppError('Utilisateur non trouvé', 404);
+    } else {
+      logger.info('User updated successfully', { id });
+    }
+   
+    return user;
+  } catch (error) {
+    logger.error('Error updating user', { error, id, updateData });
+    throw error;
+  }
+}
   /**
    * Désactive un compte utilisateur
    */
@@ -390,6 +436,7 @@ async getUserByEmail(email: string): Promise<IUser | null> {
   /**
    * Vérifie un compte utilisateur avec token
    */
+
   async verifyUser(verificationToken: string): Promise<{
   success: boolean;
   message?: string;

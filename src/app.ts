@@ -36,6 +36,7 @@ const app = express();
 // app.use(trackUserActivity(userPresenceService));
 
 // Middlewares de sécurité et d'optimisation
+
 app.use(helmet());
 app.use(cors({
   origin: config.cors.origin|| '*',
@@ -68,6 +69,11 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Servir les fichiers statiques
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/verify-account', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'verify-account.html'));
+});
+
 
 // Connexion à MongoDB avec gestion des événements
 mongoose.connect(config.database.url, {})
@@ -131,8 +137,5 @@ try{
 
 
 export default app;
-
-
-
 
 

@@ -42,7 +42,7 @@ const logger = createLogger('AuthController');
    */
 
   // AuthController.ts - Méthode register corrigée
-async register(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async register(req: Request, res: Response, next: NextFunction): Promise<void> {
   const startTime = Date.now();
   logger.info('Début de la tentative d\'inscription', { 
     ip: req.ip, 
@@ -88,7 +88,7 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
       return;
     }
 
-    // ⚠️ CORRECTION : Vérifications parallèles pour optimiser les performances
+    // Vérifications parallèles pour optimiser les performances
     const [existingUserByEmail, existingUserByUsername] = await Promise.all([
       this.userService.getUserByEmail(email),
       this.userService.getUserByUsername(username)
@@ -120,18 +120,18 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
       return;
     }
 
-    // ⚠️ CORRECTION MAJEURE : Créer l'utilisateur avec sendVerificationEmail = true
+    // ✅ CORRECTION : Créer l'utilisateur SANS envoyer l'email automatiquement
     const user: IUser = await this.userService.createUser({
       firstName,
       lastName,
       username,
       email,
-      password, // Le mot de passe sera haché dans createUser
+      password,
       phoneNumber,
       dateOfBirth,
       address,
       ...userData
-    }, true); // ← IMPORTANT : true pour envoyer l'email de vérification
+    }, false); // ← IMPORTANT : false pour éviter le double envoi
 
     // Vérifier que l'utilisateur a été créé avec succès
     if (!user || (!user.id && !user._id)) {
@@ -143,15 +143,25 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     }
 
     const userId = user._id || user.id;
-     const verificationToken = await this.authService.generateVerificationToken(userId.toString());
-         // Envoyer l'email de vérification avec le bon token
-    await this.notificationService.sendVerificationEmail(
+    
+    // ✅ Générer le token de vérification
+    const verificationToken = await this.authService.generateVerificationToken(userId.toString());
+    
+    logger.info('📨 Envoi de l\'e-mail avec token :', {
+      email: user.email.substring(0, 5) + '***',
+      firstName: user.firstName,
+      token: verificationToken.substring(0, 10) + '...',
+      tokenLength: verificationToken.length
+    });
+
+    // ✅ Envoyer l'email de vérification UNE SEULE FOIS
+    const emailSent = await this.notificationService.sendVerificationEmail(
       user.email,
       user.firstName || '',
       verificationToken
     );
 
-    // ⚠️ CORRECTION : Attendre la journalisation de sécurité au lieu de l'ignorer
+    // Journalisation de sécurité
     try {
       await this.securityAuditService.logEvent({
         eventType: 'USER_REGISTERED',
@@ -159,9 +169,10 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
         ipAddress: req.ip || 'unknown',
         userAgent: req.headers['user-agent'] || 'unknown',
         details: {
-           email: email.substring(0, 5) + '***', 
-           username: username.substring(0, 3) + '***'
-           }
+          email: email.substring(0, 5) + '***', 
+          username: username.substring(0, 3) + '***',
+          emailSent
+        }
       });
     } catch (auditError) {
       logger.warn('Erreur lors de la journalisation d\'inscription', { 
@@ -176,8 +187,8 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
       email: email.substring(0, 5) + '***',
       username: username.substring(0, 3) + '***',
       executionTime: `${executionTime}ms`,
-      verificationTokenGenerated: !!verificationToken
-      // emailSent: !!user.emailVerificationToken
+      verificationTokenGenerated: !!verificationToken,
+      emailSent
     });
 
     res.status(201).json({
@@ -187,7 +198,8 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
         userId: userId.toString(),
         email: user.email,
         username: user.username,
-        requiresEmailVerification:true
+        requiresEmailVerification: true,
+        emailSent
       }
     });
   } catch (error: any) {
@@ -202,6 +214,7 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     next(error);
   }
 }
+
   /**
    * Connexion d'un utilisateur
    */
@@ -213,6 +226,7 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
   logger.info('Tentative de connexion', {
     email: email?.substring(0, 5) + '***',
     ip: req.ip,
+    password:password,
     userAgent: req.headers['user-agent']
   });
 
@@ -233,7 +247,7 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     }
 
     // Étape 1 - Récupération de l'utilisateur
-    const user: IUser | null = await this.userService.getUserByEmail(email);
+    const user = await this.userService.getUserByEmail(email);
 
     if (!user) {
       logger.warn('Échec de connexion - utilisateur non trouvé', {
@@ -335,33 +349,111 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
   }
 }
 
-// //verify count endpoint
-// async verifyAccount (req: Request, res: Response):Promise<void>{
-//   const token = req.query.token as string;
 
-//   if (!token) {
-//     return res.status(400).json({ message: 'Token manquant dans la requête' });
-//   }
+/**
+ * Vérification de compte utilisateur
+ */
+async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const startTime = Date.now();
 
-//   try {
-//     // Exemple : tu stockes le token dans un champ "verificationToken"
-//     const user = await User.findOne({ verificationToken: token });
+  try {
+    const token = req.query.token as string;
 
-//     if (!user) {
-//       return res.status(404).json({ message: 'Token invalide ou expiré' });
-//     }
+    if (!token) {
+      logger.warn('Tentative de vérification de compte sans token', { ip: req.ip });
+      res.status(400).json({
+        success: false,
+        message: 'Token de vérification manquant dans la requête'
+      });
+      return;
+    }
 
-//     user.isVerified = true;
-//     user.verificationToken = undefined; // on efface le token
-//     await user.save();
+    logger.info('Tentative de vérification de compte', {
+      tokenLength: token.length,
+      ip: req.ip
+    });
 
-//     return res.status(200).json({ message: 'Compte vérifié avec succès' });
-//   } catch (err) {
-//     return res.status(500).json({ message: 'Erreur serveur', error: err });
-//   }
-// };
+    // Étape 1 : valider le token
+    const tokenData = await this.authService.validateVerificationToken(token);
 
-  
+    if (!tokenData) {
+      logger.warn('Échec de vérification de compte', {
+        reason: 'Token invalide ou expiré',
+        ip: req.ip
+      });
+      res.status(404).json({
+        success: false,
+        message: 'Token invalide ou expiré'
+      });
+      return;
+    }
+
+    // Étape 2 : Vérifier l’utilisateur (mise à jour des champs, etc.)
+    const updateResult = await this.userService.verifyUser(token);
+
+    if (!updateResult.success) {
+      logger.error('Erreur lors de la mise à jour du statut de vérification', {
+        userId: tokenData.userId,
+        error: updateResult.message
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la vérification du compte'
+      });
+      return;
+    }
+
+    // Étape 3 : journalisation de l'événement
+    await this.securityAuditService.logEvent({
+      eventType: 'ACCOUNT_VERIFIED',
+      userId: updateResult.userId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      details: { verificationMethod: 'email_token' }
+    });
+
+    // (Optionnel) Envoi d’un email supplémentaire
+    // --> supprimer cette partie si `verifyUser` s’en charge déjà
+    /*
+    const user = await this.userService.getUserById(updateResult.userId);
+    if (user) {
+      await this.notificationService.sendAccountVerificationConfirmation(
+        user.email,
+        user.firstName || ''
+      );
+    }
+    */
+
+    const executionTime = Date.now() - startTime;
+    logger.info('Compte vérifié avec succès', {
+      userId: updateResult.userId,
+      executionTime: `${executionTime}ms`
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Compte vérifié avec succès',
+      data: {
+        userId: updateResult.userId,
+        isVerified: true
+      }
+    });
+
+  } catch (error: any) {
+    const executionTime = Date.now() - startTime;
+    logger.error('Erreur lors de la vérification de compte', {
+      error: error.message,
+      stack: error.stack,
+      token: req.query.token ? 'présent' : 'absent',
+      executionTime: `${executionTime}ms`,
+      ip: req.ip
+    });
+    next(error);
+  }
+}
+
+
+
   /**
    * Déconnexion d'un utilisateur
    */
@@ -645,7 +737,11 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     const startTime = Date.now();
     
     try {
-      const { token } = req.params;
+      const token = req.query.token as string;
+      logger.warn('le token de verification est donc:', { token });
+
+
+      // const { token } = req.params;
       
       if (!token) {
         logger.warn('Tentative de vérification sans token', { ip: req.ip });
@@ -803,6 +899,65 @@ async register(req: Request, res: Response, next: NextFunction): Promise<void> {
       next(error);
     }
   }
+
+//   async resendVerificationEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
+//   try {
+//     const { email } = req.body;
+
+//     if (!email) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Email requis'
+//       });
+//     }
+
+//     // Trouver l'utilisateur
+//     const user = await User.findOne({ email });
+    
+//     if (!user) {
+//       // Ne pas révéler si l'email existe ou non pour des raisons de sécurité
+//       return res.status(200).json({
+//         success: true,
+//         message: 'Si cet email est associé à un compte, un nouveau lien de vérification a été envoyé.'
+//       });
+//     }
+
+//     if (user.isEmailVerified) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Cet email est déjà vérifié'
+//       });
+//     }
+
+//     // Générer un nouveau token
+//     const newToken = await this.authService.generateVerificationToken(user._id.toString());
+    
+//     // Envoyer le nouvel email
+//     const emailSent = await this.notificationService.sendVerificationEmail(
+//       user.email,
+//       user.firstName || '',
+//       newToken
+//     );
+
+//     logger.info('Nouvel email de vérification envoyé', {
+//       userId: user._id.toString(),
+//       email: user.email.substring(0, 5) + '***',
+//       emailSent
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       message: 'Un nouveau lien de vérification a été envoyé à votre email.'
+//     });
+
+//   } catch (error: any) {
+//     logger.error('Erreur lors du renvoi de l\'email de vérification', { 
+//       error: error.message,
+//       email: req.body.email?.substring(0, 5) + '***'
+//     });
+//     next(error);
+//   }
+// }
 
   /**
    * Changement de mot de passe

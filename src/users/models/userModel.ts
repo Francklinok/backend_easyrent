@@ -7,7 +7,7 @@ import AddressSchema from './addressSchema';
 import AgentDetailsSchema from './agentDetailsSchema';
 import UserPreferencesSchema from './userPreferenceSchema';
 import LoginHistorySchema from './loginHistorySchema';
-import { comparePassword } from '../utils/comparePassword';
+import { comparePasswordHelper } from '../utils/comparePassword';
 import { generatePasswordResetToken } from '../utils/generatePasswordResetToken';
 import { generateVerificationToken } from '../utils/generateVerificationToken';
 import { isPasswordResetTokenValid } from '../utils/isPasswordResetTokenValid';
@@ -171,7 +171,20 @@ UserSchema.methods.getFullName = function(): string {
 UserSchema.pre('save', hashPasswordMiddleware);
 
 //methodes
-UserSchema.methods.comparePassword = comparePassword;
+UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
+  // 'this' refers to the Mongoose document
+  // this.password will be accessible here because .select('+password') was used in the query
+  // and Mongoose *does* provide it to schema methods when explicitly selected.
+
+  // Log to confirm if this.password is present here
+  logger.info('[UserSchema.methods.comparePassword] this.password directly:', this.password ? 'present' : 'not present');
+  logger.info('[UserSchema.methods.comparePassword] this.password length directly:', this.password ? this.password.length : 'N/A');
+
+
+  return comparePasswordHelper(candidatePassword, this.password);
+};
+
+// UserSchema.methods.comparePassword = comparePassword;
 UserSchema.methods.generateVerificationToken = generateVerificationToken;
 UserSchema.methods.generatePasswordResetToken = generatePasswordResetToken;
 UserSchema.methods.isPasswordResetTokenValid = isPasswordResetTokenValid;

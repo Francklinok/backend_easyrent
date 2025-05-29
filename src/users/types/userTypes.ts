@@ -172,8 +172,8 @@ export interface IUser extends Document {
   emailVerified?:boolean,
   isEmailVerified?: boolean;
   verificationToken?: string;
-  emailVerificationToken?: string;
-  emailVerificationTokenExpires?: Date;
+  emailVerificationToken?: string |null;
+  emailVerificationTokenExpires?: Date | null;
   
   // Propriétés pour la réinitialisation de mot de passe
   passwordResetToken?: string;

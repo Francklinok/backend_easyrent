@@ -29,86 +29,24 @@ export class AuthService {
    * Authentifie un utilisateur avec des options supplémentaires
    */
 
-//   async authenticate(email: string, password: string, req: Request, options?: AuthOptions): Promise<AuthTokens | null> {
-//   try {
-//     if (!email || !password) {
-//       logger.warn('Authentication attempt with missing credentials');
-//       return null;
-//     }
- 
-//     const user = await this.userService.getUserByEmail(email) as IUser;
-//     if (!user) {
-//       logger.warn('Authentication failed: user not found', { email });
-//       return null;
-//     }
-//     // if (!user.emailVerified) {
-//     //   logger.warn('Authentication denied: email not verified', { email });
-//     //   return null;
-//     // }
-//     // Vérification sécurisée des méthodes
-//     logger.info(`l utilisateur  est : '${user}'`)
-//     if (typeof user.comparePassword !== 'function') {
-//       logger.error('comparePassword method not available on user object');
-//       throw new Error('User authentication method not available');
-//     }
-//     logger.info(`[AuthController] Mot de passe reçu: '${password}'`);
-
-
-//     const isPasswordValid = await user.comparePassword(password);
-//     if (!isPasswordValid) {
-//       logger.warn('Authentication failed: invalid password', { email });
-//       return null;
-//     }
-
-//     // Mise à jour sécurisée
-//     if (typeof user.updateLastLogin === 'function') {
-//       const loginDetails = this.extractLoginDetails(req);
-//       user.updateLastLogin(loginDetails.ipAddress, loginDetails.userAgent);
-//     }
-
-//     if (typeof user.save === 'function') {
-//       await user.save();
-//     }
-
-//     // Génération des tokens
-//     const tokens = this.generateAuthTokens(user, options);
-//     return tokens;
-
-//   } catch (error) {
-//     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-//     logger.error('Error during authentication', { error: errorMessage, email });
-//     throw new Error(`Authentication failed: ${errorMessage}`);
-//   }
-// }
-
-
-
 async authenticate(email: string, password: string, req: Request, options?: AuthOptions): Promise<AuthTokens | null> {
   try {
     if (!email || !password) {
       logger.warn('Authentication attempt with missing credentials');
       return null;
     }
-     this.testPasswordComparison(email, password)
+
     const user = await this.userService.getUserByEmail(email) as IUser;
-    logger.info(`[Auth] user  is : ${user}`);
-    await  this.userService.debugUser(email)
-
-
     if (!user) {
       logger.warn('Authentication failed: user not found', { email });
       return null;
     }
-        await this.userService.reactivateUser(user.id)
-
-
+    await  this.userService.debugUser(email)
     // Check if user is active
     if (!user.isActive) {
       logger.warn('Authentication failed: user account is inactive', { email });
       return null;
     }
-
-    
     // Log user info (without sensitive data)
     logger.info(`User found: ${user.email}, isActive: ${user.isActive}, hasPassword: ${!!user.password}`);
     
@@ -119,7 +57,8 @@ async authenticate(email: string, password: string, req: Request, options?: Auth
     
     logger.info(`[AuthController] Attempting password verification for user: ${email}`);
     const isPasswordValid = await user.comparePassword(password);
-    
+    this.testPasswordComparison(email, password)
+
     if (!isPasswordValid) {
       logger.warn('Authentication failed: invalid password', { email });
       
@@ -441,6 +380,76 @@ async generateTwoFactorSecret(userId: string) {
   }
  }
 
+ /**
+ * Vérifie un token de vérification de compte et active le compte
+ */
+
+async verifyAccountToken(token: string): Promise<{ success: boolean; message: string; userId?: string }> {
+  try {
+    // Valider le token de vérification
+    const tokenData = await this.validateVerificationToken(token);
+    
+    if (!tokenData) {
+      logger.warn('Invalid account verification token', { token: token.substring(0, 8) + '...' });
+      return {
+        success: false,
+        message: 'Token de vérification invalide ou expiré'
+      };
+    }
+
+    const { userId, email } = tokenData;
+
+    // Récupérer l'utilisateur
+    const user = await this.userService.getUserById(userId);
+    if (!user) {
+      logger.warn('User not found for account verification', { userId });
+      return {
+        success: false,
+        message: 'Utilisateur introuvable'
+      };
+    }
+
+    // Vérifier si le compte n'est pas déjà vérifié
+    if (user.isEmailVerified) {
+      logger.info('Account already verified', { userId, email });
+      return {
+        success: true,
+        message: 'Compte déjà vérifié',
+        userId
+      };
+    }
+
+    // Marquer l'email comme vérifié et nettoyer le token
+    try {
+      await this.userService.updateUser(userId, {
+        isEmailVerified: true,
+        emailVerificationToken: null,
+        emailVerificationTokenExpires: null
+      });
+
+      logger.info('Account verified successfully', { userId, email });
+      return {
+        success: true,
+        message: 'Compte vérifié avec succès',
+        userId
+      };
+    } catch (updateError) {
+      const errorMessage = updateError instanceof Error ? updateError.message : 'Unknown error';
+      logger.error('Error updating user verification status', { error: errorMessage, userId });
+      return {
+        success: false,
+        message: 'Erreur lors de la mise à jour du statut de vérification'
+      };
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error during account verification', { error: errorMessage });
+    return {
+      success: false,
+      message: `Erreur lors de la vérification du compte: ${errorMessage}`
+    };
+  }
+}
 
   /**
    * Vérifie un code 2FA
@@ -695,27 +704,7 @@ async generateTwoFactorSecret(userId: string) {
 
   /**
    * Génère un token de vérification d'email
-  //  */
-  // async generateVerificationToken(userId: string): Promise<string> {
-  //   try {
-  //     // Générer un token aléatoire sécurisé
-  //     const token = crypto.randomBytes(32).toString('hex');
-  //      logger.info('🔍 DEBUG - Generated token:', {
-  //       userId,
-  //       token: token.substring(0, 10) + '...',
-  //       tokenLength: token.length
-  //     });
-  //     // Stocker le token dans la base de données avec une expiration
-  //     await this.userService.updateVerificationToken(userId);
-      
-  //     logger.info('Verification token generated', { userId });
-  //     return token;
-  //   } catch (error) {
-  //     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-  //     logger.error('Error generating verification token', { error: errorMessage, userId });
-  //     throw new Error(`Verification token generation failed: ${errorMessage}`);
-  //   }
-  // }
+  */
 async generateVerificationToken(userId: string): Promise<string> {
   try {
     // Générer un token aléatoire sécurisé

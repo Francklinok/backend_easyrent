@@ -349,9 +349,22 @@ export class NotificationService {
     return this.sendEmailSafely(mailOptions);
   }
   
-  async sendVerificationEmail(email: string, firstName: string, token: string): Promise<boolean> {
+  async debugVerificationEmail(email: string, firstName: string, token: string): Promise<void> {
     const verificationUrl = `${config.app.frontendUrl}/verify-account?token=${token}`;
     
+      console.log('🔍 DEBUG EMAIL VERIFICATION:');
+      console.log('Email:', email);
+      console.log('FirstName:', firstName);
+      console.log('Token:', token);
+      console.log('Frontend URL:', config.app.frontendUrl);
+      console.log('Full Verification URL:', verificationUrl);
+      console.log('Token length:', token.length);
+      console.log('Token type:', typeof token);
+  }
+
+  async sendVerificationEmail(email: string, firstName: string, token: string): Promise<boolean> {
+    const verificationUrl = `${config.app.frontendUrl}/verify-account?token=${token}`;
+      this.debugVerificationEmail(email,firstName,token)
     const mailOptions: EmailOptions = {
       to: email,
       subject: 'Vérifiez votre compte - EasyRent',
