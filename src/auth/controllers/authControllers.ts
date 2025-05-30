@@ -220,134 +220,242 @@ const logger = createLogger('AuthController');
    */
 
   async login(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const startTime = Date.now();
-  const { email, password, rememberMe, deviceInfo } = req.body;
+    const startTime = Date.now();
+    const { email, password, rememberMe, deviceInfo } = req.body;
 
-  logger.info('Tentative de connexion', {
-    email: email?.substring(0, 5) + '***',
-    ip: req.ip,
-    password:password,
-    userAgent: req.headers['user-agent']
-  });
-
-  try {
-    // Vérifier la présence des champs
-    if (!email || !password) {
-      logger.warn('Tentative de connexion avec données manquantes', {
-        hasEmail: !!email,
-        hasPassword: !!password,
-        ip: req.ip
-      });
-
-      res.status(400).json({
-        success: false,
-        message: 'Email et mot de passe requis'
-      });
-      return;
-    }
-
-    // Étape 1 - Récupération de l'utilisateur
-    const user = await this.userService.getUserByEmail(email);
-
-    if (!user) {
-      logger.warn('Échec de connexion - utilisateur non trouvé', {
-        email: email.substring(0, 5) + '***',
-        ip: req.ip
-      });
-
-      res.status(401).json({
-        success: false,
-        message: 'Email ou mot de passe incorrect'
-      });
-      return;
-    }
-
-    const userId = user._id || user.id;
-    const tokens = await this.authService.authenticate(email, password, req, {
-      rememberMe,
-      deviceInfo
+    logger.info('Tentative de connexion', {
+      email: email?.substring(0, 5) + '***',
+      ip: req.ip,
+      userAgent: req.headers['user-agent']?.substring(0, 50) + '...',
+      hasPassword: !!password
     });
 
-    if (!tokens) {
-      await this.securityAuditService.logEvent({
-        eventType: 'FAILED_LOGIN',
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-        details: { email: email.substring(0, 5) + '***' }
+    try {
+      // Validation des champs requis
+      if (!email || !password) {
+        logger.warn('Tentative de connexion avec des données manquantes', {
+          hasEmail: !!email,
+          hasPassword: !!password,
+          ip: req.ip
+        });
+
+        res.status(400).json({
+          success: false,
+          message: 'Email et mot de passe requis'
+        });
+        return;
+      }
+
+      // Authentification
+      const tokens = await this.authService.authenticate(email, password, req, {
+        rememberMe,
+        deviceInfo
       });
 
-      logger.warn('Échec de connexion - identifiants invalides', {
+      if (!tokens) {
+        const executionTime = Date.now() - startTime;
+        logger.warn('Échec de connexion - identifiants invalides', {
+          email: email.substring(0, 5) + '***',
+          ip: req.ip,
+          executionTime: `${executionTime}ms`
+        });
+
+        res.status(401).json({
+          success: false,
+          message: 'Email ou mot de passe incorrect'
+        });
+        return;
+      }
+
+      // Récupération des données utilisateur pour la réponse
+      const user = await this.userService.getUserByEmail(email);
+      
+      if (!user) {
+        throw new Error('Utilisateur non trouvé après authentification');
+      }
+
+      // Vérification 2FA si activé
+      if (user.preferences?.twoFactorEnabled) {
+        logger.info('Connexion réussie - 2FA requis', {
+          userId: user._id?.toString(),
+          email: email.substring(0, 5) + '***'
+        });
+
+        res.status(200).json({
+          success: true,
+          message: 'Authentification réussie, validation 2FA requise',
+          requireTwoFactor: true,
+          temporaryToken: tokens.accessToken
+        });
+        return;
+      }
+
+      // Connexion réussie
+      const executionTime = Date.now() - startTime;
+      logger.info('Connexion réussie', {
+        userId: user._id?.toString(),
         email: email.substring(0, 5) + '***',
-        ip: req.ip
-      });
-
-      res.status(401).json({
-        success: false,
-        message: 'Email ou mot de passe incorrect'
-      });
-      return;
-    }
-
-    // Étape 4 - Vérifier si 2FA est activé
-    if (user.preferences?.twoFactorEnabled) {
-      logger.info('Connexion réussie - 2FA requis', {
-        userId: userId.toString(),
-        email: email.substring(0, 5) + '***'
+        rememberMe,
+        executionTime: `${executionTime}ms`
       });
 
       res.status(200).json({
         success: true,
-        message: 'Authentification réussie, validation 2FA requise',
-        requireTwoFactor: true,
-        temporaryToken: tokens.accessToken
-      });
-      return;
-    }
-
-    // Étape 5 - Connexion réussie, log et réponse
-    await this.securityAuditService.logEvent({
-      eventType: 'SUCCESSFUL_LOGIN',
-      userId: userId.toString(),
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      details: { rememberMe, deviceInfo }
-    });
-
-    const executionTime = Date.now() - startTime;
-    logger.info('Connexion réussie', {
-      userId: userId.toString(),
-      email: email.substring(0, 5) + '***',
-      rememberMe,
-      executionTime: `${executionTime}ms`
-    });
-
-    res.status(200).json({
-      success: true,
-      message: 'Connexion réussie',
-      data: {
-        ...tokens,
-        user: {
-          id: userId,
-          email: user.email,
-          username: user.username,
-          firstName: user.firstName,
-          lastName: user.lastName
+        message: 'Connexion réussie',
+        data: {
+          ...tokens,
+          user: {
+            id: user._id,
+            email: user.email,
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.role,
+            profilePicture: user.profilePicture
+          }
         }
-      }
-    });
+      });
 
-  } catch (error: any) {
-    const executionTime = Date.now() - startTime;
-    logger.error('Erreur lors de la connexion', {
-      error: error.message,
-      stack: error.stack,
-      email: email?.substring(0, 5) + '***',
-      executionTime: `${executionTime}ms`,
-      ip: req.ip
-    });
-    next(error);
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      logger.error('Erreur lors de la connexion', {
+        error: error instanceof Error ? error.message : 'Erreur inconnue',
+        email: email?.substring(0, 5) + '***',
+        executionTime: `${executionTime}ms`,
+        ip: req.ip
+      });
+      next(error);
+    }
   }
-}
+//   async login(req: Request, res: Response, next: NextFunction): Promise<void> {
+//   const startTime = Date.now();
+//   const { email, password, rememberMe, deviceInfo } = req.body;
+
+//   logger.info('Tentative de connexion', {
+//     email: email?.substring(0, 5) + '***',
+//     ip: req.ip,
+//     password:password,
+//     userAgent: req.headers['user-agent']
+//   });
+
+//   try {
+//     // Vérifier la présence des champs
+//     if (!email || !password) {
+//       logger.warn('Tentative de connexion avec données manquantes', {
+//         hasEmail: !!email,
+//         hasPassword: !!password,
+//         ip: req.ip
+//       });
+
+//       res.status(400).json({
+//         success: false,
+//         message: 'Email et mot de passe requis'
+//       });
+//       return;
+//     }
+
+//     // Étape 1 - Récupération de l'utilisateur
+//     const user = await this.userService.getUserByEmail(email);
+
+//     if (!user) {
+//       logger.warn('Échec de connexion - utilisateur non trouvé', {
+//         email: email.substring(0, 5) + '***',
+//         ip: req.ip
+//       });
+
+//       res.status(401).json({
+//         success: false,
+//         message: 'Email ou mot de passe incorrect'
+//       });
+//       return;
+//     }
+
+//     const userId = user._id || user.id;
+//     const tokens = await this.authService.authenticate(email, password, req, {
+//       rememberMe,
+//       deviceInfo
+//     });
+
+//     if (!tokens) {
+//       await this.securityAuditService.logEvent({
+//         eventType: 'FAILED_LOGIN',
+//         ipAddress: req.ip,
+//         userAgent: req.headers['user-agent'],
+//         details: { email: email.substring(0, 5) + '***' }
+//       });
+
+//       logger.warn('Échec de connexion - identifiants invalides', {
+//         email: email.substring(0, 5) + '***',
+//         ip: req.ip
+//       });
+
+//       res.status(401).json({
+//         success: false,
+//         message: 'Email ou mot de passe incorrect'
+//       });
+//       return;
+//     }
+
+//     // Étape 4 - Vérifier si 2FA est activé
+//     if (user.preferences?.twoFactorEnabled) {
+//       logger.info('Connexion réussie - 2FA requis', {
+//         userId: userId.toString(),
+//         email: email.substring(0, 5) + '***'
+//       });
+
+//       res.status(200).json({
+//         success: true,
+//         message: 'Authentification réussie, validation 2FA requise',
+//         requireTwoFactor: true,
+//         temporaryToken: tokens.accessToken
+//       });
+//       return;
+//     }
+
+//     // Étape 5 - Connexion réussie, log et réponse
+//     await this.securityAuditService.logEvent({
+//       eventType: 'SUCCESSFUL_LOGIN',
+//       userId: userId.toString(),
+//       ipAddress: req.ip,
+//       userAgent: req.headers['user-agent'],
+//       details: { rememberMe, deviceInfo }
+//     });
+
+//     const executionTime = Date.now() - startTime;
+//     logger.info('Connexion réussie', {
+//       userId: userId.toString(),
+//       email: email.substring(0, 5) + '***',
+//       rememberMe,
+//       executionTime: `${executionTime}ms`
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       message: 'Connexion réussie',
+//       data: {
+//         ...tokens,
+//         user: {
+//           id: userId,
+//           email: user.email,
+//           username: user.username,
+//           firstName: user.firstName,
+//           lastName: user.lastName
+//         }
+//       }
+//     });
+
+//   } catch (error: any) {
+//     const executionTime = Date.now() - startTime;
+//     logger.error('Erreur lors de la connexion', {
+//       error: error.message,
+//       stack: error.stack,
+//       email: email?.substring(0, 5) + '***',
+//       executionTime: `${executionTime}ms`,
+//       ip: req.ip
+//     });
+//     next(error);
+//   }
+// }
 
 
 /**
@@ -412,17 +520,7 @@ async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<vo
       details: { verificationMethod: 'email_token' }
     });
 
-    // (Optionnel) Envoi d’un email supplémentaire
-    // --> supprimer cette partie si `verifyUser` s’en charge déjà
-    /*
-    const user = await this.userService.getUserById(updateResult.userId);
-    if (user) {
-      await this.notificationService.sendAccountVerificationConfirmation(
-        user.email,
-        user.firstName || ''
-      );
-    }
-    */
+ 
 
     const executionTime = Date.now() - startTime;
     logger.info('Compte vérifié avec succès', {
@@ -899,65 +997,6 @@ async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<vo
       next(error);
     }
   }
-
-//   async resendVerificationEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
-//   try {
-//     const { email } = req.body;
-
-//     if (!email) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Email requis'
-//       });
-//     }
-
-//     // Trouver l'utilisateur
-//     const user = await User.findOne({ email });
-    
-//     if (!user) {
-//       // Ne pas révéler si l'email existe ou non pour des raisons de sécurité
-//       return res.status(200).json({
-//         success: true,
-//         message: 'Si cet email est associé à un compte, un nouveau lien de vérification a été envoyé.'
-//       });
-//     }
-
-//     if (user.isEmailVerified) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Cet email est déjà vérifié'
-//       });
-//     }
-
-//     // Générer un nouveau token
-//     const newToken = await this.authService.generateVerificationToken(user._id.toString());
-    
-//     // Envoyer le nouvel email
-//     const emailSent = await this.notificationService.sendVerificationEmail(
-//       user.email,
-//       user.firstName || '',
-//       newToken
-//     );
-
-//     logger.info('Nouvel email de vérification envoyé', {
-//       userId: user._id.toString(),
-//       email: user.email.substring(0, 5) + '***',
-//       emailSent
-//     });
-
-//     res.status(200).json({
-//       success: true,
-//       message: 'Un nouveau lien de vérification a été envoyé à votre email.'
-//     });
-
-//   } catch (error: any) {
-//     logger.error('Erreur lors du renvoi de l\'email de vérification', { 
-//       error: error.message,
-//       email: req.body.email?.substring(0, 5) + '***'
-//     });
-//     next(error);
-//   }
-// }
 
   /**
    * Changement de mot de passe

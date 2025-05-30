@@ -7,7 +7,7 @@ import AddressSchema from './addressSchema';
 import AgentDetailsSchema from './agentDetailsSchema';
 import UserPreferencesSchema from './userPreferenceSchema';
 import LoginHistorySchema from './loginHistorySchema';
-import { comparePasswordHelper } from '../utils/comparePassword';
+import { PasswordUtils } from '../utils/comparePassword';
 import { generatePasswordResetToken } from '../utils/generatePasswordResetToken';
 import { generateVerificationToken } from '../utils/generateVerificationToken';
 import { isPasswordResetTokenValid } from '../utils/isPasswordResetTokenValid';
@@ -168,21 +168,61 @@ UserSchema.methods.getFullName = function(): string {
 
 
 // Ajouter les middlewares
-UserSchema.pre('save', hashPasswordMiddleware);
+// UserSchema.pre('save', hashPasswordMiddleware);
+
+UserSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+   logger.info("voicie  le password  a  l  entrer", this.password)
+  try {
+    this.password = await PasswordUtils.hashPassword(this.password);
+    next();
+  } catch (error) {
+    next(error instanceof Error ? error : new Error('Erreur de hashage'));
+  }
+});
+
+UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
+  try {
+    if (!this.password) {
+      logger.error('[model] Aucun mot de passe trouvé pour l\'utilisateur', { 
+        userId: this._id?.toString() 
+      });
+      return false;
+    }
+
+    logger.debug('Comparaison mot de passe pour utilisateur', {
+      userId: this._id?.toString(),
+      email: this.email,
+      hasPassword: !!this.password,
+      passwordHashLength: this.password?.length || 0
+    });
+    console.log('voicie  les mots  de  passe  necessaire  ')
+    console.log(candidatePassword)
+    console.log(this.password)
+
+    return await PasswordUtils.comparePassword(candidatePassword, this.password);
+  } catch (error) {
+    logger.error('Erreur dans comparePassword', {
+      error: error instanceof Error ? error.message : 'Erreur inconnue',
+      userId: this._id?.toString()
+    });
+    return false;
+  }
+};
 
 //methodes
-UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
-  // 'this' refers to the Mongoose document
-  // this.password will be accessible here because .select('+password') was used in the query
-  // and Mongoose *does* provide it to schema methods when explicitly selected.
+// UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
+//   // 'this' refers to the Mongoose document
+//   // this.password will be accessible here because .select('+password') was used in the query
+//   // and Mongoose *does* provide it to schema methods when explicitly selected.
 
-  // Log to confirm if this.password is present here
-  logger.info('[UserSchema.methods.comparePassword] this.password directly:', this.password ? 'present' : 'not present');
-  logger.info('[UserSchema.methods.comparePassword] this.password length directly:', this.password ? this.password.length : 'N/A');
+//   // Log to confirm if this.password is present here
+//   logger.info('[UserSchema.methods.comparePassword] this.password directly:', this.password ? 'present' : 'not present');
+//   logger.info('[UserSchema.methods.comparePassword] this.password length directly:', this.password ? this.password.length : 'N/A');
 
 
-  return comparePasswordHelper(candidatePassword, this.password);
-};
+//   return comparePasswordHelper(candidatePassword, this.password);
+// };
 
 // UserSchema.methods.comparePassword = comparePassword;
 UserSchema.methods.generateVerificationToken = generateVerificationToken;
@@ -191,34 +231,6 @@ UserSchema.methods.isPasswordResetTokenValid = isPasswordResetTokenValid;
 UserSchema.methods.recordLoginAttempt = recordLoginAttempt;
 UserSchema.methods.updateLastLogin = updateLastLogin;
 
-
-// Méthode pour mettre à jour les informations de dernière connexion
-
-UserSchema.methods.updateLastLogin = function(ip: string, userAgent?: string): void {
-  this.lastLogin = new Date();
-  this.lastIp = ip;
-  if (userAgent) {
-    this.lastUserAgent = userAgent; // Make sure this field exists in your schema
-  }
-  this.lastActive = new Date();
-  this.presenceStatus = 'online';
-}
-// Méthode pour enregistrer une tentative de connexion
-UserSchema.methods.recordLoginAttempt = function(attempt: Omit<LoginHistory, 'timestamp'>): void {
-  const { ipAddress, userAgent, successful } = attempt;
-  
-  this.loginAttempts.push({
-    timestamp: new Date(),
-    ipAddress,
-    userAgent,
-    successful
-  });
-  
-  // Limiter le nombre d'entrées d'historique (garder les 10 dernières tentatives)
-  if (this.loginAttempts.length > 10) {
-    this.loginAttempts = this.loginAttempts.slice(-10);
-  }
-};
 
 // Méthode pour mettre à jour le statut de présence
 UserSchema.methods.updatePresenceStatus = function(status: string): void {

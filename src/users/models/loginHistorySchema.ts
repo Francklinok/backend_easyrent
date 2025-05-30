@@ -1,4 +1,4 @@
-import { Schema, model } from "mongoose";
+import { Schema } from "mongoose";
 import { LoginHistory } from "../types/userTypes";
 
 const LoginHistorySchema = new Schema<LoginHistory>({

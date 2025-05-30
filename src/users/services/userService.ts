@@ -102,6 +102,45 @@ export class UserService {
           throw error;
         }
   }
+  /**
+   * get   user  by   email  and  password
+   */
+
+  async  getUserByEmailWithPassword(email:string): Promise<IUser | null>{
+    try{
+      if(!email|| typeof email !== "string"){
+        logger.warn('email  invamide  fournis ', {email})
+        return null;
+      }
+
+      const  normalizedEmail = email.toLowerCase().trim();
+      logger.debug('Recherche utilisateur', { email: normalizedEmail });
+
+      const user = await  User.findOne({
+        email:normalizedEmail,
+        isDeleted:{ $ne: true}
+      }).select('+password')
+
+      if(user){
+          logger.info('Utilisateur trouvé', {
+          userId: user._id?.toString(),
+          email: user.email,
+          isActive: user.isActive,
+          hasPassword: !!user.password,
+          passwordLength: user.password?.length || 0
+        });
+      }else{
+                logger.warn('Aucun utilisateur trouvé', { email: normalizedEmail });
+      }
+            return user;
+    }catch(error){
+       logger.error('Erreur lors de la récupération de l\'utilisateur', {
+        error: error instanceof Error ? error.message : 'Erreur inconnue',
+        email
+      });
+      throw new Error('Erreur lors de la récupération de l\'utilisateur');
+    }
+  }
 
   /**
    * Retrouve un utilisateur par son email
@@ -111,13 +150,11 @@ async getUserByEmail(email: string): Promise<IUser | null> {
   try {
     // The issue is here - you need to include the password field explicitly
     // since it's marked as select: false in the schema
-    const  user = await User.findOne({ 
-      email: email.toLowerCase(),
+    const normalizeEmail = email.toLowerCase().trim()
+    return await User.findOne({ 
+      email: normalizeEmail,
       isDeleted: { $ne: true } // Also check if user is not deleted
-    }).select('+password');
-    console.log('les  utilisateur  sont', user)
-
-    return user  // This is the correct way to include password
+    })
   } catch (error) {
     logger.error('Error fetching user by email', { error, email });
     throw error;

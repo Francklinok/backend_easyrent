@@ -1,7 +1,9 @@
-
-
-import { Document } from 'mongoose';
+import { Document, Model } from 'mongoose';
 import { Types } from 'mongoose';
+
+// ================================
+// ENUMS
+// ================================
 
 export enum UserRole {
   CLIENT = "client",
@@ -17,10 +19,46 @@ export enum VerificationStatus {
   REJECTED = "rejected"
 }
 
+export enum DeviceType {
+  MOBILE = 'mobile',
+  DESKTOP = 'desktop',
+  TABLET = 'tablet',
+  UNKNOWN = 'unknown'
+}
+
+// ================================
+// BASE INTERFACES - COMMON
+// ================================
+
+export interface ILocation {
+  country?: string;
+  city?: string;
+  coordinates?: {
+    lat: number;
+    lng: number;
+  };
+}
+
+export interface Address {
+  street?: string;
+  city: string;
+  state?: string;
+  postalCode?: string;
+  country: string;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  }
+}
+
+// ================================
+// USER RELATED INTERFACES
+// ================================
+
 export interface LoginHistory {
   timestamp: Date;
   ipAddress: string;
-  userAgent: string;
+  userAgent?: string;
   location?: string;
   deviceId?: string;
   successful: boolean;
@@ -45,18 +83,6 @@ export interface PreferenceHistoryEntry {
   timestamp: Date;
 }
 
-export interface Address {
-  street?: string;
-  city: string;
-  state?: string;
-  postalCode?: string;
-  country: string;
-  coordinates?: {
-    latitude: number;
-    longitude: number;
-  }
-}
-
 export interface AgentDetails {
   licenseNumber: string;
   licenseExpiryDate: Date;
@@ -70,14 +96,21 @@ export interface AgentDetails {
   reviewCount?: number;
 }
 
-export interface RefreshToken {
-  tokenId: string;
-  expiresAt: Date;
-  lastUsed?: Date;
-  device?: string;
-  ipAddress?: string;
+export interface UserNotification {
+  id: string;
+  title: string;
+  message: string;
+  type?: string;
+  read: boolean;
   createdAt: Date;
+  readAt?: Date;
+  link?: string;
+  [key: string]: any;
 }
+
+// ================================
+// SECURITY RELATED INTERFACES
+// ================================
 
 export interface LoginAttempt {
   timestamp: Date;
@@ -124,19 +157,80 @@ export interface SecurityDetails {
   tempTwoFactorSecretExpires?: Date;
 }
 
-export interface UserNotification {
-  id: string;
-  title: string;
-  message: string;
-  type?: string;
-  read: boolean;
+// ================================
+// REFRESH TOKEN INTERFACES
+// ================================
+
+export interface RefreshToken {
+  tokenId: string;
+  expiresAt: Date;
+  lastUsed?: Date;
+  device?: string;
+  ipAddress?: string;
   createdAt: Date;
-  readAt?: Date;
-  link?: string;
-  [key: string]: any;
 }
 
+export interface IRefreshToken {
+  token: string;
+  hashedToken: string;
+  device?: string;
+  userAgent?: string;
+  ip?: string;
+  location?: ILocation;
+  user: Types.ObjectId;
+  isActive: boolean;
+  lastUsedAt: Date;
+  createdAt: Date;
+  expiresAt: Date;
+  revokedAt?: Date;
+  sessionId?: string;
+}
+
+export interface IRefreshTokenMethods {
+  isExpired(): boolean;
+  revoke(): Promise<IRefreshTokenDocument>;
+  updateLastUsed(): Promise<IRefreshTokenDocument>;
+}
+
+export interface IRefreshTokenStatics {
+  revokeAllForUser(userId: string | Types.ObjectId): Promise<any>;
+  findActiveByUser(userId: string | Types.ObjectId): Promise<IRefreshTokenDocument[]>;
+  cleanupExpired(): Promise<any>;
+}
+
+export interface IRefreshTokenDocument extends IRefreshToken, IRefreshTokenMethods, Document {
+  _id: Types.ObjectId;
+}
+
+export interface IRefreshTokenModel extends Model<IRefreshTokenDocument>, IRefreshTokenStatics {}
+
+export interface IRefreshTokenPopulated extends Omit<IRefreshToken, 'user'> {
+  _id: Types.ObjectId;
+  user: {
+    _id: Types.ObjectId;
+    email: string;
+    name?: string;
+  };
+}
+
+export interface ITokenStats {
+  totalTokens: number;
+  activeTokens: number;
+  expiredTokens: number;
+  revokedTokens: number;
+  deviceBreakdown: Record<string, number>;
+  recentActivity: {
+    date: Date;
+    count: number;
+  }[];
+}
+
+// ================================
+// MAIN USER INTERFACE
+// ================================
+
 export interface IUser extends Document {
+  // Basic Info
   firstName: string;
   lastName: string;
   username: string;
@@ -144,49 +238,58 @@ export interface IUser extends Document {
   password: string;
   role: UserRole;
   profilePicture?: string;
+  avatarUrl?: string;
   phoneNumber?: string;
+  phone?: string | null;
   address?: Address;
   dateOfBirth?: Date;
+  
+  // Timestamps
   createdAt: Date;
   updatedAt: Date;
   lastLogin?: Date;
   lastLoginAt?: Date;
+  lastActive: Date;
+  
+  // Session Info
   lastIp?: string;
   lastUserAgent?: string;
   presenceStatus: string;
-  lastActive: Date;
-  loginAttempts: LoginHistory[];
+  
+  // Status
   isActive: boolean;
+  isDeleted?: boolean;
+  deletedAt?: Date;
+  deletedBy?: string;
+  
+  // Authentication & Security
   refreshTokens: RefreshToken[];
   loginHistory: LoginHistory[];
-  preferences: UserPreferences;
-  preferencesHistory?: PreferenceHistoryEntry[];
-  agentDetails?: AgentDetails;
+  loginAttempts: LoginHistory[];
   security?: SecurityDetails;
-  notifications?: UserNotification[];
-  avatarUrl?: string;
-  phone?: string | null;
-  getFullName(): string;
   
-  // Propriétés pour la vérification d'email
-  emailVerified?:boolean,
+  // Email Verification
+  emailVerified?: boolean;
   isEmailVerified?: boolean;
   verificationToken?: string;
-  emailVerificationToken?: string |null;
+  emailVerificationToken?: string | null;
   emailVerificationTokenExpires?: Date | null;
   
-  // Propriétés pour la réinitialisation de mot de passe
+  // Password Reset
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
   passwordChangedAt?: Date;
   
-  // Propriétés pour la gestion de la suppression
-  isDeleted?: boolean;
-  deletedAt?: Date;
-  deletedBy?: string;
+  // User Data
+  preferences: UserPreferences;
+  preferencesHistory?: PreferenceHistoryEntry[];
+  agentDetails?: AgentDetails;
+  notifications?: UserNotification[];
   
+  // Methods
+  getFullName(): string;
   comparePassword: (candidatePassword: string) => Promise<boolean>;
   generateVerificationToken: () => string;
   generatePasswordResetToken: () => Promise<string>;
@@ -195,6 +298,108 @@ export interface IUser extends Document {
   updateLastLogin: (ipAddress: string, userAgent: string) => void;
   updatePresenceStatus(status: string): void;
 }
+
+// ================================
+// AUTHENTICATION INTERFACES
+// ================================
+
+export interface TokenPayload {
+  userId: string;
+  email: string;
+  role: string;
+  sessionId?: string;
+  deviceId?: string;
+  temp?: boolean;
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken?: string;
+  sessionId?: string;
+}
+
+export interface LoginDetails {
+  ipAddress: string;
+  userAgent: string;
+  successful: boolean;
+  timestamp?: Date;
+}
+
+export interface AuthOptions {
+  rememberMe?: boolean;
+  deviceInfo?: {
+    deviceId: string;
+    deviceName: string;
+    platform: string;
+    version: string;
+  };
+}
+
+export interface TwoFactorSetup {
+  tempTwoFactorSecret: string;
+  qrCodeUrl: string;
+  backupCodes: string[];
+}
+
+export interface TwoFactorValidationResult {
+  success: boolean;
+  message?: string;
+  userId?: string;
+  tokens?: AuthTokens;
+}
+
+export interface SecurityInfo {
+  twoFactorEnabled: boolean;
+  lastPasswordChange: Date;
+  activeSessions: number;
+  recentLoginAttempts: number;
+  accountLockout?: {
+    isLocked: boolean;
+    lockUntil?: Date;
+  };
+}
+
+export interface ActiveSession {
+  id: string;
+  deviceInfo: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: Date;
+  lastActivity: Date;
+  isCurrent: boolean;
+}
+
+export interface UserInfo {
+  _id: string | Types.ObjectId;
+  id: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  preferences?: {
+    twoFactorEnabled?: boolean;
+  };
+  twoFactorSecret?: string;
+  tempTwoFactorSecret?: string;
+  lastPasswordChange?: Date;
+  passwordChangedAt?: Date;
+  createdAt: Date;
+  accountLockout?: {
+    isLocked: boolean;
+    lockUntil?: Date;
+  };
+  emailVerified: Boolean;
+  lockUntil?: Date;
+  isLocked?: boolean;
+  comparePassword(password: string): Promise<boolean>;
+  updateLastLogin(ip: string, userAgent: string): void;
+  recordLoginAttempt(details: LoginDetails): void;
+  addDeviceInfo?(deviceInfo: any): void;
+  save(): Promise<void>;
+}
+
+// ================================
+// DTO INTERFACES (Data Transfer Objects)
+// ================================
 
 export interface CreateUserDto {
   email: string;
@@ -248,12 +453,38 @@ export interface UpdateUserDto {
     };
   };
   dateOfBirth?: Date;
-  secret:string;
-  tempTwoFactorSecret?:string;
+  secret: string;
+  tempTwoFactorSecret?: string;
   profilePicture?: string;
   preferences?: Partial<IUser['preferences']>;
   agentDetails?: Partial<NonNullable<IUser['agentDetails']>>;
 }
+
+export interface ICreateRefreshToken {
+  token: string;
+  device?: string;
+  userAgent?: string;
+  ip?: string;
+  location?: ILocation;
+  user: string | Types.ObjectId;
+  expiresAt: Date;
+  sessionId?: string;
+}
+
+export interface IUpdateRefreshToken {
+  device?: string;
+  userAgent?: string;
+  ip?: string;
+  location?: ILocation;
+  isActive?: boolean;
+  lastUsedAt?: Date;
+  revokedAt?: Date;
+  sessionId?: string;
+}
+
+// ================================
+// QUERY & SEARCH INTERFACES
+// ================================
 
 export interface SearchUsersParams {
   query?: string;
@@ -267,119 +498,6 @@ export interface SearchUsersParams {
   sortDirection?: 'asc' | 'desc';
 }
 
-/**
- * Interface pour les options d'authentification
- */
-export interface AuthOptions {
-  rememberMe?: boolean;
-  deviceInfo?: {
-    deviceId: string;
-    deviceName: string;
-    platform: string;
-    version: string;
-  };
-}
-
-/**
- * Interface pour la configuration 2FA
- */
-export interface TwoFactorSetup {
-  // secret: string;
-  tempTwoFactorSecret:string,
-  qrCodeUrl: string;
-  backupCodes: string[];
-}
-
-/**
- * Interface pour les informations de sécurité
- */
-export interface SecurityInfo {
-  twoFactorEnabled: boolean;
-  lastPasswordChange: Date;
-  activeSessions: number;
-  recentLoginAttempts: number;
-  accountLockout?: {
-    isLocked: boolean;
-    lockUntil?: Date;
-  };
-}
-
-/**
- * Interface pour les sessions actives
- */
-export interface ActiveSession {
-  id: string;
-  deviceInfo: string;
-  ipAddress: string;
-  userAgent: string;
-  createdAt: Date;
-  lastActivity: Date;
-  isCurrent: boolean;
-}
-
-/**
- * Interface pour le payload des tokens JWT
- */
-export interface TokenPayload {
-  userId: string;
-  email: string;
-  role: string;
-  sessionId?: string;
-  deviceId?: string;
-  temp?: boolean; // For temporary tokens (2FA)
-
-}
-
-/**
- * Interface pour les tokens d'authentification
- */
-export interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-  sessionId?: string;
-}
-
-/**
- * Interface pour les détails de connexion
- */
-export interface LoginDetails {
-  ipAddress: string;
-  userAgent: string;
-  successful: boolean;
-  timestamp?: Date;
-}
-
-/**
- * Interface pour les informations utilisateur étendues
- */
-export interface UserInfo {
-  _id: string| Types.ObjectId;
-  id: string;
-  email: string;
-  role: string;
-  isActive: boolean;
-  preferences?: {
-    twoFactorEnabled?: boolean;
-  };
-  twoFactorSecret?: string;
-  tempTwoFactorSecret?: string;
-  lastPasswordChange?: Date;
-  passwordChangedAt?: Date; // Alternative field name
-  createdAt: Date;
-  accountLockout?: {
-    isLocked: boolean;
-    lockUntil?: Date;
-  };
-  emailVerified:Boolean;
-   lockUntil?: Date; // Alternative structure
-  isLocked?: boolean;
-  comparePassword(password: string): Promise<boolean>;
-  updateLastLogin(ip: string, userAgent: string): void;
-  recordLoginAttempt(details: LoginDetails): void;
-  addDeviceInfo?(deviceInfo: any): void;
-  save(): Promise<void>;
-}
-
 export interface UserFilterOptions {
   page?: number;
   limit?: number;
@@ -387,7 +505,7 @@ export interface UserFilterOptions {
   sortOrder?: 'asc' | 'desc';
   isActive?: boolean;
   role?: string;
-  [key: string]: any; // Pour autoriser d'autres filtres dynamiques
+  [key: string]: any;
 }
 
 export interface UserSearchOptions {
@@ -400,10 +518,30 @@ export interface UserSearchOptions {
   sortOrder?: 'asc' | 'desc';
 }
 
+export interface IRefreshTokenQuery {
+  user?: string | Types.ObjectId;
+  isActive?: boolean;
+  sessionId?: string;
+  device?: string;
+  ip?: string;
+  expiresAt?: {
+    $gt?: Date;
+    $lt?: Date;
+    $gte?: Date;
+    $lte?: Date;
+  };
+  createdAt?: {
+    $gt?: Date;
+    $lt?: Date;
+    $gte?: Date;
+    $lte?: Date;
+  };
+}
 
-/**
- * Interface for deletion options
- */
+// ================================
+// DELETION INTERFACES
+// ================================
+
 export interface DeleteUserOptions {
   softDelete?: boolean;
   reason?: string;
@@ -411,9 +549,6 @@ export interface DeleteUserOptions {
   preserveData?: boolean;
 }
 
-/**
- * Interface for user deletion result
- */
 export interface DeleteUserResult {
   success: boolean;
   userId: string;
@@ -421,10 +556,3 @@ export interface DeleteUserResult {
   deletedAt: Date;
   message?: string;
 }
-
- export  interface TwoFactorValidationResult {
-    success: boolean;
-    message?: string;
-    userId?: string;
-    tokens?: AuthTokens;
-  }

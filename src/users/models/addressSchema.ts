@@ -1,4 +1,4 @@
-import { Schema,  model } from "mongoose";
+import { Schema } from "mongoose";
 import { Address } from "../types/userTypes";
 
 

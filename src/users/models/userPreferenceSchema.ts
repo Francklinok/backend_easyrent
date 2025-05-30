@@ -1,4 +1,4 @@
-import { Schema, model } from "mongoose";
+import { Schema } from "mongoose";
 
 const UserPreferencesSchema = new Schema({
   theme: { 
