@@ -1,4 +1,4 @@
-import { Schema, model } from 'mongoose';
+import { Schema } from 'mongoose';
 import { UserNotification } from '../types/userTypes';
 // Schéma pour les notifications utilisateur
 const UserNotificationSchema = new Schema<UserNotification>({

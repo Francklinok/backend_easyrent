@@ -3,13 +3,17 @@ import jwt from 'jsonwebtoken';
 import { Request } from 'express';
 import crypto from 'crypto';
 import speakeasy from 'speakeasy';
-import qrcode from 'qrcode';
+// import qrcode from 'qrcode';
 import config from '../../../config';
 import { UserService } from './userService';
 import { createLogger } from '../../utils/logger/logger';
 import { UserPresenceService } from './userPresence';
 import { AuthOptions,TwoFactorSetup ,SecurityInfo,ActiveSession,TokenPayload,AuthTokens,LoginDetails,UserInfo,TwoFactorValidationResult, IUser} from '../types/userTypes';
 import  bcrypt from  "bcrypt"
+import { Config } from '../../../config/type';
+import { RefreshToken } from '../types/userTypes';
+import User from '../models/userModel';
+import { Types } from 'mongoose';
 // Création d'une instance du logger
 const logger = createLogger("AuthService");
 
@@ -30,212 +34,294 @@ export class AuthService {
    */
 
   async authenticate(
-    email: string, 
-    password: string, 
-    req: Request, 
-    options?: AuthOptions
-  ): Promise<AuthTokens | null> {
-    const startTime = Date.now();
-    
-    try {
-      // Validation des entrées
-      if (!email || !password) {
-        logger.warn('Tentative d\'authentification avec des identifiants manquants', {
-          hasEmail: !!email,
-          hasPassword: !!password,
-          ip: req.ip
-        });
-        return null;
-      }
-      console.log(password)
+  email: string,
+  password: string,
+  req: Request,
+  options?: AuthOptions
+): Promise<AuthTokens | null> {
+  const startTime = Date.now();
+ 
+  try {
+    // Validation des entrées
+    if (!email || !password) {
+      logger.warn('Tentative d\'authentification avec des identifiants manquants', {
+        hasEmail: !!email,
+        hasPassword: !!password,
+        ip: req.ip
+      });
+      return null;
+    }
 
-      // Récupération de l'utilisateur avec mot de passe
-      const user = await this.userService.getUserByEmailWithPassword(email);
-      
-      if (!user) {
-        logger.warn('Échec d\'authentification - utilisateur non trouvé', {
-          email: email.substring(0, 5) + '***',
-          ip: req.ip
-        });
-        return null;
-      }
+    console.log(password);
 
-      // Vérification que l'utilisateur est actif
-      if (!user.isActive) {
-        logger.warn('Échec d\'authentification - compte inactif', {
-          userId: user._id?.toString(),
-          email: email.substring(0, 5) + '***'
-        });
-        return null;
-      }
+    // Récupération de l'utilisateur avec mot de passe
+    const user = await this.userService.getUserByEmailWithPassword(email);
+   
+    if (!user) {
+      logger.warn('Échec d\'authentification - utilisateur non trouvé', {
+        email: email.substring(0, 5) + '***',
+        ip: req.ip
+      });
+      return null;
+    }
 
-      // Vérification du mot de passe
-      logger.info('Tentative de vérification du mot de passe', {
+    // Vérification que l'utilisateur est actif
+    if (!user.isActive) {
+      logger.warn('Échec d\'authentification - compte inactif', {
+        userId: user._id?.toString(),
+        email: email.substring(0, 5) + '***'
+      });
+      return null;
+    }
+
+    // Vérification du mot de passe
+    logger.info('Tentative de vérification du mot de passe', {
+      userId: user._id?.toString(),
+      email: email.substring(0, 5) + '***'
+    });
+
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      logger.warn('Échec d\'authentification - mot de passe invalide', {
         userId: user._id?.toString(),
         email: email.substring(0, 5) + '***'
       });
 
-      const isPasswordValid = await user.comparePassword(password);
-
-      if (!isPasswordValid) {
-        logger.warn('Échec d\'authentification - mot de passe invalide', {
-          userId: user._id?.toString(),
-          email: email.substring(0, 5) + '***'
-        });
-
-        // Enregistrer la tentative échouée
-        user.recordLoginAttempt({
-          ipAddress: req.ip || 'unknown',
-          userAgent: req.headers['user-agent'],
-          successful: false
-        });
-        
-        await user.save();
-        return null;
-      }
-
-      // Authentification réussie
-      logger.info('Authentification réussie', {
-        userId: user._id?.toString(),
-        email: email.substring(0, 5) + '***',
-        executionTime: `${Date.now() - startTime}ms`
-      });
-
-      // Mettre à jour les informations de connexion
-      user.updateLastLogin(req.ip || 'unknown', req.headers['user-agent']  as string);
+      // Enregistrer la tentative échouée
       user.recordLoginAttempt({
         ipAddress: req.ip || 'unknown',
         userAgent: req.headers['user-agent'],
-        successful: true
+        successful: false
       });
-
+     
       await user.save();
-
-      // Générer les tokens
-      return this.generateAuthTokens(user, options);
-
-    } catch (error) {
-      logger.error('Erreur lors de l\'authentification', {
-        error: error instanceof Error ? error.message : 'Erreur inconnue',
-        email: email.substring(0, 5) + '***',
-        executionTime: `${Date.now() - startTime}ms`
-      });
-      throw new Error('Erreur lors de l\'authentification');
+      return null;
     }
+
+    // Authentification réussie
+    logger.info('Authentification réussie', {
+      userId: user._id?.toString(),
+      email: email.substring(0, 5) + '***',
+      executionTime: `${Date.now() - startTime}ms`
+    });
+
+    // Mettre à jour les informations de connexion
+    user.updateLastLogin(req.ip || 'unknown', req.headers['user-agent'] as string);
+    user.recordLoginAttempt({
+      ipAddress: req.ip || 'unknown',
+      userAgent: req.headers['user-agent'],
+      successful: true
+    });
+
+    // ⚠️ SAUVEGARDER L'UTILISATEUR AVANT GÉNÉRATION DES TOKENS
+    await user.save();
+
+    // Générer les tokens
+  const tokens = await this.generateAuthTokens(user, {
+  rememberMe: options?.rememberMe,
+  deviceInfo: {
+    deviceId: options?.deviceInfo?.deviceId || '',
+    deviceName: options?.deviceInfo?.deviceName || '',
+    platform: options?.deviceInfo?.platform || '',
+    version: options?.deviceInfo?.version || '',
+    userAgent: req.headers['user-agent'],
+    ip: req.ip
   }
+    });
+
   
-// async authenticate(email: string, password: string, req: Request, options?: AuthOptions): Promise<AuthTokens | null> {
-//   try {
-//     if (!email || !password) {
-//       logger.warn('Authentication attempt with missing credentials');
-//       return null;
-//     }
 
-//     const user = await this.userService.getUserByEmail(email) as IUser;
-//     if (!user) {
-//       logger.warn('Authentication failed: user not found', { email });
-//       return null;
-//     }
-//     await  this.userService.debugUser(email)
-//     // Check if user is active
-//     if (!user.isActive) {
-//       logger.warn('Authentication failed: user account is inactive', { email });
-//       return null;
-//     }
-//     // Log user info (without sensitive data)
-//     logger.info(`User found: ${user.email}, isActive: ${user.isActive}, hasPassword: ${!!user.password}`);
-    
-//     if (typeof user.comparePassword !== 'function') {
-//       logger.error('comparePassword method not available on user object');
-//       throw new Error('User authentication method not available');
-//     }
-    
-//     logger.info(`[AuthController] Attempting password verification for user: ${email}`);
-//     const isPasswordValid = await user.comparePassword(password);
-//     this.testPasswordComparison(email, password)
+    // ⚠️ VÉRIFICATION CRUCIALE : L'utilisateur a-t-il été sauvegardé ?
+    const userAfterTokens = await this.userService.getUserByEmailWithPassword(email);
+   
+    logger.info('Vérification après génération des tokens', {
+      userId: user._id?.toString(),
+      refreshTokensCountBefore: user.refreshTokens?.length || 0,
+      refreshTokensCountAfter: userAfterTokens?.refreshTokens?.length || 0,
+      tokenGenerated: !!tokens?.refreshToken
+    });
 
-//     if (!isPasswordValid) {
-//       logger.warn('Authentication failed: invalid password', { email });
-      
-//       // Record failed login attempt
-//       if (typeof user.recordLoginAttempt === 'function') {
-//         const loginDetails = this.extractLoginDetails(req);
-//         user.recordLoginAttempt({
-//           ipAddress: loginDetails.ipAddress,
-//           userAgent: loginDetails.userAgent,
-//           successful: false
-//         });
-//         await user.save();
-//       }
-      
-//       return null;
-//     }
-    
-//     // Successful authentication
-//     logger.info('Authentication successful', { email });
-    
-//     // Update last login info
-//     if (typeof user.updateLastLogin === 'function') {
-//       const loginDetails = this.extractLoginDetails(req);
-//       user.updateLastLogin(loginDetails.ipAddress, loginDetails.userAgent);
-//     }
-    
-//     // Record successful login attempt
-//     if (typeof user.recordLoginAttempt === 'function') {
-//       const loginDetails = this.extractLoginDetails(req);
-//       user.recordLoginAttempt({
-//         ipAddress: loginDetails.ipAddress,
-//         userAgent: loginDetails.userAgent,
-//         successful: true
-//       });
-//     }
-    
-//     if (typeof user.save === 'function') {
-//       await user.save();
-//     }
-    
-//     // Generate tokens
-//     const tokens = this.generateAuthTokens(user, options);
-//     return tokens;
-//   } catch (error) {
-//     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-//     logger.error('Error during authentication', { error: errorMessage, email });
-//     throw new Error(`Authentication failed: ${errorMessage}`);
-//   }
-// }
-
-// Add this method to your AuthService for debugging
-async testPasswordComparison(email: string, password: string): Promise<void> {
-  try {
-    const user = await this.userService.getUserByEmail(email);
-    if (!user) {
-      logger.error('User not found for password test');
-      return;
-    }
-    
-    logger.info('=== PASSWORD COMPARISON TEST ===');
-    logger.info('Input password:', password);
-    logger.info('Input password length:', password.length);
-    logger.info('User password hash:', user.password);
-    logger.info('User password hash length:', user.password?.length);
-    
-    // Direct bcrypt comparison
-    const directResult = await bcrypt.compare(password, user.password);
-    logger.info('Direct bcrypt comparison result:', directResult);
-    
-    // Method comparison
-    if (typeof user.comparePassword === 'function') {
-      const methodResult = await user.comparePassword(password);
-      logger.info('Method comparison result:', methodResult);
+    if (!userAfterTokens?.refreshTokens || userAfterTokens.refreshTokens.length === 0) {
+      logger.error('❌ PROBLÈME : Aucun refresh token sauvegardé en base !', {
+        userId: user._id?.toString()
+      });
     } else {
-      logger.error('comparePassword method not available');
+      logger.info('✅ Refresh tokens correctement sauvegardés', {
+        userId: user._id?.toString(),
+        count: userAfterTokens.refreshTokens.length
+      });
     }
-    
-    logger.info('=== END PASSWORD TEST ===');
+
+    return tokens;
+
   } catch (error) {
-    logger.error('Error in password test:', error);
+    logger.error('Erreur lors de l\'authentification', {
+      error: error instanceof Error ? error.message : 'Erreur inconnue',
+      email: email.substring(0, 5) + '***',
+      executionTime: `${Date.now() - startTime}ms`
+    });
+    throw new Error('Erreur lors de l\'authentification');
   }
 }
+//   async authenticate(
+//     email: string, 
+//     password: string, 
+//     req: Request, 
+//     options?: AuthOptions
+//   ): Promise<AuthTokens | null> {
+//     const startTime = Date.now();
+    
+//     try {
+//       // Validation des entrées
+//       if (!email || !password) {
+//         logger.warn('Tentative d\'authentification avec des identifiants manquants', {
+//           hasEmail: !!email,
+//           hasPassword: !!password,
+//           ip: req.ip
+//         });
+//         return null;
+//       }
+//       console.log(password)
+
+//       // Récupération de l'utilisateur avec mot de passe
+//       const user = await this.userService.getUserByEmailWithPassword(email);
+      
+//       if (!user) {
+//         logger.warn('Échec d\'authentification - utilisateur non trouvé', {
+//           email: email.substring(0, 5) + '***',
+//           ip: req.ip
+//         });
+//         return null;
+//       }
+
+//       // Vérification que l'utilisateur est actif
+//       if (!user.isActive) {
+//         logger.warn('Échec d\'authentification - compte inactif', {
+//           userId: user._id?.toString(),
+//           email: email.substring(0, 5) + '***'
+//         });
+//         return null;
+//       }
+
+//       // Vérification du mot de passe
+//       logger.info('Tentative de vérification du mot de passe', {
+//         userId: user._id?.toString(),
+//         email: email.substring(0, 5) + '***'
+//       });
+
+//       const isPasswordValid = await user.comparePassword(password);
+
+//       if (!isPasswordValid) {
+//         logger.warn('Échec d\'authentification - mot de passe invalide', {
+//           userId: user._id?.toString(),
+//           email: email.substring(0, 5) + '***'
+//         });
+
+//         // Enregistrer la tentative échouée
+//         user.recordLoginAttempt({
+//           ipAddress: req.ip || 'unknown',
+//           userAgent: req.headers['user-agent'],
+//           successful: false
+//         });
+        
+//         await user.save();
+//         return null;
+//       }
+
+//       // Authentification réussie
+//       logger.info('Authentification réussie', {
+//         userId: user._id?.toString(),
+//         email: email.substring(0, 5) + '***',
+//         executionTime: `${Date.now() - startTime}ms`
+//       });
+
+//       // Mettre à jour les informations de connexion
+//       user.updateLastLogin(req.ip || 'unknown', req.headers['user-agent']  as string);
+//       user.recordLoginAttempt({
+//         ipAddress: req.ip || 'unknown',
+//         userAgent: req.headers['user-agent'],
+//         successful: true
+//       });
+
+//         const tokens = await this.generateAuthTokens(user, {
+//       rememberMe: options?.rememberMe,
+//       deviceInfo: {
+//         device: options?.deviceInfo,
+//         userAgent: req.headers['user-agent'],
+//         ip: req.ip
+//       }
+//     });
+
+//          // ⚠️ VÉRIFICATION CRUCIALE : L'utilisateur a-t-il été sauvegardé ?
+//       const userAfterTokens = await User.findById(user._id).select('+refreshTokens');
+      
+//       logger.info('Vérification après génération des tokens', {
+//         userId: user._id?.toString(),
+//         refreshTokensCountBefore: user.refreshTokens?.length || 0,
+//         refreshTokensCountAfter: userAfterTokens?.refreshTokens?.length || 0,
+//         tokenGenerated: !!tokens.refreshToken
+//       });
+
+//       if (!userAfterTokens?.refreshTokens || userAfterTokens.refreshTokens.length === 0) {
+//         logger.error('❌ PROBLÈME : Aucun refresh token sauvegardé en base !', {
+//           userId: user._id?.toString()
+//         });
+//       } else {
+//         logger.info('✅ Refresh tokens correctement sauvegardés', {
+//           userId: user._id?.toString(),
+//           count: userAfterTokens.refreshTokens.length
+//         });
+//       }
+
+//       await user.save();
+
+//       // Générer les tokens
+//       // return this.generateAuthTokens(user, options);
+//       return  token
+
+//     } catch (error) {
+//       logger.error('Erreur lors de l\'authentification', {
+//         error: error instanceof Error ? error.message : 'Erreur inconnue',
+//         email: email.substring(0, 5) + '***',
+//         executionTime: `${Date.now() - startTime}ms`
+//       });
+//       throw new Error('Erreur lors de l\'authentification');
+//     }
+//   }
+
+
+// // Add this method to your AuthService for debugging
+// async testPasswordComparison(email: string, password: string): Promise<void> {
+//   try {
+//     const user = await this.userService.getUserByEmail(email);
+//     if (!user) {
+//       logger.error('User not found for password test');
+//       return;
+//     }
+    
+//     logger.info('=== PASSWORD COMPARISON TEST ===');
+//     logger.info('Input password:', password);
+//     logger.info('Input password length:', password.length);
+//     logger.info('User password hash:', user.password);
+//     logger.info('User password hash length:', user.password?.length);
+    
+//     // Direct bcrypt comparison
+//     const directResult = await bcrypt.compare(password, user.password);
+//     logger.info('Direct bcrypt comparison result:', directResult);
+    
+//     // Method comparison
+//     if (typeof user.comparePassword === 'function') {
+//       const methodResult = await user.comparePassword(password);
+//       logger.info('Method comparison result:', methodResult);
+//     } else {
+//       logger.error('comparePassword method not available');
+//     }
+    
+//     logger.info('=== END PASSWORD TEST ===');
+//   } catch (error) {
+//     logger.error('Error in password test:', error);
+//   }
+// }
 
 // 4. Check your User Schema method binding
 // Make sure your schema methods are properly bound:
@@ -942,7 +1028,7 @@ async generateVerificationToken(userId: string): Promise<string> {
       }
 
       // Générer les tokens finaux
-      const tokens = this.generateAuthTokens(user, options);
+      const tokens = await  this.generateAuthTokens(user, options);
       const userId = this.getUserId(user);
       
       logger.info('2FA authentication completed successfully', { userId });
@@ -1149,84 +1235,420 @@ private temporary2FAToken(user: IUser, deviceId?: string): string {
   /**
    * Génère les tokens d'authentification pour un utilisateur
    */
-  // Fixed generateAuthTokens method
 
-   private generateAuthTokens(user: IUser, options?: AuthOptions): AuthTokens {
+  async generateAuthTokens(
+  user: IUser,
+  options?: AuthOptions
+): Promise<AuthTokens> {
+  try {
+    // Generate access token
     const payload = {
       userId: user._id?.toString(),
       email: user.email,
       role: user.role
     };
-
+    
     const accessToken = jwt.sign(
       payload,
-      process.env.JWT_SECRET || 'your-secret-key',
+      config.auth.jwtSecret,
       { expiresIn: '15m' }
     );
-
-    let refreshToken: string | undefined;
-
-    if (options?.rememberMe) {
-      refreshToken = jwt.sign(
-        payload,
-        process.env.JWT_REFRESH_SECRET || 'your-refresh-secret',
-        { expiresIn: '7d' }
-      );
-    }
-
-    return { accessToken, refreshToken };
-  }
-
-
-//   private generateAuthTokens(user: IUser, options?: AuthOptions): AuthTokens {
-//   try {
-//     const sessionId = crypto.randomUUID();
     
-//     // Validation des secrets JWT
-//     const jwtSecret = config.auth?.jwtSecret;
-//     const jwtRefreshSecret = config.auth?.jwtRefreshSecret;
-
-//     if (!jwtSecret || typeof jwtSecret !== 'string' || jwtSecret.length < 32) {
-//       throw new Error('JWT secret not configured properly (must be at least 32 characters)');
-//     }
-//     if (!jwtRefreshSecret || typeof jwtRefreshSecret !== 'string' || jwtRefreshSecret.length < 32) {
-//       throw new Error('JWT refresh secret not configured properly (must be at least 32 characters)');
-//     }
-
-//     const payload: TokenPayload = {
-//       userId: this.getUserId(user),
+    // Generate refresh token
+    const refreshToken = jwt.sign(
+      payload,
+      config.auth.jwtRefreshSecret,
+      {
+        expiresIn: options?.rememberMe ? '30d' : '7d'
+      }
+    );
+    
+    if (!refreshToken) {
+      throw new Error('Impossible de générer le refresh token');
+    }
+    
+    // Generate session ID
+    const sessionId = crypto.randomUUID();
+    
+    // Create refresh token document with proper typing
+    const refreshTokenDoc: RefreshToken = {
+      tokenId: crypto.randomUUID(),
+      token: refreshToken,
+      hashedToken: crypto.createHash('sha256').update(refreshToken).digest('hex'),
+      user: user._id as Types.ObjectId,
+      device: options?.deviceInfo?.deviceName || options?.deviceInfo?.deviceId || 'Unknown',
+      userAgent: options?.deviceInfo?.userAgent || 'Unknown',
+      ip: options?.deviceInfo?.ip || 'Unknown',
+      ipAddress: options?.deviceInfo?.ip || 'Unknown',
+      sessionId: sessionId,
+      expiresAt: new Date(Date.now() + (options?.rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000),
+      isActive: true,
+      lastUsedAt: new Date(),
+      createdAt: new Date()
+    };
+    
+    logger.info('Tentative d\'ajout du refresh token', {
+      userId: user._id?.toString(),
+      refreshTokensCountBefore: user.refreshTokens?.length || 0,
+      hasRefreshToken: !!refreshToken,
+      refreshTokenLength: refreshToken?.length || 0
+    });
+    
+    // Initialize array if it doesn't exist
+    if (!user.refreshTokens) {
+      user.refreshTokens = [];
+    }
+    
+    // Add refresh token to user array
+    user.refreshTokens.push(refreshTokenDoc);
+    
+    logger.info('Refresh token ajouté au tableau utilisateur', {
+      userId: user._id?.toString(),
+      refreshTokensCountAfter: user.refreshTokens.length,
+      lastTokenDevice: refreshTokenDoc.device
+    });
+    
+    // Save user
+    const savedUser = await user.save();
+    
+    logger.info('Utilisateur sauvegardé avec tokens', {
+      userId: user._id?.toString(),
+      refreshTokensInSavedUser: savedUser.refreshTokens?.length || 0,
+      saveSuccessful: !!savedUser._id
+    });
+    
+    // Final verification
+    const verificationUser = await User.findById(user._id).select('+refreshTokens');
+    
+    logger.info('Vérification finale en base de données', {
+      userId: user._id?.toString(),
+      refreshTokensInDB: verificationUser?.refreshTokens?.length || 0,
+      verificationSuccessful: (verificationUser?.refreshTokens?.length || 0) > 0
+    });
+    
+    if (!verificationUser?.refreshTokens || verificationUser.refreshTokens.length === 0) {
+      logger.error('❌ ÉCHEC CRITIQUE : Le refresh token n\'a pas été sauvegardé !');
+      throw new Error('Échec de sauvegarde du refresh token');
+    }
+    
+    logger.info('✅ Tokens générés et sauvegardés avec succès', {
+      userId: user._id?.toString(),
+      hasRefreshTokens: verificationUser.refreshTokens.length,
+      accessTokenLength: accessToken.length,
+      refreshTokenLength: refreshToken.length
+    });
+    
+    // Return AuthTokens object (matches the interface)
+    return {
+      accessToken,
+      refreshToken,
+      sessionId
+    };
+    
+  } catch (error) {
+    logger.error('Erreur lors de la génération des tokens', {
+      error: error instanceof Error ? error.message : 'Erreur inconnue',
+      userId: user._id?.toString(),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw new Error(`Erreur lors de la génération des tokens: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+  }
+}
+// async generateAuthTokens(
+//   user: IUser,
+//   options?: AuthOptions
+// ): Promise<AuthOptions> {
+//   try {
+//     // Generate access token
+//     const payload = {
+//       userId: user._id?.toString(),
 //       email: user.email,
-//       role: user.role,
-//       sessionId,
-//       deviceId: options?.deviceInfo?.deviceId
+//       role: user.role
 //     };
-
-//     // Validation du payload
-//     if (!payload.userId || !payload.email) {
-//       throw new Error('Invalid user data for token generation');
+    
+//     const accessToken = jwt.sign(
+//       payload,
+//       config.auth.jwtSecret,
+//       { expiresIn: '15m' }
+//     );
+    
+//     // Generate refresh token
+//     const refreshToken = jwt.sign(
+//       payload,
+//       config.auth.jwtRefreshSecret,
+//       {
+//         expiresIn: options?.rememberMe ? '30d' : '7d'
+//       }
+//     );
+    
+//     if (!refreshToken) {
+//       throw new Error('Impossible de générer le refresh token');
 //     }
-
-//     const accessTokenExpiry = options?.rememberMe ? '30d' : (config.auth?.jwtExpiresIn || '15m');
-//     const refreshTokenExpiry = options?.rememberMe ? '90d' : (config.auth?.jwtRefreshExpiresIn || '7d');
-
-//     const accessToken = jwt.sign(payload, jwtSecret, { expiresIn: accessTokenExpiry } as jwt.SignOptions);
-//     const refreshToken = jwt.sign(payload, jwtRefreshSecret, { expiresIn: refreshTokenExpiry } as jwt.SignOptions);
+    
+//     // Create refresh token document with proper typing
+//     const refreshTokenDoc: RefreshToken = {
+//       tokenId: crypto.randomUUID(), // ou une autre méthode pour générer l'ID
+//       token: refreshToken,
+//       hashedToken: crypto.createHash('sha256').update(refreshToken).digest('hex'),
+//       user: user._id as Types.ObjectId,  // Explicit casting
+//       device: options?.deviceInfo?.deviceId || 'Unknown',
+//       userAgent: options?.deviceInfo?.userAgent || 'Unknown',
+//       ip: options?.deviceInfo?.ip || 'Unknown',
+//       ipAddress: options?.deviceInfo?.ip || 'Unknown', // pour correspondre à RefreshToken
+//       sessionId: crypto.randomUUID(),
+//       expiresAt: new Date(Date.now() + (options?.rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000),
+//       isActive: true,
+//       lastUsedAt: new Date(),
+//       createdAt: new Date()
+//     };
+    
+//     logger.info('Tentative d\'ajout du refresh token', {
+//       userId: user._id?.toString(),
+//       refreshTokensCountBefore: user.refreshTokens?.length || 0,
+//       hasRefreshToken: !!refreshToken,
+//       refreshTokenLength: refreshToken?.length || 0
+//     });
+    
+//     // Initialize array if it doesn't exist
+//     if (!user.refreshTokens) {
+//       user.refreshTokens = [];
+//     }
+    
+//     // Add refresh token to user array
+//     user.refreshTokens.push(refreshTokenDoc);
+    
+//     logger.info('Refresh token ajouté au tableau utilisateur', {
+//       userId: user._id?.toString(),
+//       refreshTokensCountAfter: user.refreshTokens.length,
+//       lastTokenDevice: refreshTokenDoc.device
+//     });
+    
+//     // Save user
+//     const savedUser = await user.save();
+    
+//     logger.info('Utilisateur sauvegardé avec tokens', {
+//       userId: user._id?.toString(),
+//       refreshTokensInSavedUser: savedUser.refreshTokens?.length || 0,
+//       saveSuccessful: !!savedUser._id
+//     });
+    
+//     // Final verification
+//     const verificationUser = await User.findById(user._id).select('+refreshTokens');
+   
+//     logger.info('Vérification finale en base de données', {
+//       userId: user._id?.toString(),
+//       refreshTokensInDB: verificationUser?.refreshTokens?.length || 0,
+//       verificationSuccessful: (verificationUser?.refreshTokens?.length || 0) > 0
+//     });
+    
+//     if (!verificationUser?.refreshTokens || verificationUser.refreshTokens.length === 0) {
+//       logger.error('❌ ÉCHEC CRITIQUE : Le refresh token n\'a pas été sauvegardé !');
+//       throw new Error('Échec de sauvegarde du refresh token');
+//     }
+    
+//     logger.info('✅ Tokens générés et sauvegardés avec succès', {
+//       userId: user._id?.toString(),
+//       hasRefreshTokens: verificationUser.refreshTokens.length,
+//       accessTokenLength: accessToken.length,
+//       refreshTokenLength: refreshToken.length
+//     });
+    
+   
 
 //     return {
 //       accessToken,
-//       refreshToken,
-//       sessionId
+//       refreshToken
 //     };
 //   } catch (error) {
-//     logger.error('Error generating auth tokens', { 
-//       error: error instanceof Error ? error.message : 'Unknown error',
-//       userId: this.getUserId(user)
+//     logger.error('Erreur lors de la génération des tokens', {
+//       error: error instanceof Error ? error.message : 'Erreur inconnue',
+//       userId: user._id?.toString(),
+//       stack: error instanceof Error ? error.stack : undefined
 //     });
-//     throw new Error('Failed to generate authentication tokens');
+//     throw new Error(`Erreur lors de la génération des tokens: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
 //   }
-
 // }
 
+//   async generateAuthTokens(
+//   user: IUser,
+//   options?: AuthOptions
+// ): Promise<AuthTokens> {
+//   try {
+//     // Générer l'access token
+//     const payload = {
+//       userId: user._id?.toString(),
+//       email: user.email,
+//       role: user.role
+//     };
+
+//     const accessToken = jwt.sign(
+//       payload,
+//       config.auth.jwtSecret,
+//       { expiresIn: '15m' }
+//     );
+
+//     // ⚠️ CORRECTION : Générer TOUJOURS le refresh token, pas seulement si rememberMe
+//     const refreshToken = jwt.sign(
+//       payload,
+//       config.auth.jwtRefreshSecret,
+//       { 
+//         expiresIn: options?.rememberMe ? '30d' : '7d' // Plus long si "Se souvenir de moi"
+//       }
+//     );
+
+//     // ⚠️ VÉRIFICATION : S'assurer que le refresh token existe
+//     if (!refreshToken) {
+//       throw new Error('Impossible de générer le refresh token');
+//     }
+
+//     // ⚠️ PARTIE CRUCIALE : Créer le document refresh token
+//     const refreshTokenDoc: Partial<IRefreshToken> = {
+//       token: refreshToken,
+//       hashedToken: crypto.createHash('sha256').update(refreshToken).digest('hex'),
+//       user: user._id,
+//       device: options?.deviceInfo?.deviceId || 'Unknown',
+//       userAgent: options?.deviceInfo?.userAgent || 'Unknown',
+//       ip: options?.deviceInfo?.ip || 'Unknown',
+//       sessionId: crypto.randomUUID(),
+//       expiresAt: new Date(Date.now() + (options?.rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000),
+//       isActive: true,
+//       lastUsedAt: new Date(),
+//       createdAt: new Date()
+//     };
+
+//     logger.info('Tentative d\'ajout du refresh token', {
+//       userId: user._id?.toString(),
+//       refreshTokensCountBefore: user.refreshTokens?.length || 0,
+//       hasRefreshToken: !!refreshToken,
+//       refreshTokenLength: refreshToken?.length || 0
+//     });
+
+//     // ⚠️ INITIALISER LE TABLEAU S'IL N'EXISTE PAS
+//     if (!user.refreshTokens) {
+//       user.refreshTokens = [];
+//     }
+
+//     // Ajouter le refresh token au tableau de l'utilisateur
+//     user.refreshTokens.push(refreshTokenDoc as IRefreshToken);
+
+//     logger.info('Refresh token ajouté au tableau utilisateur', {
+//       userId: user._id?.toString(),
+//       refreshTokensCountAfter: user.refreshTokens.length,
+//       lastTokenDevice: refreshTokenDoc.device
+//     });
+
+//     // ⚠️ SAUVEGARDER L'UTILISATEUR - C'EST CRUCIAL !
+//     const savedUser = await user.save();
+
+//     logger.info('Utilisateur sauvegardé avec tokens', {
+//       userId: user._id?.toString(),
+//       refreshTokensInSavedUser: savedUser.refreshTokens?.length || 0,
+//       saveSuccessful: !!savedUser._id
+//     });
+
+//     // ⚠️ VÉRIFICATION FINALE : Relire depuis la base
+//     const verificationUser = await User.findById(user._id).select('+refreshTokens');
+    
+//     logger.info('Vérification finale en base de données', {
+//       userId: user._id?.toString(),
+//       refreshTokensInDB: verificationUser?.refreshTokens?.length || 0,
+//       verificationSuccessful: (verificationUser?.refreshTokens?.length || 0) > 0
+//     });
+
+//     if (!verificationUser?.refreshTokens || verificationUser.refreshTokens.length === 0) {
+//       logger.error('❌ ÉCHEC CRITIQUE : Le refresh token n\'a pas été sauvegardé !');
+//       throw new Error('Échec de sauvegarde du refresh token');
+//     }
+
+//     logger.info('✅ Tokens générés et sauvegardés avec succès', {
+//       userId: user._id?.toString(),
+//       hasRefreshTokens: verificationUser.refreshTokens.length,
+//       accessTokenLength: accessToken.length,
+//       refreshTokenLength: refreshToken.length
+//     });
+
+//     return {
+//       accessToken,
+//       refreshToken
+//     };
+
+//   } catch (error) {
+//     logger.error('Erreur lors de la génération des tokens', {
+//       error: error instanceof Error ? error.message : 'Erreur inconnue',
+//       userId: user._id?.toString(),
+//       stack: error instanceof Error ? error.stack : undefined
+//     });
+//     throw new Error(`Erreur lors de la génération des tokens: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+//   }
+// }
+
+// async generateAuthTokens(
+//   user: IUser, 
+//   options?: AuthOptions
+// ): Promise<AuthTokens> {
+//   try {
+//     // Générer l'access token
+    
+//       const payload = {
+//       userId: user._id?.toString(),
+//       email: user.email,
+//       role: user.role
+//     };
+
+//     const accessToken = jwt.sign(
+//       payload,
+//       config.auth.jwtSecret,
+//       { expiresIn: '15m' }
+//     );
+
+//     let refreshToken: string | undefined;
+
+//     if (options?.rememberMe) {
+//       refreshToken = jwt.sign(
+//         payload,
+//         config.auth.jwtRefreshSecret,
+//         { expiresIn: '7d' }
+//       );
+//     }
+
+//     // ⚠️ PARTIE CRUCIALE : Sauvegarder le refresh token en base
+//     const refreshTokenDoc:IRefreshToken = {
+//       token: refreshToken,
+//       hashedToken: crypto.createHash('sha256').update(refreshToken).digest('hex'),
+//       user: user._id,
+//       device: options?.deviceInfo?.device || 'Unknown',
+//       userAgent: options?.deviceInfo?.userAgent,
+//       ip: options?.deviceInfo?.ip,
+//       sessionId: crypto.randomUUID(),
+//       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 jours
+//       isActive: true,
+//       lastUsedAt: new Date()
+//     };
+
+//     // Ajouter le refresh token au tableau de l'utilisateur
+//     user.refreshTokens.push(refreshTokenDoc);
+    
+//     // ⚠️ SAUVEGARDER L'UTILISATEUR - C'EST CRUCIAL !
+//     await user.save();
+
+//     logger.info('Tokens générés et sauvegardés avec succès', {
+//       userId: user._id?.toString(),
+//       hasRefreshTokens: user.refreshTokens.length
+//     });
+
+//     return {
+//       accessToken,
+//       refreshToken
+//     };
+
+//   } catch (error) {
+//     logger.error('Erreur lors de la génération des tokens', {
+//       error: error instanceof Error ? error.message : 'Erreur inconnue',
+//       userId: user._id?.toString()
+//     });
+//     throw new Error('Erreur lors de la génération des tokens');
+//   }
+// }
   /**
    * Génère des codes de secours pour la 2FA
    */

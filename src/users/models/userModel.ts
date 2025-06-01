@@ -105,10 +105,10 @@ const UserSchema = new Schema<IUser>(
       default: false,
       index: true
     },
-    emailVerified: {
-      type: Boolean,
-      default: false
-    },
+    // emailVerified: {
+    //   type: Boolean,
+    //   default: false
+    // },
     verificationToken: String,
     emailVerificationToken: String,
     emailVerificationTokenExpires: Date,
@@ -132,17 +132,17 @@ const UserSchema = new Schema<IUser>(
         message: 'Numéro de téléphone invalide'
       }
     },
-    phone: String, // Alias pour phoneNumber
-    address: AddressSchema,
-    dateOfBirth: {
-      type: Date,
-      validate: {
-        validator: function(date: Date) {
-          return !date || date < new Date();
-        },
-        message: 'La date de naissance ne peut pas être dans le futur'
-      }
-    },
+    // phone: String, // Alias pour phoneNumber
+    // address: AddressSchema,
+    // dateOfBirth: {
+    //   type: Date,
+    //   validate: {
+    //     validator: function(date: Date) {
+    //       return !date || date < new Date();
+    //     },
+    //     message: 'La date de naissance ne peut pas être dans le futur'
+    //   }
+    // },
     
     // Profil
     profilePicture: {
@@ -155,11 +155,11 @@ const UserSchema = new Schema<IUser>(
         message: 'URL de photo de profil invalide'
       }
     },
-    avatarUrl: String, // Alias pour profilePicture
+    // avatarUrl: String, // Alias pour profilePicture
     
     // Activité et présence
     lastLogin: Date,
-    lastLoginAt: Date, // Alias pour lastLogin
+    // lastLoginAt: Date, // Alias pour lastLogin
     lastActive: {
       type: Date,
       default: Date.now,
@@ -238,18 +238,17 @@ const UserSchema = new Schema<IUser>(
     }
   }
 );
-
-
-
+ 
 // Index pour améliorer les performances des requêtes
 // UserSchema.index({ email: 1 });
 // UserSchema.index({ username: 1 });
-UserSchema.index({ email: 1, isActive: 1 });
-UserSchema.index({ username: 1, isActive: 1 });
-UserSchema.index({ role: 1, isActive: 1 });
-UserSchema.index({ isEmailVerified: 1, isActive: 1 });
-UserSchema.index({ createdAt: -1 });
-UserSchema.index({ lastActive: -1 });
+
+// UserSchema.index({ email: 1, isActive: 1 });
+// UserSchema.index({ username: 1, isActive: 1 });
+// UserSchema.index({ role: 1, isActive: 1 });
+// UserSchema.index({ isEmailVerified: 1, isActive: 1 });
+// UserSchema.index({ createdAt: -1 });
+// UserSchema.index({ lastActive: -1 });
 
 // Index de recherche textuelle
 UserSchema.index({
@@ -283,89 +282,135 @@ UserSchema.virtual('fullName').get(function() {
   return `${this.firstName} ${this.lastName}`.trim();
 });
 
-UserSchema.virtual('id').get(function() {
-  return this.id.toHexString();
-});
+// UserSchema.virtual('id').get(function() {
+//   return this.id.toHexString();
+// });
+
+// // Méthode pour obtenir le nom complet
+// UserSchema.methods.getFullName = function(): string {
+//   return `${this.firstName} ${this.lastName}`;
+// };
+
 
 // Alias virtuels pour la compatibilité
-UserSchema.virtual('phone').get(function() {
-  return this.phoneNumber;
-});
+// UserSchema.virtual('phone').get(function() {
+//   return this.phoneNumber;
+// });
 
-UserSchema.virtual('avatarUrl').get(function() {
-  return this.profilePicture;
-});
+// UserSchema.virtual('avatarUrl').get(function() {
+//   return this.profilePicture;
+// });
 
-UserSchema.virtual('lastLoginAt').get(function() {
-  return this.lastLogin;
-});
+// UserSchema.virtual('lastLoginAt').get(function() {
+//   return this.lastLogin;
+// });
 
-UserSchema.virtual('emailVerified').get(function() {
-  return this.isEmailVerified;
-});
+// UserSchema.virtual('emailVerified').get(function() {
+//   return this.isEmailVerified;
+// });
 
 
-//////////
+UserSchema.index({firstName:1})
 
-UserSchema.index({firstname:1})
-
-UserSchema.index({
-  firstName: 'text',
-  lastName: 'text',
-  email: 'text',
-  phoneNumber: 'text',
-  'address.city': 'text',
-  'address.country': 'text'
-});
-
-// Création d'un champ virtuel pour le nom complet
-UserSchema.virtual('fullName').get(function() {
-  return `${this.firstName} ${this.lastName}`;
-});
-
-// Méthode pour obtenir le nom complet
-UserSchema.methods.getFullName = function(): string {
-  return `${this.firstName} ${this.lastName}`;
-};
+// UserSchema.index({
+//   firstName: 'text',
+//   lastName: 'text',
+//   email: 'text',
+//   phoneNumber: 'text',
+//   'address.city': 'text',
+//   'address.country': 'text'
+// });
 
 
 // Ajouter les middlewares
 // UserSchema.pre('save', hashPasswordMiddleware);
 
-
-UserSchema.pre('save', async function(next) {
+// Dans votre model, modifiez le pre middleware :
+UserSchema.pre('save', async function (next) {
   try {
-    // Hash du mot de passe si modifié
+    // Vérifier si le password doit être hashé
     if (this.isModified('password')) {
-      logger.info('Hashage du mot de passe pour l\'utilisateur', { 
-        userId: this._id?.toString(),
-        email: this.email 
-      });
+      if (typeof this.password !== 'string') {
+        throw new Error("Le mot de passe n'est pas une chaîne valide.");
+      }
+
+      // ✅ AJOUT: Vérifier si le password est déjà hashé
+      const isAlreadyHashed = this.password.startsWith('$2b$') || this.password.startsWith('$2a$');
       
-      this.password = await PasswordUtils.hashPassword(this.password);
-      this.passwordChangedAt = new Date();
+      if (!isAlreadyHashed) {
+        logger.info('Hashage du mot de passe pour l\'utilisateur', {
+          userId: this._id?.toString(),
+          email: this.email
+        });
+
+        this.password = await PasswordUtils.hashPassword(this.password);
+        this.passwordChangedAt = new Date();
+      } else {
+        logger.info('Mot de passe déjà hashé, pas de re-hashage', {
+          userId: this._id?.toString(),
+          email: this.email
+        });
+        // Juste mettre à jour la date de changement si nécessaire
+        if (this.isNew) {
+          this.passwordChangedAt = new Date();
+        }
+      }
     }
-    
-    // Mise à jour de lastActive si l'utilisateur devient online
+
     if (this.isModified('presenceStatus') && this.presenceStatus === 'online') {
       this.lastActive = new Date();
     }
-    
-    // Validation des détails d'agent
+
     if (this.role === UserRole.AGENT && !this.agentDetails) {
       throw new Error('Les détails d\'agent sont obligatoires pour le rôle AGENT');
     }
-    
-    // Nettoyage des détails d'agent si pas agent
+
     if (this.role !== UserRole.AGENT && this.agentDetails) {
       this.agentDetails = undefined;
     }
-    
+
     next();
   } catch (error) {
-    next(error instanceof Error ? error : new Error('Erreur lors de la sauvegarde'));
+    logger.error('Erreur dans le pre-save du modèle utilisateur', { error });
+    next(error instanceof Error ? error : new Error('Erreur lors de la sauvegarde de l\'utilisateur.'));
   }
 });
+// UserSchema.pre('save', async function (next) {
+//   try {
+//     if (this.isModified('password')) {
+//       if (typeof this.password !== 'string') {
+//         throw new Error("Le mot de passe n'est pas une chaîne valide.");
+//       }
+
+//       logger.info('Hashage du mot de passe pour l\'utilisateur', {
+//         userId: this._id?.toString(),
+//         email: this.email
+//       });
+
+//       this.password = await PasswordUtils.hashPassword(this.password);
+//       this.passwordChangedAt = new Date();
+//     }
+
+//     if (this.isModified('presenceStatus') && this.presenceStatus === 'online') {
+//       this.lastActive = new Date();
+//     }
+
+//     if (this.role === UserRole.AGENT && !this.agentDetails) {
+//       throw new Error('Les détails d\'agent sont obligatoires pour le rôle AGENT');
+//     }
+
+//     if (this.role !== UserRole.AGENT && this.agentDetails) {
+//       this.agentDetails = undefined;
+//     }
+
+//     next();
+//   } catch (error) {
+//     logger.error('Erreur dans le pre-save du modèle utilisateur', { error });
+//     next(error instanceof Error ? error : new Error('Erreur lors de la sauvegarde de l\'utilisateur.'));
+//   }
+// });
+
+
 
 // Middleware pour la suppression logique
 UserSchema.pre('save', function(next) {
@@ -376,9 +421,6 @@ UserSchema.pre('save', function(next) {
   next();
 });
 
-// UserSchema.methods.getFullName = function(): string {
-//   return `${this.firstName} ${this.lastName}`.trim();
-// };
 
 UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
   try {
@@ -415,98 +457,6 @@ UserSchema.methods.updatePresenceStatus = function(status: 'online' | 'away' | '
   }
 };
 
-// UserSchema.methods.addNotification = function(notification: {
-//   title: string;
-//   message: string;
-//   type?: string;
-//   link?: string;
-//   metadata?: any;
-// }): void {
-//   this.notifications = this.notifications || [];
-//   this.notifications.push({
-//     ...notification,
-//     read: false,
-//     createdAt: new Date()
-//   });
-// };
-
-// UserSchema.methods.markNotificationAsRead = function(notificationId: string): boolean {
-//   const notification = this.notifications?.find((n:UserNotification) => n.id === notificationId);
-//   if (notification && !notification.read) {
-//     notification.read = true;
-//     notification.readAt = new Date();
-//     return true;
-//   }
-//   return false;
-// };
-
-// UserSchema.methods.softDelete = function(deletedBy?: string): void {
-//   this.isDeleted = true;
-//   this.deletedAt = new Date();
-//   this.isActive = false;
-//   if (deletedBy) {
-//     this.deletedBy = deletedBy;
-//   }
-// };
-
-// UserSchema.methods.restore = function(): void {
-//   this.isDeleted = false;
-//   this.deletedAt = undefined;
-//   this.deletedBy = undefined;
-//   this.isActive = true;
-// };
-
-
-
-// UserSchema.statics.findActive = function() {
-//   return this.find({ isActive: true, isDeleted: { $ne: true } });
-// };
-
-// UserSchema.statics.findByEmail = function(email: string) {
-//   return this.findOne({ 
-//     email: email.toLowerCase(), 
-//     isDeleted: { $ne: true } 
-//   });
-// };
-
-// UserSchema.statics.findByUsername = function(username: string) {
-//   return this.findOne({ 
-//     username: username.toLowerCase(), 
-//     isDeleted: { $ne: true } 
-//   });
-// };
-
-// UserSchema.statics.searchUsers = function(query: string, options: any = {}) {
-//   const {
-//     page = 1,
-//     limit = 10,
-//     role,
-//     isActive = true
-//   } = options;
-
-//   const filter: any = {
-//     isDeleted: { $ne: true }
-//   };
-
-//   if (query) {
-//     filter.$text = { $search: query };
-//   }
-
-//   if (role) {
-//     filter.role = role;
-//   }
-
-//   if (typeof isActive === 'boolean') {
-//     filter.isActive = isActive;
-//   }
-
-//   return this.find(filter)
-//     .sort(query ? { score: { $meta: 'textScore' } } : { createdAt: -1 })
-//     .skip((page - 1) * limit)
-//     .limit(limit)
-//     .select('-password -refreshTokens -security.twoFactorSecret');
-// };
-
 
 UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
   try {
@@ -536,16 +486,6 @@ UserSchema.methods.comparePassword = async function(candidatePassword: string): 
     return false;
   }
 };
-
-//methodes
-// UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
-//   // 'this' refers to the Mongoose document
-//   // this.password will be accessible here because .select('+password') was used in the query
-//   // and Mongoose *does* provide it to schema methods when explicitly selected.
-
-//   // Log to confirm if this.password is present here
-//   logger.info('[UserSchema.methods.comparePassword] this.password directly:', this.password ? 'present' : 'not present');
-//   logger.info('[UserSchema.methods.comparePassword] this.password length directly:', this.password ? this.password.length : 'N/A');
 
 
 //   return comparePasswordHelper(candidatePassword, this.password);

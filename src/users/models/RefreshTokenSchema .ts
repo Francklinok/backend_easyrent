@@ -1,10 +1,16 @@
-import { Schema, model, CallbackError } from "mongoose";
+import { Schema, CallbackError } from "mongoose";
 import { IRefreshTokenDocument } from '../types/userTypes';
 import { createLogger } from '../../utils/logger/logger';
-
+import { validateIP } from "../utils/ipValidation";
 const logger = createLogger('RefreshTokenModel');
 
 const RefreshTokenSchema = new Schema<IRefreshTokenDocument>({
+    tokenId: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  
   token: { 
     type: String, 
     required: true, 
@@ -25,16 +31,23 @@ const RefreshTokenSchema = new Schema<IRefreshTokenDocument>({
     type: String,
     maxlength: 500 // Info complète du navigateur/app
   },
-  ip: { 
+   ip: {
     type: String,
+    required: true,
     validate: {
-      validator: function(v: any) {
-        // Validation basique IPv4/IPv6
-        return !v || /^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/.test(v);
-      },
+      validator: validateIP,
       message: 'Format IP invalide'
     }
   },
+  ipAddress: {
+    type: String,
+    required: true,
+    validate: {
+      validator: validateIP,
+      message: 'Format IP invalide'
+    }
+  },
+
   location: {
     country: String,
     city: String,
@@ -90,10 +103,10 @@ const RefreshTokenSchema = new Schema<IRefreshTokenDocument>({
 });
 
 // Index composés pour optimiser les requêtes fréquentes
-RefreshTokenSchema.index({ user: 1, isActive: 1 });
-RefreshTokenSchema.index({ user: 1, createdAt: -1 });
-RefreshTokenSchema.index({ sessionId: 1, isActive: 1 });
-RefreshTokenSchema.index({ expiresAt: 1, isActive: 1 });
+// RefreshTokenSchema.index({ user: 1, isActive: 1 });
+// RefreshTokenSchema.index({ user: 1, createdAt: -1 });
+// RefreshTokenSchema.index({ sessionId: 1, isActive: 1 });
+// RefreshTokenSchema.index({ expiresAt: 1, isActive: 1 });
 
 // ================================
 // MIDDLEWARE
@@ -176,7 +189,7 @@ RefreshTokenSchema.methods.revoke = async function(): Promise<IRefreshTokenDocum
     logger.info('Token de rafraîchissement révoqué', {
       tokenId: this._id?.toString(),
       userId: this.user?.toString(),
-      sessionId: this.sessionId
+       sessionId: this.sessionId
     });
     
     return await this.save();
@@ -315,3 +328,4 @@ RefreshTokenSchema.statics.getTokenStats = async function(userId?: string) {
 // Création du modèle
 
 export default RefreshTokenSchema;
+

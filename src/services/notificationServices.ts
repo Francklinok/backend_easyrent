@@ -550,10 +550,115 @@ export class NotificationService {
     return this.sendEmailSafely(mailOptions);
   }
 
+async sendAccountStatusNotification(
+  email: string, 
+  firstName: string, 
+  status: 'activated' | 'deactivated' | 'locked' | 'unlocked' | 'verified' | 'suspended' | 'restored',
+  comment?: string
+): Promise<boolean> {
+  let subject: string;
+  let statusColor: string;
+  let statusMessage: string;
+  
+  switch (status) {
+    case 'activated':
+      subject = 'Votre compte a été activé - EasyRent';
+      statusColor = '#28a745';
+      statusMessage = 'Votre compte EasyRent a été activé avec succès. Vous pouvez maintenant accéder à tous nos services.';
+      break;
+    case 'deactivated':
+      subject = 'Votre compte a été désactivé - EasyRent';
+      statusColor = '#ffc107';
+      statusMessage = 'Votre compte EasyRent a été temporairement désactivé.';
+      break;
+    case 'locked':
+      subject = '🔒 Votre compte a été verrouillé - EasyRent';
+      statusColor = '#dc3545';
+      statusMessage = 'Votre compte a été temporairement verrouillé pour des raisons de sécurité.';
+      break;
+    case 'unlocked':
+      subject = '🔓 Votre compte a été déverrouillé - EasyRent';
+      statusColor = '#28a745';
+      statusMessage = 'Votre compte a été déverrouillé et est maintenant accessible.';
+      break;
+    case 'verified':
+      subject = '✅ Votre compte a été vérifié - EasyRent';
+      statusColor = '#28a745';
+      statusMessage = 'Votre compte a été vérifié avec succès. Vous avez maintenant accès à toutes les fonctionnalités.';
+      break;
+    case 'suspended':
+      subject = '⚠️ Votre compte a été suspendu - EasyRent';
+      statusColor = '#dc3545';
+      statusMessage = 'Votre compte a été suspendu en raison d\'une violation de nos conditions d\'utilisation.';
+      break;
+    case 'restored':
+      subject = '✅ Votre compte a été restauré - EasyRent';
+      statusColor = '#28a745';
+      statusMessage = 'Votre compte a été restauré et est maintenant pleinement fonctionnel.';
+      break;
+    default:
+      subject = 'Mise à jour de votre compte - EasyRent';
+      statusColor = '#007bff';
+      statusMessage = 'Le statut de votre compte a été mis à jour.';
+  }
+  
+  const mailOptions = {
+    to: email,
+    subject,
+    html: this.getAccountStatusNotificationTemplate(firstName, status, statusMessage, statusColor, comment)
+  };
 
-  // ==========================================
-  // Templates d'emails (gardez vos templates existants)
-  // ==========================================
+  return this.sendEmailSafely(mailOptions);
+}
+
+private getAccountStatusNotificationTemplate(
+  firstName: string, 
+  status: string, 
+  statusMessage: string, 
+  statusColor: string, 
+  comment?: string
+): string {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid ${statusColor};">
+        <h1 style="color: ${statusColor};">Bonjour ${firstName},</h1>
+        
+        <p style="font-size: 16px; margin-bottom: 20px;">
+          ${statusMessage}
+        </p>
+        
+        ${comment ? `
+          <div style="background-color: #e9ecef; border: 1px solid #dee2e6; padding: 15px; border-radius: 4px; margin: 20px 0;">
+            <p style="margin: 0; color: #495057;">
+              <strong>Information complémentaire :</strong> ${comment}
+            </p>
+          </div>
+        ` : ''}
+        
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${config.app.frontendUrl}/dashboard" 
+             style="background-color: ${statusColor}; color: white; padding: 15px 30px; text-decoration: none; 
+                    border-radius: 5px; display: inline-block; font-weight: bold; margin: 5px;">
+            Accéder à mon compte
+          </a>
+          <a href="${config.app.frontendUrl}/contact-support" 
+             style="background-color: #6c757d; color: white; padding: 12px 24px; text-decoration: none; 
+                    border-radius: 4px; display: inline-block; margin: 5px;">
+            Contacter le support
+          </a>
+        </div>
+        
+        <p style="font-size: 14px; color: #666; margin-top: 20px;">
+          Si vous avez des questions concernant cette notification, n'hésitez pas à contacter notre équipe de support.
+        </p>
+        
+        <p style="font-weight: bold; margin-top: 20px;">
+          L'équipe EasyRent
+        </p>
+      </div>
+    </div>
+  `;
+}
 
   private getVerificationEmailTemplate(firstName: string, verificationUrl: string): string {
     return `

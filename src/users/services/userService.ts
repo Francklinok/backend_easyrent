@@ -31,53 +31,18 @@ export class UserService {
    * Crée un nouvel utilisateur
    * 
    */
-  async createUser(userData: Partial<IUser>, sendVerificationEmail: boolean = false): Promise<IUser> {
+
+  // Dans votre UserService, créez deux méthodes distinctes :
+
+async createUser(userData: Partial<IUser>, sendVerificationEmail: boolean = false): Promise<IUser> {
   try {
     logger.info('Creating new user', { 
       email: userData.email?.substring(0, 5) + '***',
       sendVerificationEmail 
     });
 
-    // Hasher le mot de passe
-    if (userData.password) {
-      userData.password = await bcrypt.hash(userData.password, 12);
-    }
-
-    // ✅ CORRECTION : Ne générer le token que si nécessaire
-    if (sendVerificationEmail) {
-      userData.emailVerificationToken = crypto.randomBytes(32).toString('hex');
-      userData.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    }
-
-    // Créer l'utilisateur
-    const user = await User.create(userData);
-
-    // ✅ CORRECTION : N'envoyer l'email que si demandé ET si le token existe
-    if (sendVerificationEmail && userData.emailVerificationToken && user.email && user.firstName) {
-      try {
-        await this.notificationService.sendVerificationEmail(
-          user.email,
-          user.firstName,
-          userData.emailVerificationToken
-        );
-        logger.info('Email de vérification envoyé depuis createUser', {
-          userId: user.id.toString(),
-          email: user.email.substring(0, 5) + '***'
-        });
-      } catch (emailError) {
-        logger.warn('Erreur lors de l\'envoi de l\'email depuis createUser', {
-          error: emailError instanceof Error ? emailError.message : 'Erreur inconnue',
-          userId: user.id.toString()
-        });
-      }
-    }
-
-    logger.info('User created successfully', { 
-      userId: user.id.toString(),
-      emailSentFromCreate: sendVerificationEmail 
-    });
-    
-    return user;
+    // Pour la création, on laisse le middleware s'occuper du hashage
+    return await this.createUserWithRawPassword(userData, sendVerificationEmail);
   } catch (error) {
     logger.error('Error creating user', { 
       error: error instanceof Error ? error.message : 'Erreur inconnue',
@@ -86,6 +51,153 @@ export class UserService {
     throw error;
   }
 }
+
+async createUserWithHashedPassword(userData: Partial<IUser>, sendVerificationEmail: boolean = false): Promise<IUser> {
+  try {
+    // Si le password est déjà hashé, on l'indique
+    const userDataWithFlag = {
+      ...userData,
+      _passwordAlreadyHashed: true
+    };
+
+    return await this.createUserInternal(userDataWithFlag, sendVerificationEmail);
+  } catch (error) {
+    logger.error('Error creating user with hashed password', { error });
+    throw error;
+  }
+}
+
+private async createUserWithRawPassword(userData: Partial<IUser>, sendVerificationEmail: boolean = false): Promise<IUser> {
+  // Le password sera hashé par le middleware
+  return await this.createUserInternal(userData, sendVerificationEmail);
+}
+
+private async createUserInternal(userData: any, sendVerificationEmail: boolean): Promise<IUser> {
+  // Générer le token de vérification si nécessaire
+  if (sendVerificationEmail) {
+    userData.emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    userData.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  }
+
+  // Créer l'utilisateur
+  const user = await User.create(userData);
+
+  // Envoyer l'email de vérification si demandé
+  if (sendVerificationEmail && userData.emailVerificationToken && user.email && user.firstName) {
+    try {
+      await this.notificationService.sendVerificationEmail(
+        user.email,
+        user.firstName,
+        userData.emailVerificationToken
+      );
+      logger.info('Email de vérification envoyé', {
+        userId: user.id.toString(),
+        email: user.email.substring(0, 5) + '***'
+      });
+    } catch (emailError) {
+      logger.warn('Erreur lors de l\'envoi de l\'email', {
+        error: emailError instanceof Error ? emailError.message : 'Erreur inconnue',
+        userId: user.id.toString()
+      });
+    }
+  }
+
+  logger.info('User created successfully', { 
+    userId: user.id.toString(),
+    emailSentFromCreate: sendVerificationEmail 
+  });
+  
+  return user;
+}
+// Dans votre UserService, ajoutez cette méthode :
+
+async getUserByEmailWithRefreshTokens(email: string): Promise<IUser | null> {
+  try {
+    const user = await User.findOne({ 
+      email: email.toLowerCase(),
+      isActive: true,
+      isDeleted: false 
+    })
+    .populate('refreshTokens') // Peupler les refresh tokens
+    .exec();
+
+    if (!user) {
+      logger.warn('Utilisateur non trouvé avec refresh tokens', { 
+        email: email.substring(0, 5) + '***' 
+      });
+      return null;
+    }
+
+    logger.info('Utilisateur récupéré avec refresh tokens', {
+      userId: user._id?.toString(),
+      refreshTokensCount: user.refreshTokens?.length || 0
+    });
+
+    return user;
+  } catch (error) {
+    logger.error('Erreur lors de la récupération utilisateur avec refresh tokens', {
+      error: error instanceof Error ? error.message : 'Erreur inconnue',
+      email: email.substring(0, 5) + '***'
+    });
+    throw error;
+  }
+}
+
+//   async createUser(userData: Partial<IUser>, sendVerificationEmail: boolean = false): Promise<IUser> {
+//   try {
+//     logger.info('Creating new user', { 
+//       email: userData.email?.substring(0, 5) + '***',
+//       sendVerificationEmail 
+//     });
+
+//     // Hasher le mot de passe
+//     if (userData.password) {
+//       userData.password = await bcrypt.hash(userData.password, 12);
+//     }
+
+//     // ✅ CORRECTION : Ne générer le token que si nécessaire
+//     if (sendVerificationEmail) {
+//       userData.emailVerificationToken = crypto.randomBytes(32).toString('hex');
+//       userData.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+//     }
+
+//     // Créer l'utilisateur
+//     const user = await User.create(userData);
+
+//     // ✅ CORRECTION : N'envoyer l'email que si demandé ET si le token existe
+//     if (sendVerificationEmail && userData.emailVerificationToken && user.email && user.firstName) {
+//       try {
+//         await this.notificationService.sendVerificationEmail(
+//           user.email,
+//           user.firstName,
+//           userData.emailVerificationToken
+//         );
+//         logger.info('Email de vérification envoyé depuis createUser', {
+//           userId: user.id.toString(),
+//           email: user.email.substring(0, 5) + '***'
+//         });
+//       } catch (emailError) {
+//         logger.warn('Erreur lors de l\'envoi de l\'email depuis createUser', {
+//           error: emailError instanceof Error ? emailError.message : 'Erreur inconnue',
+//           userId: user.id.toString()
+//         });
+//       }
+//     }
+
+//     logger.info('User created successfully', { 
+//       userId: user.id.toString(),
+//       emailSentFromCreate: sendVerificationEmail 
+//     });
+    
+//     return user;
+//   } catch (error) {
+//     logger.error('Error creating user', { 
+//       error: error instanceof Error ? error.message : 'Erreur inconnue',
+//       email: userData.email?.substring(0, 5) + '***'
+//     });
+//     throw error;
+//   }
+// }
 
   /**
    * Retrouve un utilisateur par son ID
@@ -889,13 +1001,6 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
       throw error;
     }
   }
-//   async storeTempTwoFactorSecret(userId: string, secret: string): Promise<void> {
-//   // Stocker le secret temporaire dans votre base de données
-//   await this.userRepository.update(userId, { 
-//     tempTwoFactorSecret: secret,
-//     tempSecretExpires: new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
-//   });
-// }
 
   /**
    * Alias pour enableTwoFactorAuth pour compatibilité
@@ -987,7 +1092,7 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
         id: session.tokenId,
         device: session.device || 'Unknown device',
         ipAddress: session.ipAddress || 'Unknown IP',
-        lastActive: session.lastUsed || session.createdAt,
+        lastActive: session.lastUsedAt || session.createdAt,
         createdAt: session.createdAt
       }));
     } catch (error) {
@@ -1623,7 +1728,7 @@ async exportUserData(userId: string): Promise<any> {
         device: session.device,
         ipAddress: session.ipAddress,
         createdAt: session.createdAt,
-        lastUsed: session.lastUsed
+        lastUsed: session.lastUsedAt
       }))
     };
     
@@ -1789,8 +1894,6 @@ async softDeleteUser(userId: string, reason?: string, deletedBy?: string): Promi
       email: `deleted_${userId}_${Date.now()}@deleted.local`
     };
 
-    // Assuming you have a User model/collection
-    // Adjust this based on your database implementation
     await this.updateUser(userId, updateData);
 
     // Revoke all active sessions

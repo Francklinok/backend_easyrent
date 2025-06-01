@@ -161,13 +161,30 @@ export interface SecurityDetails {
 // REFRESH TOKEN INTERFACES
 // ================================
 
+// export interface RefreshToken {
+//   tokenId: string;
+//   expiresAt: Date;
+//   lastUsed?: Date;
+//   device?: string;
+//   ipAddress?: string;
+//   createdAt: Date;
+// }
 export interface RefreshToken {
-  tokenId: string;
-  expiresAt: Date;
-  lastUsed?: Date;
+  tokenId:string,
+  token: string;
+  hashedToken: string;
   device?: string;
-  ipAddress?: string;
+  userAgent?: string;
+  ip?: string;
+  location?: ILocation;
+  user: Types.ObjectId;
+  isActive: boolean;
+  lastUsedAt: Date;
   createdAt: Date;
+  expiresAt: Date;
+  revokedAt?: Date;
+  sessionId?: string;
+  ipAddress:string,
 }
 
 export interface IRefreshToken {
@@ -198,7 +215,7 @@ export interface IRefreshTokenStatics {
   cleanupExpired(): Promise<any>;
 }
 
-export interface IRefreshTokenDocument extends IRefreshToken, IRefreshTokenMethods, Document {
+export interface IRefreshTokenDocument extends RefreshToken, IRefreshTokenMethods, Document {
   _id: Types.ObjectId;
 }
 
@@ -332,6 +349,8 @@ export interface AuthOptions {
     deviceName: string;
     platform: string;
     version: string;
+    userAgent?: string;  
+    ip?: string; 
   };
 }
 
@@ -556,3 +575,35 @@ export interface DeleteUserResult {
   deletedAt: Date;
   message?: string;
 }
+
+
+// Type for audit event data
+export interface AuditEventData {
+  eventType: string;
+  userId: string;
+  performedBy?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  details?: any;
+}
+
+// Extended interface for user updates that includes deactivation fields
+export interface ExtendedUpdateUserDto {
+  firstName?: string;
+  lastName?: string;
+  phoneNumber?: string;
+  address?: any;
+  dateOfBirth?: Date;
+  secret?: string;
+  tempTwoFactorSecret?: string;
+  profilePicture?: string;
+  preferences?: any;
+  agentDetails?: any;
+  // Additional fields for deactivation
+  isActive?: boolean;
+  deactivationReason?: string;
+  deactivatedAt?: Date;
+  deactivatedBy?: string;
+}
+
+

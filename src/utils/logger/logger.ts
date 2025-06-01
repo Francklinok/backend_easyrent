@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import { Request } from 'express';
-
+import config from '../../../config';
 // Définition des niveaux de log personnalisés
 const levels = {
   error: 0,
@@ -22,41 +22,53 @@ const colors = {
   debug: 'blue',
 };
 
-// Ajout des couleurs dans winston
 winston.addColors(colors);
 
 // Détermine le niveau de log selon l'environnement
 const level = () => {
-  const env = process.env.NODE_ENV || 'development';
+  const  env = config.app.env
   return env === 'development' ? 'debug' : 'info';
 };
 
-// Format pour les logs
-const format = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
-  winston.format.printf(
-    (info) => `${info.timestamp} ${info.level}: ${info.message}`
-  ),
-  winston.format.errors({ stack: true })
-);
+// Création d'un formateur personnalisé pour afficher les meta-données
+const customPrintf = winston.format.printf((info) => {
+  const { timestamp, level, message, ...meta } = info;
+  const metaString = Object.keys(meta).length ? `\n${JSON.stringify(meta, null, 2)}` : '';
+  return `${timestamp} ${level}: ${message}${metaString}`;
+});
 
-// Format colorisé pour la console
+// Création d'un formateur pour la console avec couleurs
 const consoleFormat = winston.format.combine(
   winston.format.colorize({ all: true }),
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
-  winston.format.printf(
-    (info) => `${info.timestamp} ${info.level}: ${info.message}`
-  ),
-  winston.format.errors({ stack: true })
+  winston.format.errors({ stack: true }),
+  customPrintf
 );
 
-// Assurez-vous que le répertoire de logs existe
+// Création d’un formateur générique pour les fichiers
+const fileFormat = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
+  winston.format.errors({ stack: true }),
+  customPrintf
+);
+
+// Création d'un formateur pour masquer les données sensibles
+const maskSensitiveData = winston.format((info: any) => {
+  if (typeof info.message === 'string') {
+    info.message = info.message.replace(/("password"\s*:\s*")([^"]+)(")/g, '$1********$3');
+    info.message = info.message.replace(/(Bearer\s+)[^\s]+/g, '$1********');
+    info.message = info.message.replace(/(\d{4})[- ]?(\d{4})[- ]?(\d{4})[- ]?(\d{4})/g, '****-****-****-$4');
+  }
+  return info;
+});
+
+// Assurez-vous que le dossier de logs existe
 const logDir = 'logs';
 if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir);
 }
 
-// Options pour la rotation quotidienne des fichiers de log
+// Transport fichier rotatif
 const dailyRotateFileTransport = new DailyRotateFile({
   filename: path.join(logDir, '%DATE%-app.log'),
   datePattern: 'YYYY-MM-DD',
@@ -66,51 +78,28 @@ const dailyRotateFileTransport = new DailyRotateFile({
   level: 'info',
 });
 
-// Création d'un formateur personnalisé pour masquer les données sensibles
-const maskSensitiveData = winston.format((info:any) => {
-  // Masquer les informations sensibles si présentes dans le message
-  if (typeof info.message === 'string') {
-    // Masquer les mots de passe
-    info.message = info.message.replace(/("password"\s*:\s*")([^"]+)(")/g, '$1********$3');
-    // Masquer les tokens d'authentification
-    info.message = info.message.replace(/(Bearer\s+)[^\s]+/g, '$1********');
-    // Masquer les numéros de cartes de crédit
-    info.message = info.message.replace(/(\d{4})[- ]?(\d{4})[- ]?(\d{4})[- ]?(\d{4})/g, '****-****-****-$4');
-  }
-  return info;
-});
-
-// Création du logger avec les transports appropriés
+// Création du logger
 const logger = winston.createLogger({
   level: level(),
   levels,
   format: winston.format.combine(
     maskSensitiveData(),
-    format
+    fileFormat
   ),
   transports: [
-    new winston.transports.Console({
-      format: consoleFormat
-    }),
+    new winston.transports.Console({ format: consoleFormat }),
     dailyRotateFileTransport,
-    new winston.transports.File({
-      filename: path.join(logDir, 'error.log'),
-      level: 'error'
-    })
+    new winston.transports.File({ filename: path.join(logDir, 'error.log'), level: 'error' }),
   ],
   exceptionHandlers: [
-    new winston.transports.File({
-      filename: path.join(logDir, 'exceptions.log')
-    })
+    new winston.transports.File({ filename: path.join(logDir, 'exceptions.log') })
   ],
   rejectionHandlers: [
-    new winston.transports.File({
-      filename: path.join(logDir, 'rejections.log')
-    })
+    new winston.transports.File({ filename: path.join(logDir, 'rejections.log') })
   ]
 });
 
-// Interface pour exporter un logger nommé
+// Interface pour le logger
 export interface ILogger {
   error(message: string, meta?: any): void;
   warn(message: string, meta?: any): void;
@@ -119,11 +108,7 @@ export interface ILogger {
   debug(message: string, meta?: any): void;
 }
 
-/**
- * Crée un logger pour un module spécifique
- * @param module Nom du module qui utilise le logger
- * @returns Une instance du logger configurée pour le module
- */
+// Logger par module
 export const createLogger = (module: string): ILogger => {
   return {
     error: (message: string, meta?: any) => {
@@ -144,34 +129,21 @@ export const createLogger = (module: string): ILogger => {
   };
 };
 
-/**
- * Middleware pour logger les requêtes HTTP
- * @returns Middleware Express pour logger les requêtes entrantes
- */
+// Middleware de log des requêtes HTTP
 export const requestLogger = () => {
   const httpLogger = createLogger('http');
-  
   return (req: Request, _: any, next: () => void) => {
     const { method, originalUrl, ip } = req;
     const userAgent = req.get('user-agent') || '';
-    
     httpLogger.http(`${method} ${originalUrl} - ${ip} - ${userAgent}`);
-    
-    if (next) {
-      next();
-    }
+    if (next) next();
   };
 };
 
-/**
- * Utilitaire pour logger les performances
- * @param operationName Nom de l'opération dont on mesure la performance
- * @returns Fonction pour terminer la mesure et logger le résultat
- */
+// Utilitaire pour mesurer les performances
 export const measurePerformance = (operationName: string) => {
   const perfLogger = createLogger('performance');
   const start = process.hrtime();
-  
   return () => {
     const [seconds, nanoseconds] = process.hrtime(start);
     const duration = seconds * 1000 + nanoseconds / 1000000;

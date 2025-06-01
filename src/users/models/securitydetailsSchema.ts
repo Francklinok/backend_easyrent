@@ -1,6 +1,4 @@
-import { Schema, model } from 'mongoose';
-import { createLogger } from '../../utils/logger/logger';
-
+import { Schema } from 'mongoose';
 // const logger = createLogger('UserModel');
 
 // Schéma pour les détails de sécurité

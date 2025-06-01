@@ -15,6 +15,7 @@ export class PasswordUtils {
     hashedPassword: string
   ): Promise<boolean> {
     try {
+      
         console.log('le mot de  pass en realiter  dans  la base de donner  est :',  candidatePassword)
         console.log('voicie  le mot de  passse  hasher  :',hashedPassword)
       // Validation des entrées
@@ -28,7 +29,7 @@ export class PasswordUtils {
         logger.warn('Hash de mot de passe invalide ou manquant');
         return false;
       }
-        const test = await bcrypt.compare('MotDePasse123!', '$2b$12$aqivSTfMCDJSwQzSWeAIAe3iWFjWy0hsa3DzXb0pVbErh8cp.1xpO')
+        const test = await bcrypt.compare('MotDePasse123!', '$2b$12$tA90TrjJ4Ympkp5B20y9jeiZDNxY1arR0N/pw5nuRgcredXLIFdQG')
 
 
         console.log('my compare password  test is  :',test); // Résultat attendu: true
@@ -44,6 +45,7 @@ export class PasswordUtils {
         hashLength: hashedPassword.length,
         hashPrefix: hashedPassword.substring(0, 7)
       });
+      
       this.runAllTests()
     //   const isMatch = bcrypt.compareSync(candidatePassword, hashedPassword);
 
@@ -77,11 +79,8 @@ export class PasswordUtils {
       }
       
       const  salt = await  bcrypt.genSalt(12)
-      const hash = await bcrypt.hash(password, salt);
-      logger.debug('Mot de passe hashé avec succès');
-      
-      return hash;
-    } catch (error) {
+      return  await bcrypt.hash(password, salt);
+        } catch (error) {
       logger.error('Erreur lors du hashage du mot de passe', { error });
       throw new Error('Impossible de hasher le mot de passe');
     }
@@ -91,7 +90,7 @@ export class PasswordUtils {
   static async testExactPassword(){
     const plainPassword = 'MotDePasse123!';
     // const storedHash = '$2b$12$aISRVVQBjLp348XzmKZmNeVlkVDz7YSx6QsPfJ8qQgmJTyIdOx3CO'
-    const  storedHash = '$2b$12$aqivSTfMCDJSwQzSWeAIAe3iWFjWy0hsa3DzXb0pVbErh8cp.1xpO'
+    const  storedHash = '$2b$12$tA90TrjJ4Ympkp5B20y9jeiZDNxY1arR0N/pw5nuRgcredXLIFdQG'
 ;
     
     console.log('=== TEST BCRYPT ===');
@@ -143,7 +142,7 @@ export class PasswordUtils {
   
   // Test avec différents mots de passe pour vérifier
   static async testMultiplePasswords () {
-    const storedHash = '$2b$12$aqivSTfMCDJSwQzSWeAIAe3iWFjWy0hsa3DzXb0pVbErh8cp.1xpO'
+    const storedHash = '$2b$12$tA90TrjJ4Ympkp5B20y9jeiZDNxY1arR0N/pw5nuRgcredXLIFdQG'
 
     const testPasswords = [
       'MotDePasse123!',

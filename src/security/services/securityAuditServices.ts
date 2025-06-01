@@ -859,6 +859,128 @@ async generateSecuritySummary(
   }
 }
 
+/**
+ * Récupère les journaux d'activité d'un utilisateur avec pagination et filtres
+ * @param userId ID de l'utilisateur
+ * @param options Options de pagination et filtres
+ * @returns Journaux d'activité avec métadonnées de pagination
+ */
+async getUserActivityLogs(
+  userId: string,
+  options: {
+    page?: number;
+    limit?: number;
+    eventType?: string;
+    startDate?: Date;
+    endDate?: Date;
+    severity?: AuditEventSeverity;
+  } = {}
+): Promise<{
+  data: SecurityAuditEvent[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+}> {
+  try {
+    if (!userId) {
+      throw new Error('userId is required');
+    }
+
+    const {
+      page = 1,
+      limit = 50,
+      eventType,
+      startDate,
+      endDate,
+      severity
+    } = options;
+
+    // Calculer le skip pour la pagination
+    const skip = (page - 1) * limit;
+
+    // Construire la requête de base
+    const query: Record<string, any> = {
+      userId: new ObjectId(userId)
+    };
+
+    // Ajouter les filtres optionnels
+    if (eventType) {
+      query.eventType = eventType;
+    }
+
+    if (severity) {
+      query.severity = severity;
+    }
+
+    // Ajouter les filtres de date
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) {
+        query.timestamp.$gte = startDate;
+      }
+      if (endDate) {
+        query.timestamp.$lte = endDate;
+      }
+    }
+
+    // Exécuter la requête avec pagination
+    const [logs, totalItems] = await Promise.all([
+      SecurityAuditModel.find(query)
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(limit),
+      SecurityAuditModel.countDocuments(query)
+    ]);
+
+    // Calculer les métadonnées de pagination
+    const totalPages = Math.ceil(totalItems / limit);
+    const hasNext = page < totalPages;
+    const hasPrevious = page > 1;
+
+    const result = {
+      data: logs,
+      total: totalItems,
+      page,
+      limit,
+      totalPages,
+      hasNext,
+      hasPrevious
+    };
+
+    this.logger.info(`Récupération des journaux d'activité utilisateur`, {
+      userId,
+      page,
+      limit,
+      totalItems,
+      eventType,
+      severity
+    });
+
+    return result;
+
+  } catch (error) {
+    this.logger.error('Erreur lors de la récupération des journaux d\'activité utilisateur', {
+      error: error instanceof Error ? error.message : String(error),
+      userId,
+      options
+    });
+
+    // Retourner une structure vide en cas d'erreur
+    return {
+      data: [],
+      total: 0,
+      page: options.page || 1,
+      limit: options.limit || 50,
+      totalPages: 0,
+      hasNext: false,
+      hasPrevious: false
+    };
+  }
+}
+
 // Helper methods with proper typing
 private getMostCommonEventType(incidents: SecurityAuditDocumentPopulated[]): string | null {
   if (incidents.length === 0) return null;

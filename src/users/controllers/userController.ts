@@ -1,9 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
-import { UserService } from '../../services/userService';
-import { SecurityAuditService } from '../../services/auditservices';
-import { NotificationService } from '../../services/notificationService';
-import { AppError } from '../middlewares/errorHandler';
-import createLogger from '../../utils/logger/logger';
+import { UserService } from '../services/userService';
+import { SecurityAuditService } from '../../security/services/securityAuditServices';
+import { NotificationService } from '../../services/notificationServices';
+import { createLogger } from '../../utils/logger/logger';
+import { UserFilterOptions, UserSearchOptions } from '../types/userTypes';
+import { AuditEventData } from '../types/userTypes';
+import { ExtendedUpdateUserDto } from '../types/userTypes';
+
 
 const logger = createLogger('UserController');
 const userService = new UserService();
@@ -17,17 +20,22 @@ export class UserController {
   /**
    * Obtenir la liste des utilisateurs avec pagination et filtres
    */
-  async getUsers(req: Request, res: Response, next: NextFunction) {
+  async getUsers(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc', ...filters } = req.query;
       
-      const users = await userService.getUsers({
+      // Ensure sortOrder is properly typed
+      const validSortOrder = sortOrder === 'asc' ? 'asc' : 'desc';
+      
+      const filterOptions: UserFilterOptions = {
         page: Number(page),
         limit: Number(limit),
         sortBy: String(sortBy),
-        sortOrder: String(sortOrder),
+        sortOrder: validSortOrder,
         ...filters
-      });
+      };
+      
+      const users = await userService.getUsers(filterOptions);
       
       res.status(200).json({
         success: true,
@@ -48,17 +56,18 @@ export class UserController {
   /**
    * Obtenir les détails d'un utilisateur spécifique
    */
-  async getUserById(req: Request, res: Response, next: NextFunction) {
+  async getUserById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       
       const user = await userService.getUserById(id);
       
       if (!user) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: 'Utilisateur non trouvé'
         });
+        return;
       }
       
       res.status(200).json({
@@ -74,7 +83,7 @@ export class UserController {
   /**
    * Recherche avancée d'utilisateurs
    */
-  async searchUsers(req: Request, res: Response, next: NextFunction) {
+  async searchUsers(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { 
         query, 
@@ -86,15 +95,20 @@ export class UserController {
         sortOrder = 'desc'
       } = req.body;
       
-      const searchResults = await userService.searchUsers({
+      // Ensure sortOrder is properly typed
+      const validSortOrder = sortOrder === 'asc' ? 'asc' : 'desc';
+      
+      const searchOptions: UserSearchOptions = {
         query,
         page: Number(page),
         limit: Number(limit),
         fields: Array.isArray(fields) ? fields : [fields],
         filters,
         sortBy: String(sortBy),
-        sortOrder: String(sortOrder)
-      });
+        sortOrder: validSortOrder
+      };
+      
+      const searchResults = await userService.searchUsers(searchOptions);
       
       res.status(200).json({
         success: true,
@@ -115,7 +129,7 @@ export class UserController {
   /**
    * Mettre à jour un utilisateur
    */
-  async updateUser(req: Request, res: Response, next: NextFunction) {
+  async updateUser(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const updateData = req.body;
@@ -124,24 +138,27 @@ export class UserController {
       // Vérifier que l'utilisateur existe
       const existingUser = await userService.getUserById(id);
       if (!existingUser) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: 'Utilisateur non trouvé'
         });
+        return;
       }
       
       // Mettre à jour l'utilisateur
       const updatedUser = await userService.updateUser(id, updateData);
       
       // Journaliser l'événement
-      await securityAuditService.logEvent({
+      const auditData: AuditEventData = {
         eventType: 'USER_UPDATED',
         userId: id,
         performedBy: currentUserId,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
         details: { updatedFields: Object.keys(updateData) }
-      });
+      };
+      
+      await securityAuditService.logEvent(auditData);
       
       logger.info('Utilisateur mis à jour', { 
         userId: id, 
@@ -162,7 +179,7 @@ export class UserController {
   /**
    * Activer un compte utilisateur
    */
-  async activateUser(req: Request, res: Response, next: NextFunction) {
+  async activateUser(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const currentUserId = (req.user as { userId: string }).userId;
@@ -170,29 +187,32 @@ export class UserController {
       // Vérifier que l'utilisateur existe
       const existingUser = await userService.getUserById(id);
       if (!existingUser) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: 'Utilisateur non trouvé'
         });
+        return;
       }
       
       // Activer l'utilisateur
       const activatedUser = await userService.updateUser(id, { isActive: true });
       
       // Journaliser l'événement
-      await securityAuditService.logEvent({
+      const auditData: AuditEventData = {
         eventType: 'USER_ACTIVATED',
         userId: id,
         performedBy: currentUserId,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent']
-      });
+      };
+      
+      await securityAuditService.logEvent(auditData);
       
       // Envoyer une notification à l'utilisateur
       await notificationService.sendAccountStatusNotification(
-        id,
-        'Compte activé',
-        'Votre compte a été activé et est maintenant pleinement fonctionnel.'
+        existingUser.email,
+        existingUser.firstName,
+        'activated'
       );
       
       logger.info('Utilisateur activé', { 
@@ -209,11 +229,11 @@ export class UserController {
       next(error);
     }
   }
-  
+
   /**
    * Désactiver un compte utilisateur
    */
-  async deactivateUser(req: Request, res: Response, next: NextFunction) {
+  async deactivateUser(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const { reason } = req.body;
@@ -222,35 +242,42 @@ export class UserController {
       // Vérifier que l'utilisateur existe
       const existingUser = await userService.getUserById(id);
       if (!existingUser) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: 'Utilisateur non trouvé'
         });
+        return;
       }
       
-      // Désactiver l'utilisateur
-      const deactivatedUser = await userService.updateUser(id, { 
+      // Préparer les données de mise à jour avec le bon typage
+      const updateData: ExtendedUpdateUserDto = { 
         isActive: false,
         deactivationReason: reason,
         deactivatedAt: new Date(),
         deactivatedBy: currentUserId
-      });
+      };
+      
+      // Désactiver l'utilisateur
+      const deactivatedUser = await userService.updateUser(id, updateData);
       
       // Journaliser l'événement
-      await securityAuditService.logEvent({
+      const auditData: AuditEventData = {
         eventType: 'USER_DEACTIVATED',
         userId: id,
         performedBy: currentUserId,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
         details: { reason }
-      });
+      };
+      
+      await securityAuditService.logEvent(auditData);
       
       // Envoyer une notification à l'utilisateur
       await notificationService.sendAccountStatusNotification(
-        id,
-        'Compte désactivé',
-        `Votre compte a été désactivé. Raison: ${reason || 'Non spécifiée'}`
+        existingUser.email,
+        existingUser.firstName,
+        'deactivated',
+        reason // Optional comment parameter
       );
       
       logger.info('Utilisateur désactivé', { 
@@ -268,11 +295,11 @@ export class UserController {
       next(error);
     }
   }
-  
+
   /**
    * Supprimer un utilisateur (soft delete)
    */
-  async deleteUser(req: Request, res: Response, next: NextFunction) {
+  async deleteUser(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const currentUserId = (req.user as { userId: string }).userId;
@@ -280,23 +307,26 @@ export class UserController {
       // Vérifier que l'utilisateur existe
       const existingUser = await userService.getUserById(id);
       if (!existingUser) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: 'Utilisateur non trouvé'
         });
+        return;
       }
       
       // Effectuer le soft delete
       await userService.softDeleteUser(id, currentUserId);
       
       // Journaliser l'événement
-      await securityAuditService.logEvent({
+      const auditData: AuditEventData = {
         eventType: 'USER_DELETED',
         userId: id,
         performedBy: currentUserId,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent']
-      });
+      };
+      
+      await securityAuditService.logEvent(auditData);
       
       logger.info('Utilisateur supprimé', { 
         userId: id, 
@@ -315,7 +345,7 @@ export class UserController {
   /**
    * Obtenir l'historique des activités d'un utilisateur
    */
-  async getUserActivityLogs(req: Request, res: Response, next: NextFunction) {
+  async getUserActivityLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const { page = 1, limit = 20, eventType } = req.query;
@@ -323,10 +353,11 @@ export class UserController {
       // Vérifier que l'utilisateur existe
       const existingUser = await userService.getUserById(id);
       if (!existingUser) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: 'Utilisateur non trouvé'
         });
+        return;
       }
       
       // Obtenir les logs d'activité
