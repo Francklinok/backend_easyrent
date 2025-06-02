@@ -160,15 +160,6 @@ export interface SecurityDetails {
 // ================================
 // REFRESH TOKEN INTERFACES
 // ================================
-
-// export interface RefreshToken {
-//   tokenId: string;
-//   expiresAt: Date;
-//   lastUsed?: Date;
-//   device?: string;
-//   ipAddress?: string;
-//   createdAt: Date;
-// }
 export interface RefreshToken {
   tokenId:string,
   token: string;
@@ -607,3 +598,22 @@ export interface ExtendedUpdateUserDto {
 }
 
 
+// Interface pour le payload du JWT
+export interface TokenPayload {
+  userId: string;
+  iat?: number;  // Issued at (timestamp)
+  exp?: number;  // Expiration time (timestamp)
+  iss?: string;  // Issuer
+  sub?: string;  // Subject
+}
+
+// Interface étendue pour les JWT avec toutes les propriétés standard
+export interface JWTPayload extends TokenPayload {
+  iat: number;
+  exp: number;
+  iss?: string;
+  aud?: string;
+  sub?: string;
+  nbf?: number;
+  jti?: string;
+}

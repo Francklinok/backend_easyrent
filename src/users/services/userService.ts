@@ -29,10 +29,7 @@ export class UserService {
 
   /**
    * Crée un nouvel utilisateur
-   * 
    */
-
-  // Dans votre UserService, créez deux méthodes distinctes :
 
 async createUser(userData: Partial<IUser>, sendVerificationEmail: boolean = false): Promise<IUser> {
   try {
@@ -142,63 +139,6 @@ async getUserByEmailWithRefreshTokens(email: string): Promise<IUser | null> {
     throw error;
   }
 }
-
-//   async createUser(userData: Partial<IUser>, sendVerificationEmail: boolean = false): Promise<IUser> {
-//   try {
-//     logger.info('Creating new user', { 
-//       email: userData.email?.substring(0, 5) + '***',
-//       sendVerificationEmail 
-//     });
-
-//     // Hasher le mot de passe
-//     if (userData.password) {
-//       userData.password = await bcrypt.hash(userData.password, 12);
-//     }
-
-//     // ✅ CORRECTION : Ne générer le token que si nécessaire
-//     if (sendVerificationEmail) {
-//       userData.emailVerificationToken = crypto.randomBytes(32).toString('hex');
-//       userData.emailVerificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-//     }
-
-//     // Créer l'utilisateur
-//     const user = await User.create(userData);
-
-//     // ✅ CORRECTION : N'envoyer l'email que si demandé ET si le token existe
-//     if (sendVerificationEmail && userData.emailVerificationToken && user.email && user.firstName) {
-//       try {
-//         await this.notificationService.sendVerificationEmail(
-//           user.email,
-//           user.firstName,
-//           userData.emailVerificationToken
-//         );
-//         logger.info('Email de vérification envoyé depuis createUser', {
-//           userId: user.id.toString(),
-//           email: user.email.substring(0, 5) + '***'
-//         });
-//       } catch (emailError) {
-//         logger.warn('Erreur lors de l\'envoi de l\'email depuis createUser', {
-//           error: emailError instanceof Error ? emailError.message : 'Erreur inconnue',
-//           userId: user.id.toString()
-//         });
-//       }
-//     }
-
-//     logger.info('User created successfully', { 
-//       userId: user.id.toString(),
-//       emailSentFromCreate: sendVerificationEmail 
-//     });
-    
-//     return user;
-//   } catch (error) {
-//     logger.error('Error creating user', { 
-//       error: error instanceof Error ? error.message : 'Erreur inconnue',
-//       email: userData.email?.substring(0, 5) + '***'
-//     });
-//     throw error;
-//   }
-// }
-
   /**
    * Retrouve un utilisateur par son ID
    */
@@ -924,6 +864,26 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
     } catch (error) {
       logger.error('Error enabling 2FA', { error, userId });
       throw error;
+    }
+  }
+
+  //verify hastwo factor  code  
+
+  async  hasTwoFactorEnabled(userId:string):Promise<boolean>{
+
+    const user = await User.findById(userId)
+    if(!user){
+      logger.warn('user  is  not  found')
+      return false ;
+    }
+    const  twofactorenable = user.preferences.twoFactorEnabled
+    if(twofactorenable){
+      logger.info('two  facto  is  enable  for  the  user  ')
+      return   true
+    }
+    else{
+      logger.warn('two facto  is  off  for this  user ')
+      return   false
     }
   }
 

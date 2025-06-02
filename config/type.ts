@@ -15,6 +15,9 @@ export interface Config {
     jwtRefreshExpiresIn: string;
     passwordSaltRounds: number;
     mfaEnabled: boolean;
+    tokenCleanupInterval:string;
+    maxRefreshTokensPerUser: number;
+
   };
   database: {
     url: string;

@@ -39,6 +39,21 @@ function getEmailStrategy(): 'smtp-first' | 'sendgrid-first' {
   return val;
 }
 
+export const getTokenExpirationInSeconds = (duration: string): number => {
+  const timeUnits: Record<string, number> = {
+    's': 1,
+    'm': 60,
+    'h': 3600,
+    'd': 86400,
+    'w': 604800
+  };
+  
+  const match = duration.match(/^(\d+)([smhdw])$/);
+  if (!match) return 900; // Default 15 minutes
+  
+  const [, value, unit] = match;
+  return parseInt(value) * (timeUnits[unit] || 60);
+};
 /**
  * Configuration de base commune à tous les environnements
  */
@@ -53,10 +68,21 @@ const baseConfig: Config = {
   auth: {
     jwtSecret: getRequiredEnvString('JWT_SECRET'),
     jwtRefreshSecret: getRequiredEnvString('JWT_REFRESH_SECRET'),
-    jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
+     jwtExpiresIn: process.env.NODE_ENV === 'development' 
+    ? (process.env.JWT_EXPIRES_IN || '2h')  // Plus long en dev pour les tests
+    : (process.env.JWT_EXPIRES_IN || '15m'), // Court en production
     jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     passwordSaltRounds: parseInt(process.env.PASSWORD_SALT_ROUNDS || '10', 10),
     mfaEnabled: process.env.MFA_ENABLED === 'true',
+    
+    // Nouvelles options utiles
+    tokenCleanupInterval: process.env.TOKEN_CLEANUP_INTERVAL || '1h',
+    maxRefreshTokensPerUser: parseInt(process.env.MAX_REFRESH_TOKENS_PER_USER || '5', 10),
+
+    // jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
+    // jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+    // passwordSaltRounds: parseInt(process.env.PASSWORD_SALT_ROUNDS || '10', 10),
+    // mfaEnabled: process.env.MFA_ENABLED === 'true',
   },
   database: {
     url: getRequiredEnvString('DATABASE_URL'),

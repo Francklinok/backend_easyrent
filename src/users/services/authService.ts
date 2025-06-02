@@ -129,8 +129,6 @@ export class AuthService {
   }
     });
 
-  
-
     // ⚠️ VÉRIFICATION CRUCIALE : L'utilisateur a-t-il été sauvegardé ?
     const userAfterTokens = await this.userService.getUserByEmailWithPassword(email);
    
@@ -163,172 +161,8 @@ export class AuthService {
     throw new Error('Erreur lors de l\'authentification');
   }
 }
-//   async authenticate(
-//     email: string, 
-//     password: string, 
-//     req: Request, 
-//     options?: AuthOptions
-//   ): Promise<AuthTokens | null> {
-//     const startTime = Date.now();
-    
-//     try {
-//       // Validation des entrées
-//       if (!email || !password) {
-//         logger.warn('Tentative d\'authentification avec des identifiants manquants', {
-//           hasEmail: !!email,
-//           hasPassword: !!password,
-//           ip: req.ip
-//         });
-//         return null;
-//       }
-//       console.log(password)
-
-//       // Récupération de l'utilisateur avec mot de passe
-//       const user = await this.userService.getUserByEmailWithPassword(email);
-      
-//       if (!user) {
-//         logger.warn('Échec d\'authentification - utilisateur non trouvé', {
-//           email: email.substring(0, 5) + '***',
-//           ip: req.ip
-//         });
-//         return null;
-//       }
-
-//       // Vérification que l'utilisateur est actif
-//       if (!user.isActive) {
-//         logger.warn('Échec d\'authentification - compte inactif', {
-//           userId: user._id?.toString(),
-//           email: email.substring(0, 5) + '***'
-//         });
-//         return null;
-//       }
-
-//       // Vérification du mot de passe
-//       logger.info('Tentative de vérification du mot de passe', {
-//         userId: user._id?.toString(),
-//         email: email.substring(0, 5) + '***'
-//       });
-
-//       const isPasswordValid = await user.comparePassword(password);
-
-//       if (!isPasswordValid) {
-//         logger.warn('Échec d\'authentification - mot de passe invalide', {
-//           userId: user._id?.toString(),
-//           email: email.substring(0, 5) + '***'
-//         });
-
-//         // Enregistrer la tentative échouée
-//         user.recordLoginAttempt({
-//           ipAddress: req.ip || 'unknown',
-//           userAgent: req.headers['user-agent'],
-//           successful: false
-//         });
-        
-//         await user.save();
-//         return null;
-//       }
-
-//       // Authentification réussie
-//       logger.info('Authentification réussie', {
-//         userId: user._id?.toString(),
-//         email: email.substring(0, 5) + '***',
-//         executionTime: `${Date.now() - startTime}ms`
-//       });
-
-//       // Mettre à jour les informations de connexion
-//       user.updateLastLogin(req.ip || 'unknown', req.headers['user-agent']  as string);
-//       user.recordLoginAttempt({
-//         ipAddress: req.ip || 'unknown',
-//         userAgent: req.headers['user-agent'],
-//         successful: true
-//       });
-
-//         const tokens = await this.generateAuthTokens(user, {
-//       rememberMe: options?.rememberMe,
-//       deviceInfo: {
-//         device: options?.deviceInfo,
-//         userAgent: req.headers['user-agent'],
-//         ip: req.ip
-//       }
-//     });
-
-//          // ⚠️ VÉRIFICATION CRUCIALE : L'utilisateur a-t-il été sauvegardé ?
-//       const userAfterTokens = await User.findById(user._id).select('+refreshTokens');
-      
-//       logger.info('Vérification après génération des tokens', {
-//         userId: user._id?.toString(),
-//         refreshTokensCountBefore: user.refreshTokens?.length || 0,
-//         refreshTokensCountAfter: userAfterTokens?.refreshTokens?.length || 0,
-//         tokenGenerated: !!tokens.refreshToken
-//       });
-
-//       if (!userAfterTokens?.refreshTokens || userAfterTokens.refreshTokens.length === 0) {
-//         logger.error('❌ PROBLÈME : Aucun refresh token sauvegardé en base !', {
-//           userId: user._id?.toString()
-//         });
-//       } else {
-//         logger.info('✅ Refresh tokens correctement sauvegardés', {
-//           userId: user._id?.toString(),
-//           count: userAfterTokens.refreshTokens.length
-//         });
-//       }
-
-//       await user.save();
-
-//       // Générer les tokens
-//       // return this.generateAuthTokens(user, options);
-//       return  token
-
-//     } catch (error) {
-//       logger.error('Erreur lors de l\'authentification', {
-//         error: error instanceof Error ? error.message : 'Erreur inconnue',
-//         email: email.substring(0, 5) + '***',
-//         executionTime: `${Date.now() - startTime}ms`
-//       });
-//       throw new Error('Erreur lors de l\'authentification');
-//     }
-//   }
 
 
-// // Add this method to your AuthService for debugging
-// async testPasswordComparison(email: string, password: string): Promise<void> {
-//   try {
-//     const user = await this.userService.getUserByEmail(email);
-//     if (!user) {
-//       logger.error('User not found for password test');
-//       return;
-//     }
-    
-//     logger.info('=== PASSWORD COMPARISON TEST ===');
-//     logger.info('Input password:', password);
-//     logger.info('Input password length:', password.length);
-//     logger.info('User password hash:', user.password);
-//     logger.info('User password hash length:', user.password?.length);
-    
-//     // Direct bcrypt comparison
-//     const directResult = await bcrypt.compare(password, user.password);
-//     logger.info('Direct bcrypt comparison result:', directResult);
-    
-//     // Method comparison
-//     if (typeof user.comparePassword === 'function') {
-//       const methodResult = await user.comparePassword(password);
-//       logger.info('Method comparison result:', methodResult);
-//     } else {
-//       logger.error('comparePassword method not available');
-//     }
-    
-//     logger.info('=== END PASSWORD TEST ===');
-//   } catch (error) {
-//     logger.error('Error in password test:', error);
-//   }
-// }
-
-// 4. Check your User Schema method binding
-// Make sure your schema methods are properly bound:
-
-  
-  
-// Fixed refreshAccessToken method
 async refreshAccessToken(refreshToken: string): Promise<string | null> {
     try {
       const jwtRefreshSecret = config.auth?.jwtRefreshSecret;
@@ -380,7 +214,11 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
       throw new Error(`Token refresh failed: ${errorMessage}`);
     }
   }
-  
+
+  async getUserById(id: string) {
+     return this.userService.getUserById(id);
+}
+
   /**
    * Déconnecte un utilisateur et met à jour sa présence
    */
@@ -426,7 +264,7 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
   /**
    * Valide un token JWT
    */
-  validateToken(token: string): TokenPayload | null {
+   validateToken(token: string): TokenPayload | null {
     try {
       if (!config.auth?.jwtSecret) {
         logger.error('JWT secret not configured');
@@ -443,7 +281,7 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
       } else {
         logger.error('Token validation error', { error: error instanceof Error ? error.message : 'Unknown error' });
       }
-      return null;
+      return null; 
     }
   }
 

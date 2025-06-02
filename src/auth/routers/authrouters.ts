@@ -1,17 +1,17 @@
 import express from 'express';
 import { body, param } from 'express-validator';
 import {
-  validate,
+  // validate,
   authenticate,
-  requireTwoFactor,
-  apiLimiter,
-  authLimiter,
-  sensitiveOperationLimiter,
-  sensitiveRequestLogger
+  // requireTwoFactor,
+  // apiLimiter,
+  // authLimiter,
+  // sensitiveOperationLimiter,
+  // sensitiveRequestLogger
 } from '../middlewares';
-import AuthControllers from "../controllers/authControllers";
-// import { register } from '../controllers/control';
 
+import AuthControllers from "../controllers/authControllers";
+// import { authenticate } from '../../users/middleware/authMiddleware';
 const authController = new AuthControllers();
 const authRouter = express.Router();
 
@@ -103,7 +103,7 @@ authRouter.get(
 // Logout (authentifié uniquement)
 authRouter.post(
   '/logout',
-  // authenticate,
+  authenticate,
   authController.logout.bind(authController)
 );
 

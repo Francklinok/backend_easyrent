@@ -1,0 +1,12 @@
+fix(auth): resolve IP validation and password comparison issues
+
+- Fix IPv6 localhost (::1) validation error in user schema
+  * Add normalizeIpAddress() function to convert ::1 to 127.0.0.1
+  * Update Mongoose schema IP validation regex for IPv4/IPv6 support
+
+- Update generateAuthTokens method with IP normalization
+- Replace inconsistent password comparison logic throughout codebase
+- Enhance User model comparePassword method with new utility
+
+These changes resolve the "Format IP invalide" error and bcrypt
+comparison inconsistencies observed in authentication logs.
