@@ -12,6 +12,13 @@ interface EmailOptions {
   html: string;
   text?: string;
 }
+interface QueuedEmail extends EmailOptions {
+  id: string;
+  priority: 'high' | 'normal' | 'low';
+  attempts: number;
+  maxAttempts: number;
+  scheduledAt: Date;
+}
 
 export class NotificationService {
   private transporter!: Transporter;
@@ -19,7 +26,21 @@ export class NotificationService {
   private isSendGridEnabled: boolean;
   private isSMTPEnabled: boolean;
   private emailStrategy: 'sendgrid-first' | 'smtp-first';
-
+  private emailQueue: QueuedEmail[] = [];
+  private isProcessingQueue = false;
+ 
+   private rateLimiter = {
+    sendgrid: {
+      requests: 0,
+      resetTime: Date.now() + 60000, // Reset every minute
+      limit: 100 // SendGrid allows 100 emails per minute on free tier
+    },
+    smtp: {
+      requests: 0,
+      resetTime: Date.now() + 60000,
+      limit: 60 // Conservative limit for SMTP
+    }
+  };
 
   constructor() {
     this.fromEmail = config.sendgrid.fromAddress || config.email.fromAddress || 'noreply@easyrent.com';
@@ -38,9 +59,17 @@ export class NotificationService {
       logger.info('Services email initialisés', {
         sendgrid: this.isSendGridEnabled,
         smtp: this.isSMTPEnabled,
-        primaryService: this.isSendGridEnabled ? 'SendGrid' : 'SMTP'
+          strategy: this.emailStrategy,
+        primaryService: this.getPrimaryService()
       });
     }
+  }
+    private getPrimaryService(): string {
+    if (this.emailStrategy === 'smtp-first' && this.isSMTPEnabled) return 'SMTP';
+    if (this.emailStrategy === 'sendgrid-first' && this.isSendGridEnabled) return 'SendGrid';
+    if (this.isSendGridEnabled) return 'SendGrid';
+    if (this.isSMTPEnabled) return 'SMTP';
+    return 'None';
   }
 
   /**
@@ -71,10 +100,16 @@ export class NotificationService {
    * Initialise SMTP
    */
   private initializeSMTP(): boolean {
-    if (!config.email.enabled) {
-      logger.warn('SMTP non configuré');
-      return false;
-    }
+     if (!config.email.enabled || !config.email.host || !config.email.user || !config.email.password) {
+          logger.warn('SMTP not configured - missing required settings', {
+            enabled: config.email.enabled,
+            hasHost: !!config.email.host,
+            hasUser: !!config.email.user,
+            hasPassword: !!config.email.password
+          });
+          return false;
+        }
+    
 
     try {
       this.transporter = nodemailer.createTransport({
@@ -147,12 +182,27 @@ export class NotificationService {
   }
 
   /**
+   * Validate email address format
+   */
+  private isValidEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+
+  /**
    * Envoie un email via SendGrid
    */
   private async sendWithSendGrid(mailOptions: EmailOptions): Promise<boolean> {
     if (!this.isSendGridEnabled) {
+      logger.debug('SendGrid not enabled, skipping');
       return false;
     }
+
+    if (!this.isValidEmail(mailOptions.to)) {
+      logger.error('Invalid email address for SendGrid', { to: this.maskEmail(mailOptions.to) });
+      return false;
+    }
+
 
     try {
       const msg = {
@@ -163,9 +213,17 @@ export class NotificationService {
         },
         subject: mailOptions.subject,
         html: mailOptions.html,
-        text: mailOptions.text || ''
+        text: mailOptions.text || this.stripHtml(mailOptions.html),
+        tracking_settings: {
+        click_tracking: { enable: false },
+        open_tracking: { enable: false }
+      },
       };
-
+      logger.debug('Sending email via SendGrid', {
+        to: this.maskEmail(mailOptions.to),
+        subject: mailOptions.subject,
+        fromEmail: this.fromEmail
+      })
       const response = await sgMail.send(msg);
 
       logger.info('Email envoyé avec SendGrid', {
@@ -193,7 +251,13 @@ export class NotificationService {
    * Envoie un email via SMTP
    */
   private async sendWithSMTP(mailOptions: EmailOptions): Promise<boolean> {
-    if (!this.isSMTPEnabled || !this.transporter) {
+  if (!this.isSMTPEnabled || !this.transporter) {
+      logger.debug('SMTP not enabled or transporter not available, skipping');
+      return false;
+    }
+
+    if (!this.isValidEmail(mailOptions.to)) {
+      logger.error('Invalid email address for SMTP', { to: this.maskEmail(mailOptions.to) });
       return false;
     }
 
@@ -206,8 +270,14 @@ export class NotificationService {
         to: mailOptions.to,
         subject: mailOptions.subject,
         html: mailOptions.html,
-        text: mailOptions.text
+        text: mailOptions.text || this.stripHtml(mailOptions.html)
+
       };
+      logger.debug('Sending email via SMTP', {
+        to: this.maskEmail(mailOptions.to),
+        subject: mailOptions.subject,
+        fromEmail: this.fromEmail
+      });
 
       const result = await Promise.race([
         this.transporter.sendMail(smtpOptions),
@@ -235,49 +305,296 @@ export class NotificationService {
   }
 
   /**
-   * Méthode principale d'envoi d'email avec fallback automatique
-   */
-  private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
-    // Vérifier qu'au moins un service est disponible
-    if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
-      logger.error('Aucun service email disponible', {
-        to: this.maskEmail(mailOptions.to),
-        subject: mailOptions.subject
-      });
-      return false;
-    }
-
-    // Essayer SendGrid en priorité
-    if (this.isSendGridEnabled) {
-      logger.debug('Tentative d\'envoi via SendGrid...');
-      const sendGridSuccess = await this.sendWithSendGrid(mailOptions);
-      
-      if (sendGridSuccess) {
-        return true;
-      }
-      
-      logger.warn('SendGrid a échoué, tentative SMTP...');
-    }
-
-    // Fallback vers SMTP
-    if (this.isSMTPEnabled) {
-      logger.debug('Tentative d\'envoi via SMTP...');
-      const smtpSuccess = await this.sendWithSMTP(mailOptions);
-      
-      if (smtpSuccess) {
-        return true;
-      }
-    }
-
-    // Tous les services ont échoué
-    logger.error('Échec de tous les services email', {
+ * Improved email sending method that respects the configured strategy
+ */
+private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
+  // Vérifier qu'au moins un service est disponible
+  if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
+    logger.error('Aucun service email disponible', {
       to: this.maskEmail(mailOptions.to),
-      subject: mailOptions.subject,
-      sendgridEnabled: this.isSendGridEnabled,
-      smtpEnabled: this.isSMTPEnabled
+      subject: mailOptions.subject
+    });
+    return false;
+  }
+
+  // Check that at least one service is available
+  if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
+    logger.error('No email service available', {
+      to: this.maskEmail(mailOptions.to),
+      subject: mailOptions.subject
+    });
+    return false;
+  }
+
+  const services = this.getServicesInOrder();
+  
+  for (const service of services) {
+    try {
+      let success = false;
+      
+      if (service === 'sendgrid' && this.isSendGridEnabled) {
+        logger.debug('Tentative d\'envoi via SendGrid...');
+        success = await this.sendWithSendGrid(mailOptions);
+      } else if (service === 'smtp' && this.isSMTPEnabled) {
+        logger.debug('Tentative d\'envoi via SMTP...');
+        success = await this.sendWithSMTP(mailOptions);
+      }
+      
+      if (success) {
+        return true;
+      }
+      
+      logger.warn(`${service.toUpperCase()} a échoué, tentative avec le service suivant...`);
+    } catch (error) {
+      logger.error(`Erreur lors de l'envoi avec ${service}`, {
+        error: error instanceof Error ? error.message : 'Erreur inconnue',
+        to: this.maskEmail(mailOptions.to)
+      });
+    }
+  }
+
+  // Tous les services ont échoué
+  logger.error('Échec de tous les services email', {
+    to: this.maskEmail(mailOptions.to),
+    subject: mailOptions.subject,
+    strategy: this.emailStrategy,
+    sendgridEnabled: this.isSendGridEnabled,
+    smtpEnabled: this.isSMTPEnabled
+  });
+
+  return false;
+}
+
+
+  /**
+   * Strip HTML tags for plain text version
+   */
+  private stripHtml(html: string): string {
+    return html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+/**
+ * Get services in the correct order based on strategy
+ */
+private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
+  switch (this.emailStrategy) {
+    case 'sendgrid-first':
+      return ['sendgrid', 'smtp'];
+    case 'smtp-first':
+      return ['smtp', 'sendgrid'];
+    default:
+      // Default to SendGrid first if available, otherwise SMTP
+      return this.isSendGridEnabled ? ['sendgrid', 'smtp'] : ['smtp', 'sendgrid'];
+  }
+}
+  // private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
+  //   // Vérifier qu'au moins un service est disponible
+  //   if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
+  //     logger.error('Aucun service email disponible', {
+  //       to: this.maskEmail(mailOptions.to),
+  //       subject: mailOptions.subject
+  //     });
+  //     return false;
+  //   }
+
+  //   // Essayer SendGrid en priorité
+  //   if (this.isSendGridEnabled) {
+  //     logger.debug('Tentative d\'envoi via SendGrid...');
+  //     const sendGridSuccess = await this.sendWithSendGrid(mailOptions);
+      
+  //     if (sendGridSuccess) {
+  //       return true;
+  //     }
+      
+  //     logger.warn('SendGrid a échoué, tentative SMTP...');
+  //   }
+
+  //   // Fallback vers SMTP
+  //   if (this.isSMTPEnabled) {
+  //     logger.debug('Tentative d\'envoi via SMTP...');
+  //     const smtpSuccess = await this.sendWithSMTP(mailOptions);
+      
+  //     if (smtpSuccess) {
+  //       return true;
+  //     }
+  //   }
+
+  //   // Tous les services ont échoué
+  //   logger.error('Échec de tous les services email', {
+  //     to: this.maskEmail(mailOptions.to),
+  //     subject: mailOptions.subject,
+  //     sendgridEnabled: this.isSendGridEnabled,
+  //     smtpEnabled: this.isSMTPEnabled
+  //   });
+
+  //   return false;
+  // }
+
+  private async queueEmail(
+    mailOptions: EmailOptions, 
+    priority: 'high' | 'normal' | 'low' = 'normal',
+    maxAttempts: number = 3
+  ): Promise<string> {
+    const queuedEmail: QueuedEmail = {
+      ...mailOptions,
+      id: `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      priority,
+      attempts: 0,
+      maxAttempts,
+      scheduledAt: new Date()
+    };
+
+    // Insert based on priority
+    if (priority === 'high') {
+      this.emailQueue.unshift(queuedEmail);
+    } else {
+      this.emailQueue.push(queuedEmail);
+    }
+
+    logger.info('Email ajouté à la queue', {
+      id: queuedEmail.id,
+      to: this.maskEmail(mailOptions.to),
+      priority,
+      queueLength: this.emailQueue.length
     });
 
-    return false;
+    // Start processing if not already running
+    if (!this.isProcessingQueue) {
+      this.processEmailQueue();
+    }
+
+    return queuedEmail.id;
+  }
+
+  /**
+   * Process email queue with rate limiting
+   */
+  private async processEmailQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.emailQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+    logger.debug('Début du traitement de la queue email');
+
+    while (this.emailQueue.length > 0) {
+      const email = this.emailQueue.shift()!;
+      
+      try {
+        // Check rate limits
+        if (!this.canSendEmail()) {
+          // Re-queue the email for later
+          this.emailQueue.unshift(email);
+          logger.debug('Rate limit atteint, pause de 10 secondes');
+          await this.delay(10000);
+          continue;
+        }
+
+        const success = await this.sendEmailSafely(email);
+        
+        if (success) {
+          logger.info('Email envoyé avec succès depuis la queue', {
+            id: email.id,
+            to: this.maskEmail(email.to),
+            attempts: email.attempts + 1
+          });
+        } else {
+          email.attempts++;
+          
+          if (email.attempts < email.maxAttempts) {
+            // Re-queue with exponential backoff
+            email.scheduledAt = new Date(Date.now() + (email.attempts * 30000)); // 30s, 60s, 90s...
+            this.emailQueue.push(email);
+            
+            logger.warn('Email échoué, re-ajouté à la queue', {
+              id: email.id,
+              attempts: email.attempts,
+              maxAttempts: email.maxAttempts
+            });
+          } else {
+            logger.error('Email définitivement échoué après tous les essais', {
+              id: email.id,
+              to: this.maskEmail(email.to),
+              attempts: email.attempts
+            });
+          }
+        }
+        
+        // Small delay between emails
+        await this.delay(1000);
+        
+      } catch (error) {
+        logger.error('Erreur lors du traitement de la queue', {
+          emailId: email.id,
+          error: error instanceof Error ? error.message : 'Erreur inconnue'
+        });
+        
+        // Re-queue failed email if attempts remaining
+        if (email.attempts < email.maxAttempts) {
+          email.attempts++;
+          this.emailQueue.push(email);
+        }
+      }
+    }
+
+    this.isProcessingQueue = false;
+    logger.debug('Fin du traitement de la queue email');
+  }
+
+  /**
+   * Check if we can send email based on rate limits
+   */
+  private canSendEmail(): boolean {
+    const now = Date.now();
+    
+    // Reset counters if time window has passed
+    if (now > this.rateLimiter.sendgrid.resetTime) {
+      this.rateLimiter.sendgrid.requests = 0;
+      this.rateLimiter.sendgrid.resetTime = now + 60000;
+    }
+    
+    if (now > this.rateLimiter.smtp.resetTime) {
+      this.rateLimiter.smtp.requests = 0;
+      this.rateLimiter.smtp.resetTime = now + 60000;
+    }
+
+    // Check if either service is available within limits
+    const canUseSendGrid = this.isSendGridEnabled && 
+      this.rateLimiter.sendgrid.requests < this.rateLimiter.sendgrid.limit;
+    
+    const canUseSMTP = this.isSMTPEnabled && 
+      this.rateLimiter.smtp.requests < this.rateLimiter.smtp.limit;
+
+    return canUseSendGrid || canUseSMTP;
+  }
+
+  /**
+   * Update rate limiter after sending
+   */
+  private updateRateLimit(service: 'sendgrid' | 'smtp'): void {
+    this.rateLimiter[service].requests++;
+  }
+
+  /**
+   * Utility method for delays
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Public method to send high priority emails immediately
+   */
+  async sendUrgentEmail(mailOptions: EmailOptions): Promise<boolean> {
+    // Try to send immediately, fallback to high priority queue
+    const success = await this.sendEmailSafely(mailOptions);
+    
+    if (!success) {
+      await this.queueEmail(mailOptions, 'high', 5); // More attempts for urgent emails
+      return false;
+    }
+    
+    return true;
   }
 
   /**
@@ -315,32 +632,46 @@ export class NotificationService {
       }
     }
 
-    // Test SMTP
     if (this.isSMTPEnabled && this.transporter) {
       try {
-        await this.transporter.verify();
+        await Promise.race([
+          this.transporter.verify(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('SMTP test timeout')), 10000)
+          )
+        ]);
         testResults.smtp = true;
-        logger.info('SMTP configuré et prêt');
+        logger.info('SMTP configured and ready');
       } catch (error) {
-        logger.error('Test SMTP échoué', { error });
+        logger.error('SMTP test failed', { error });
       }
     }
 
     testResults.overall = testResults.sendgrid || testResults.smtp;
 
+    // // Test SMTP
+    // if (this.isSMTPEnabled && this.transporter) {
+    //   try {
+    //     await this.transporter.verify();
+    //     testResults.smtp = true;
+    //     logger.info('SMTP configuré et prêt');
+    //   } catch (error) {
+    //     logger.error('Test SMTP échoué', { error });
+    //   }
+    // }
+
+    // testResults.overall = testResults.sendgrid || testResults.smtp;
+
     logger.info('Résultats des tests email', testResults);
     return testResults;
   }
 
-  // ==========================================
-  // Méthodes publiques d'envoi d'emails
-  // ==========================================
+ /**
+  *  send account reactivation  email
+  */
   async sendAccountReactivationEmail(email: string, firstName: string): Promise<boolean> {
     const mailOptions : EmailOptions= {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+   
       to: email,
       subject: 'Votre compte a été réactivé - EasyRent',
       html: this.getAccountReactivationTemplate(firstName)
@@ -349,7 +680,7 @@ export class NotificationService {
     return this.sendEmailSafely(mailOptions);
   }
   
-  async debugVerificationEmail(email: string, firstName: string, token: string): Promise<void> {
+  async debugVerificationEmail(email: string, firstName: string, token?: string): Promise<void> {
     const verificationUrl = `${config.app.frontendUrl}/verify-account?token=${token}`;
     
       console.log('🔍 DEBUG EMAIL VERIFICATION:');
@@ -358,13 +689,22 @@ export class NotificationService {
       console.log('Token:', token);
       console.log('Frontend URL:', config.app.frontendUrl);
       console.log('Full Verification URL:', verificationUrl);
-      console.log('Token length:', token.length);
+      console.log('Token length:', token?.length);
       console.log('Token type:', typeof token);
   }
 
-  async sendVerificationEmail(email: string, firstName: string, token: string): Promise<boolean> {
+/**
+ * send  email  verification
+ */
+   async sendVerificationEmail(email: string, firstName: string, token: string): Promise<boolean> {
+    if (!token) {
+      logger.error('Verification token is missing', { email: this.maskEmail(email) });
+      return false;
+    }
+
     const verificationUrl = `${config.app.frontendUrl}/verify-account?token=${token}`;
-      this.debugVerificationEmail(email,firstName,token)
+    this.debugVerificationEmail(email, firstName, token);
+
     const mailOptions: EmailOptions = {
       to: email,
       subject: 'Vérifiez votre compte - EasyRent',
@@ -375,7 +715,10 @@ export class NotificationService {
     return this.sendEmailSafely(mailOptions);
   }
 
+
   async sendWelcomeEmail(email: string, firstName: string): Promise<boolean> {
+    this.debugVerificationEmail(email,firstName)
+
     const mailOptions: EmailOptions = {
       to: email,
       subject: 'Bienvenue sur EasyRent !',
@@ -385,25 +728,38 @@ export class NotificationService {
     return this.sendEmailSafely(mailOptions);
   }
 
-  async sendPasswordResetEmail(email: string, firstName: string, resetToken: string): Promise<boolean> {
-    const resetUrl = `${config.app.frontendUrl}/reset-password?token=${resetToken}`;
-    
+  /**
+   * password reset email
+   */
+
+ async sendPasswordResetEmail(email: string, resetLink: string, firstName: string): Promise<boolean> {
+    if (!resetLink) {
+      logger.error('Reset link is missing', { email: this.maskEmail(email) });
+      return false;
+    }
+
+    this.debugVerificationEmail(email, firstName);
+    logger.info('Password reset link provided', { 
+      resetLink: resetLink.substring(0, 50) + '...',
+      email: this.maskEmail(email)
+    });
+
     const mailOptions: EmailOptions = {
       to: email,
       subject: 'Réinitialisation de votre mot de passe - EasyRent',
-      html: this.getPasswordResetEmailTemplate(firstName, resetUrl)
-    };
+      html: this.getPasswordResetEmailTemplate(firstName, resetLink),
 
+    };
+    
     return this.sendEmailSafely(mailOptions);
   }
 
-
+  /**
+   * send  password change  confirmation email
+   */
   async sendPasswordChangeConfirmationEmail(email: string, firstName: string): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+   
       to: email,
       subject: 'Confirmation de changement de mot de passe - EasyRent',
       html: this.getPasswordChangeConfirmationTemplate(firstName)
@@ -435,10 +791,7 @@ export class NotificationService {
     }
     
     const mailOptions = {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+   
       to: email,
       subject,
       html: this.getAgentVerificationStatusTemplate(firstName, status, comment)
@@ -454,6 +807,8 @@ export class NotificationService {
     alertType: 'login_attempt' | 'password_changed' | 'account_accessed' | 'information_changed' | 'other' = 'other'
   ): Promise<boolean> {
     let subject: string;
+    let alertMessage: string;
+
     
     switch (alertType) {
       case 'login_attempt':
@@ -473,10 +828,6 @@ export class NotificationService {
     }
     
     const mailOptions = {
-    //   from: {
-    //     name: 'Équipe Sécurité - EasyRent',
-    //     address: this.fromEmail
-    //   },
       to: email,
       subject,
       html: this.getSecurityAlertEmailTemplate(firstName, alertType, comment)
@@ -487,10 +838,6 @@ export class NotificationService {
 
   async sendAccountDeactivationEmail(email: string, firstName: string): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
       to: email,
       subject: 'Votre compte a été désactivé - EasyRent',
       html: this.getAccountDeactivationTemplate(firstName)
@@ -506,10 +853,6 @@ export class NotificationService {
     lockDuration?: string
   ): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'Équipe Sécurité - EasyRent',
-    //     address: this.fromEmail
-    //   },
       to: email,
       subject: '🔒 Votre compte a été temporairement verrouillé - EasyRent',
       html: this.getAccountLockedEmailTemplate(firstName, reason, lockDuration)
@@ -520,10 +863,7 @@ export class NotificationService {
 
   async sendAccountDeletedEmail(email: string, firstName: string, comment?: string): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'EasyRent',
-    //     address: this.fromEmail
-    //   },
+   
       to: email,
       subject: 'Confirmation de suppression de votre compte - EasyRent',
       html: this.getAccountDeletedTemplate(firstName, comment)
@@ -538,10 +878,6 @@ export class NotificationService {
     comment?: string
   ): Promise<boolean> {
     const mailOptions = {
-    //   from: {
-    //     name: 'Équipe Support - EasyRent',
-    //     address: this.fromEmail
-    //   },
       to: email,
       subject: '✅ Votre compte a été restauré - EasyRent',
       html: this.getAccountRestoredEmailTemplate(firstName, comment)
@@ -1044,46 +1380,128 @@ private getAccountStatusNotificationTemplate(
     `;
   }
 
-    private getSecurityAlertEmailTemplate(firstName: string, alertMessage: string, comment?: string): string {
-    return `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
-          <h1 style="color: #dc3545;">🚨 Alerte de Sécurité</h1>
-          <p>Bonjour ${firstName},</p>
-          <p style="font-size: 16px; font-weight: bold; color: #dc3545;">${alertMessage}</p>
-          ${comment ? `<p style="font-style: italic; color: #666;">Détails: ${comment}</p>` : ''}
-          
-          <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 20px 0;">
-            <p style="margin: 0; color: #856404;">
-              <strong>Si cette activité ne provient pas de vous, veuillez immédiatement :</strong>
+  private getSecurityAlertEmailTemplate(
+  firstName: string, 
+  alertType: 'login_attempt' | 'password_changed' | 'account_accessed' | 'information_changed' | 'other',
+  comment?: string
+): string {
+  let alertMessage: string;
+  let alertIcon: string;
+  
+  switch (alertType) {
+    case 'login_attempt':
+      alertMessage = 'Une tentative de connexion suspecte a été détectée sur votre compte.';
+      alertIcon = '🔐';
+      break;
+    case 'password_changed':
+      alertMessage = 'Votre mot de passe a été modifié.';
+      alertIcon = '🔑';
+      break;
+    case 'account_accessed':
+      alertMessage = 'Votre compte a été accédé depuis un nouvel appareil ou emplacement.';
+      alertIcon = '📱';
+      break;
+    case 'information_changed':
+      alertMessage = 'Vos informations personnelles ont été modifiées.';
+      alertIcon = '✏️';
+      break;
+    default:
+      alertMessage = 'Une activité de sécurité importante a été détectée sur votre compte.';
+      alertIcon = '⚠️';
+  }
+
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
+        <h1 style="color: #dc3545;">🚨 Alerte de Sécurité</h1>
+        <p>Bonjour ${firstName},</p>
+        <p style="font-size: 16px; font-weight: bold; color: #dc3545;">
+          ${alertIcon} ${alertMessage}
+        </p>
+        
+        ${comment ? `
+          <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 4px; margin: 20px 0;">
+            <p style="margin: 0; color: #721c24;">
+              <strong>Détails :</strong> ${comment}
             </p>
           </div>
-          
-          <ol style="color: #333;">
-            <li>Changer votre mot de passe</li>
-            <li>Activer l'authentification à deux facteurs si ce n'est pas déjà fait</li>
-            <li>Contacter notre équipe de support</li>
-          </ol>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${config.app.frontendUrl}/change-password" 
-               style="background-color: #dc3545; color: white; padding: 12px 24px; text-decoration: none; 
-                      border-radius: 4px; display: inline-block; margin: 5px;">
-              Changer mot de passe
-            </a>
-            <a href="${config.app.frontendUrl}/security-settings" 
-               style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; 
-                      border-radius: 4px; display: inline-block; margin: 5px;">
-              Paramètres sécurité
-            </a>
-          </div>
-          
-          <p style="font-size: 14px; color: #666;">
-            Si cette activité provient de vous, vous pouvez ignorer cet email.
+        ` : ''}
+        
+        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 20px 0;">
+          <p style="margin: 0; color: #856404;">
+            <strong>Si cette activité ne provient pas de vous, veuillez immédiatement :</strong>
           </p>
-          <p style="font-weight: bold;">L'équipe de sécurité</p>
         </div>
+        
+        <ol style="color: #333;">
+          <li>Changer votre mot de passe</li>
+          <li>Activer l'authentification à deux facteurs si ce n'est pas déjà fait</li>
+          <li>Contacter notre équipe de support</li>
+        </ol>
+        
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${config.app.frontendUrl}/change-password" 
+             style="background-color: #dc3545; color: white; padding: 12px 24px; text-decoration: none; 
+                    border-radius: 4px; display: inline-block; margin: 5px;">
+            Changer mot de passe
+          </a>
+          <a href="${config.app.frontendUrl}/security-settings" 
+             style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; 
+                    border-radius: 4px; display: inline-block; margin: 5px;">
+            Paramètres sécurité
+          </a>
+        </div>
+        
+        <p style="font-size: 14px; color: #666;">
+          Si cette activité provient de vous, vous pouvez ignorer cet email.
+        </p>
+        <p style="font-weight: bold;">L'équipe de sécurité EasyRent</p>
       </div>
-    `;
-  }
+    </div>
+  `;
+}
+
+
+  //   private getSecurityAlertEmailTemplate(firstName: string, alertMessage: string, comment?: string): string {
+  //   return `
+  //     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+  //       <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
+  //         <h1 style="color: #dc3545;">🚨 Alerte de Sécurité</h1>
+  //         <p>Bonjour ${firstName},</p>
+  //         <p style="font-size: 16px; font-weight: bold; color: #dc3545;">${alertMessage}</p>
+  //         ${comment ? `<p style="font-style: italic; color: #666;">Détails: ${comment}</p>` : ''}
+          
+  //         <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 20px 0;">
+  //           <p style="margin: 0; color: #856404;">
+  //             <strong>Si cette activité ne provient pas de vous, veuillez immédiatement :</strong>
+  //           </p>
+  //         </div>
+          
+  //         <ol style="color: #333;">
+  //           <li>Changer votre mot de passe</li>
+  //           <li>Activer l'authentification à deux facteurs si ce n'est pas déjà fait</li>
+  //           <li>Contacter notre équipe de support</li>
+  //         </ol>
+          
+  //         <div style="text-align: center; margin: 30px 0;">
+  //           <a href="${config.app.frontendUrl}/change-password" 
+  //              style="background-color: #dc3545; color: white; padding: 12px 24px; text-decoration: none; 
+  //                     border-radius: 4px; display: inline-block; margin: 5px;">
+  //             Changer mot de passe
+  //           </a>
+  //           <a href="${config.app.frontendUrl}/security-settings" 
+  //              style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; 
+  //                     border-radius: 4px; display: inline-block; margin: 5px;">
+  //             Paramètres sécurité
+  //           </a>
+  //         </div>
+          
+  //         <p style="font-size: 14px; color: #666;">
+  //           Si cette activité provient de vous, vous pouvez ignorer cet email.
+  //         </p>
+  //         <p style="font-weight: bold;">L'équipe de sécurité</p>
+  //       </div>
+  //     </div>
+  //   `;
+  // }
 }

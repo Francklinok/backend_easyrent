@@ -292,7 +292,7 @@ const logger = createLogger('AuthController');
         });
         return;
       }
-         logger.info('État des refresh tokens après authentification', {
+      logger.info('État des refresh tokens après authentification', {
       userId: user._id?.toString(),
       refreshTokensCount: user.refreshTokens?.length || 0,
       hasTokensInResponse: !!tokens.refreshToken
@@ -308,6 +308,7 @@ const logger = createLogger('AuthController');
       executionTime: `${executionTime}ms`,
       refreshTokensInDB: user.refreshTokens?.length || 0
     });
+    this.notificationService.sendWelcomeEmail(email,  user.firstName)
 
       res.status(200).json({
         success: true,

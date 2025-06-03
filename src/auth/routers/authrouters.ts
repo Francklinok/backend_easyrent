@@ -155,6 +155,17 @@ authRouter.post(
 //   authController.revokeSession.bind(authController)
 // );
 
+authRouter.post('/changePassword',  authController.changePassword.bind(authController))
+authRouter.get('/validateTwoFactorLogin',  authController.validateTwoFactorLogin.bind(authController))
+//profile
+authRouter.get('/getProfile',  authController.getProfile.bind(authController))
+authRouter.patch('/updateProfile',  authController.updateProfile.bind(authController))
+//account deletion
+authRouter.delete('/deleteAccount',  authController.deleteAccount.bind(authController))
+
+
+
+
 export default authRouter;
 
 

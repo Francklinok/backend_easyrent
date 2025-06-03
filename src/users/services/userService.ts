@@ -674,37 +674,75 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
   }
   /**
    * Initialise le processus de réinitialisation de mot de passe
-   */
-  async initiatePasswordReset(email: string, redirectUrl:string): Promise<boolean> {
-    try {
-      logger.info('Initiating password reset', { email });
-      const user = await User.findOne({ email: email.toLowerCase() });
+  //  */
+  // async initiatePasswordReset(email: string, redirectUrl:string): Promise<boolean> {
+  //   try {
+  //     logger.info('Initiating password reset', { email });
+  //     const user = await User.findOne({ email: email.toLowerCase() });
 
-      if (!user) {
-        logger.warn('User not found for password reset', { email });
-        return false;
-      }
+  //     if (!user) {
+  //       logger.warn('User not found for password reset', { email });
+  //       return false;
+  //     }
 
-      // Générer un token de réinitialisation
-      const resetToken = crypto.randomBytes(32).toString('hex');
+  //     // Générer un token de réinitialisation
+  //     const resetToken = crypto.randomBytes(32).toString('hex');
       
-      // Stocker le token hash
-      user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-      user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 heure
+  //     // Stocker le token hash
+  //     user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+  //     user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 heure
       
-      await user.save();
-      const resetLink = `${redirectUrl}?token=${resetToken}&email=${encodeURIComponent(email)}`;
+  //     await user.save();
+  //     const resetLink = `${redirectUrl}?token=${resetToken}&email=${encodeURIComponent(email)}`;
 
-      // Envoyer l'email de réinitialisation
-      await this.notificationService.sendPasswordResetEmail(email, resetLink, user.firstName);
+  //     // Envoyer l'email de réinitialisation
+  //     await this.notificationService.sendPasswordResetEmail(email, resetLink, user.firstName);
 
-      logger.info('Password reset initiated successfully', { email });
-      return true;
-    } catch (error) {
-      logger.error('Error initiating password reset', { error, email });
-      throw error;
+  //     logger.info('Password reset initiated successfully', { email });
+  //     return true;
+  //   } catch (error) {
+  //     logger.error('Error initiating password reset', { error, email });
+  //     throw error;
+  //   }
+  // }
+
+  async initiatePasswordReset(email: string, redirectUrl: string): Promise<boolean> {
+  try {
+    logger.info('Initiating password reset', { email });
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      logger.warn('User not found for password reset', { email });
+      return false;
     }
+
+    // Générer un token de réinitialisation
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    
+    // Stocker le token hash
+    user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 heure
+    
+    await user.save();
+ 
+    // ✅ Utiliser redirectUrl correctement ou votre frontendUrl
+    const resetLink = `${redirectUrl}?token=${resetToken}&email=${encodeURIComponent(email)}`;
+       logger.debug('user  information',{
+       email, 
+       firstname: user.firstName,
+       resetLink
+      })
+    // ✅ Ordre correct des paramètres : email, resetLink, firstName
+    await this.notificationService.sendPasswordResetEmail(email, resetLink, user.firstName || '');
+    
+    logger.info('Password reset initiated successfully', { email });
+    return true;
+  } catch (error) {
+    logger.error('Error initiating password reset', { error, email });
+    throw error;
   }
+}
+
+
   /**
    * Réinitialise le mot de passe avec un jeton
    */
@@ -740,6 +778,10 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
       await user.save();
 
       logger.info('Password reset successfully', { id: user.id });
+      logger.debug('user  information',{
+       email: user.email, 
+       firstname: user.firstName,
+      })
       await this.notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName);
       
       return {

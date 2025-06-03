@@ -74,6 +74,9 @@ app.get('/verify-account', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'verify-account.html'));
 });
 
+app.get('/reset-password', (req, res) => {
+  res.sendFile(__dirname + '/public/reset-password.html');
+});
 
 // Connexion à MongoDB avec gestion des événements
 mongoose.connect(config.database.url, {})
