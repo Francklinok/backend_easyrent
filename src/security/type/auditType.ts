@@ -18,6 +18,7 @@ export enum SecurityEventType {
 
   // Email
   EMAIL_VERIFICATION_SENT = 'EMAIL_VERIFICATION_SENT',
+  VERIFICATION_EMAIL_RESENT = 'VERIFICATION_EMAIL_RESENT',
   EMAIL_VERIFIED = 'EMAIL_VERIFIED',
   EMAIL_CHANGED = 'EMAIL_CHANGED',
 
@@ -54,6 +55,8 @@ export enum SecurityEventType {
   // Autres
   DATA_EXPORT = 'DATA_EXPORT'
 }
+
+
 
 /**
  * Niveaux de sévérité pour les événements d'audit

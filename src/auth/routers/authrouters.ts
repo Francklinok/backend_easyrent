@@ -78,7 +78,7 @@ authRouter.post(
 
 // Reset Password
 authRouter.post(
-  '/reset-password/:token',
+  '/reset-password',
   // apiLimiter,
   // sensitiveOperationLimiter,
   // sensitiveRequestLogger,
@@ -110,7 +110,7 @@ authRouter.post(
 // 2FA Setup (auth + sensible)
 authRouter.post(
   '/2fa/setup',
-//   // authenticate,
+  authenticate,
 //   // sensitiveOperationLimiter,
 //   // sensitiveRequestLogger,
   authController.setupTwoFactor.bind(authController)
@@ -154,8 +154,8 @@ authRouter.post(
 //   param('id').notEmpty().withMessage('ID de session requis'),
 //   authController.revokeSession.bind(authController)
 // );
-
-authRouter.post('/changePassword',  authController.changePassword.bind(authController))
+authRouter.post('/resend-verification-email', authController.resendVerificationEmail.bind(authController));
+authRouter.post('/change-Password',  authenticate, authController.changePassword.bind(authController))
 authRouter.get('/validateTwoFactorLogin',  authController.validateTwoFactorLogin.bind(authController))
 //profile
 authRouter.get('/getProfile',  authController.getProfile.bind(authController))

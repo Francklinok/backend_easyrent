@@ -674,37 +674,7 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
   }
   /**
    * Initialise le processus de réinitialisation de mot de passe
-  //  */
-  // async initiatePasswordReset(email: string, redirectUrl:string): Promise<boolean> {
-  //   try {
-  //     logger.info('Initiating password reset', { email });
-  //     const user = await User.findOne({ email: email.toLowerCase() });
-
-  //     if (!user) {
-  //       logger.warn('User not found for password reset', { email });
-  //       return false;
-  //     }
-
-  //     // Générer un token de réinitialisation
-  //     const resetToken = crypto.randomBytes(32).toString('hex');
-      
-  //     // Stocker le token hash
-  //     user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-  //     user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 heure
-      
-  //     await user.save();
-  //     const resetLink = `${redirectUrl}?token=${resetToken}&email=${encodeURIComponent(email)}`;
-
-  //     // Envoyer l'email de réinitialisation
-  //     await this.notificationService.sendPasswordResetEmail(email, resetLink, user.firstName);
-
-  //     logger.info('Password reset initiated successfully', { email });
-  //     return true;
-  //   } catch (error) {
-  //     logger.error('Error initiating password reset', { error, email });
-  //     throw error;
-  //   }
-  // }
+   */
 
   async initiatePasswordReset(email: string, redirectUrl: string): Promise<boolean> {
   try {
@@ -747,6 +717,7 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
    * Réinitialise le mot de passe avec un jeton
    */
   async resetPassword(token: string, newPassword: string): Promise<{ success: boolean; message?: string; userId?: string }> {
+    console.log('call fo resetpassword')
     try {
       logger.info('Resetting password');
       

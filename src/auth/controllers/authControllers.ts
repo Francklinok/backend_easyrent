@@ -611,7 +611,9 @@ async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<vo
     const startTime = Date.now();
     
     try {
-      const { token } = req.params;
+      // const { token } = req.params;
+      const token = req.query.token as string; // au lieu de req.params
+
       const { password } = req.body;
       
       if (!token || !password) {
@@ -680,7 +682,7 @@ async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<vo
           ipAddress: req.ip,
           userAgent: req.headers['user-agent']
         }),
-        this.notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName || '')
+        // this.notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName || '')
       ];
 
       await Promise.all(asyncOperations);
