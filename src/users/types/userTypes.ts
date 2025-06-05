@@ -29,7 +29,16 @@ export enum DeviceType {
 // ================================
 // BASE INTERFACES - COMMON
 // ================================
-
+export interface AuthenticatedRequest extends Request {
+  user: {
+    _id: string;
+    id: string;
+    userId: string;
+    email: string;
+    role: string;
+  };
+  sessionId?: string;
+}
 export interface ILocation {
   country?: string;
   city?: string;
@@ -239,6 +248,7 @@ export interface ITokenStats {
 
 export interface IUser extends Document {
   // Basic Info
+  // id:string,
   firstName: string;
   lastName: string;
   username: string;

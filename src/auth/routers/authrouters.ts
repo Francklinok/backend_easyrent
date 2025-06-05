@@ -119,6 +119,8 @@ authRouter.post(
 // 2FA Verify (auth + sensible)
 authRouter.post(
   '/2fa/verify',
+    authenticate,
+
   // // sensitiveRequestLogger,
   // validate([
   //   body('code').isNumeric().withMessage('Code invalide'),

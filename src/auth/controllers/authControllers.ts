@@ -6,6 +6,8 @@ import { SecurityAuditService } from '../../security/services/securityAuditServi
 import { AppError } from '../utils/AppError';
 import { createLogger } from '../../utils/logger/logger';
 import { IUser } from '../../users/types/userTypes';
+import  mongoose from  "mongoose"
+import User from '../../users/models/userModel';
 // Interface pour typer les utilisateurs
 
 declare module 'express-serve-static-core' {
@@ -881,183 +883,272 @@ async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<vo
 
   /**
    * Changement de mot de passe
-   */
-  async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const startTime = Date.now();
-    
-    try {
-      const { userId } = req.user as { userId: string };
-      const { currentPassword, password } = req.body;
-      
-      if (!currentPassword || !password) {
-        logger.warn('Tentative de changement de mot de passe avec données manquantes', { 
-          userId,
-          hasCurrentPassword: !!currentPassword,
-          hasNewPassword: !!password
-        });
-        
-        res.status(400).json({
-          success: false,
-          message: 'Mot de passe actuel et nouveau mot de passe requis'
-        });
-        return;
-      }
-      
-      logger.info('Tentative de changement de mot de passe', { userId, ip: req.ip });
-      
-      // Vérifier le mot de passe actuel
-      const isCurrentPasswordValid = await this.userService.verifyPassword(userId, currentPassword);
-      
-      if (!isCurrentPasswordValid) {
-        logger.warn('Changement de mot de passe échoué - mot de passe actuel incorrect', { 
-          userId 
-        });
-        
-        res.status(401).json({
-          success: false,
-          message: 'Mot de passe actuel incorrect'
-        });
-        return;
-      }
-      
-      // Changer le mot de passe
-      await this.userService.changePassword(userId, currentPassword, password);
-      
-      if (!req.sessionId) {
-        logger.error('Session ID manquant lors du changement de mot de passe', { 
-          userId 
-        });
-        
-        res.status(400).json({
-          success: false,
-          message: 'Session ID manquant'
-        });
-        return;
-      }
-
-      // Invalider toutes les sessions sauf la courante
-      await this.authService.invalidateOtherSessions(userId, req.sessionId);
-      
-      const user = await this.userService.getUserById(userId);
-
-      if (!user) {
-        logger.error('Utilisateur non trouvé après changement de mot de passe', { 
-          userId 
-        });
-        
-        res.status(404).json({ 
-          success: false, 
-          message: 'Utilisateur non trouvé' 
-        });
-        return;
-      }
-
-      // Opérations asynchrones
-      const asyncOperations = [
-        this.securityAuditService.logEvent({
-          eventType: 'PASSWORD_CHANGED',
-          userId,
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent']
-        }),
-        this.notificationService.sendSecurityNotification(
-          user.email, 
-          user.firstName || '', 
-          'password_changed'
-        )
-      ];
-
-      await Promise.all(asyncOperations);
-      
-      const executionTime = Date.now() - startTime;
-      logger.info('Mot de passe changé avec succès', { 
-        userId,
-        executionTime: `${executionTime}ms`
+  */
+ async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const startTime = Date.now();
+ 
+  try {
+    const user = req.user as any;
+    const userId = user._id || user.id || user.userId;
+    const { currentPassword, password } = req.body;
+   
+    logger.debug('User ID extraction debug:', {
+      userId,
+      userIdType: typeof userId,
+      availableFields: Object.keys(user || {}),
+      isValidObjectId: mongoose.Types.ObjectId.isValid(userId),
+      sessionId: req.sessionId
+    });
+   
+    if (!userId) {
+      logger.error('No user ID found in request', { reqUser: user });
+      res.status(400).json({
+        success: false,
+        message: 'User ID manquant'
       });
-      
-      res.status(200).json({
-        success: true,
-        message: 'Mot de passe changé avec succès'
-      });
-    } catch (error: any) {
-      const executionTime = Date.now() - startTime;
-      logger.error('Erreur lors du changement de mot de passe', { 
-        error: error.message,
-        stack: error.stack,
-        userId: req.user?.userId,
-        executionTime: `${executionTime}ms`
-      });
-      next(error);
+      return;
     }
-  }
-  
-  /**
-   * Configuration de l'authentification à deux facteurs
-   */
-  async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const startTime = Date.now();
+   
+    if (!currentPassword || !password) {
+      logger.warn('Tentative de changement de mot de passe avec données manquantes', {
+        userId,
+        hasCurrentPassword: !!currentPassword,
+        hasNewPassword: !!password
+      });
+     
+      res.status(400).json({
+        success: false,
+        message: 'Mot de passe actuel et nouveau mot de passe requis'
+      });
+      return;
+    }
+   
+    logger.info('Tentative de changement de mot de passe', { 
+      userId, 
+      ip: req.ip,
+      sessionId: req.sessionId
+    });
+   
+    // Vérifier le mot de passe actuel
+    const isCurrentPasswordValid = await this.userService.verifyPassword(userId, currentPassword);
+    logger.debug('le mot de passe est :', { isCurrentPasswordValid });
+   
+    if (!isCurrentPasswordValid) {
+      logger.warn('Changement de mot de passe échoué - mot de passe actuel incorrect', {
+        userId
+      });
+     
+      res.status(401).json({
+        success: false,
+        message: 'Mot de passe actuel incorrect'
+      });
+      return;
+    }
+   
+    // Changer le mot de passe
+    await this.userService.changePassword(userId, currentPassword, password);
+   
+    // Handle session invalidation - only if sessionId is available
+    if (req.sessionId) {
+      try {
+        await this.authService.invalidateOtherSessions(userId, req.sessionId);
+        logger.info('Autres sessions invalidées avec succès', { userId, sessionId: req.sessionId });
+      } catch (sessionError: any) {
+        logger.warn('Erreur lors de l\'invalidation des sessions', {
+          userId,
+          sessionId: req.sessionId,
+          error: sessionError.message
+        });
+        // Don't fail the password change if session invalidation fails
+      }
+    } else {
+      logger.warn('Session ID manquant - invalidation des sessions ignorée', {
+        userId
+      });
+      // Still allow password change to proceed
+    }
     
-    try {
-      const { userId } = req.user as { userId: string };
-      const { password } = req.body;
-      
-      if (!password) {
-        logger.warn('Tentative de configuration 2FA sans mot de passe', { userId });
-        
-        res.status(400).json({
-          success: false,
-          message: 'Mot de passe requis pour configurer l\'authentification à deux facteurs'
-        });
-        return;
-      }
-      
-      logger.info('Configuration de l\'authentification à deux facteurs', { userId, ip: req.ip });
-      
-      // Vérifier le mot de passe
-      const isPasswordValid = await this.userService.verifyPassword(userId, password);
-      
-      if (!isPasswordValid) {
-        logger.warn('Configuration 2FA échouée - mot de passe incorrect', { userId });
-        
-        res.status(401).json({
-          success: false,
-          message: 'Mot de passe incorrect'
-        });
-        return;
-      }
-      
-      // Générer le secret 2FA
-      const twoFactorData = await this.authService.generateTwoFactorSecret(userId);
-      
-      await this.securityAuditService.logEvent({
-        eventType: 'TWO_FACTOR_SETUP_INITIATED',
+    const userRecord = await this.userService.getUserById(userId);
+    if (!userRecord) {
+      logger.error('Utilisateur non trouvé après changement de mot de passe', {
+        userId
+      });
+     
+      res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé'
+      });
+      return;
+    }
+    
+    // Opérations asynchrones
+    const asyncOperations = [
+      this.securityAuditService.logEvent({
+        eventType: 'PASSWORD_CHANGED',
         userId,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent']
-      });
-      
-      const executionTime = Date.now() - startTime;
-      logger.info('Secret 2FA généré avec succès', { 
-        userId,
-        executionTime: `${executionTime}ms`
-      });
-      
-      res.status(200).json({
-        success: true,
-        message: 'Secret 2FA généré avec succès',
-        data: twoFactorData
-      });
-    } catch (error: any) {
-      const executionTime = Date.now() - startTime;
-      logger.error('Erreur lors de la configuration 2FA', { 
-        error: error.message,
-        stack: error.stack,
-        userId: req.user?.userId,
-        executionTime: `${executionTime}ms`
-      });
-      next(error);
-    }
+      }),
+      this.notificationService.sendSecurityNotification(
+        userRecord.email,
+        userRecord.firstName || '',
+        'password_changed'
+      )
+    ];
+    await Promise.all(asyncOperations);
+   
+    const executionTime = Date.now() - startTime;
+    logger.info('Mot de passe changé avec succès', {
+      userId,
+      executionTime: `${executionTime}ms`,
+      sessionInvalidated: !!req.sessionId
+    });
+   
+    res.status(200).json({
+      success: true,
+      message: 'Mot de passe changé avec succès'
+    });
+  } catch (error: any) {
+    const executionTime = Date.now() - startTime;
+    logger.error('Erreur lors du changement de mot de passe', {
+      error: error.message,
+      stack: error.stack,
+      executionTime: `${executionTime}ms`
+    });
+    next(error);
   }
+}
+
+  /**
+   * Configuration de l'authentification à deux facteurs
+*/
+ 
+async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const startTime = Date.now();
+  
+  try {
+    // Validation de l'utilisateur authentifié
+    if (!req.user) {
+      logger.warn('Tentative de configuration 2FA sans utilisateur authentifié');
+      res.status(401).json({
+        success: false,
+        message: 'Utilisateur non authentifié'
+      });
+      return;
+    }
+
+    // Extract userId from the nested user object structure
+    let userId: string;
+    let userEmail: string;
+    
+    if ((req.user as any).user) {
+      // Nested user object structure
+      const userObj = (req.user as any).user;
+      userId = userObj.id || userObj._id;
+      userEmail = userObj.email;
+    } else {
+      // Direct user object structure
+      userId = (req.user as any).userId || (req.user as any).id || (req.user as any)._id;
+      userEmail = (req.user as any).email;
+    }
+    
+    if (!userId) {
+      logger.warn('Tentative de configuration 2FA sans userId valide', { 
+        userStructure: Object.keys(req.user || {}),
+        nestedUserStructure: Object.keys((req.user as any)?.user || {})
+      });
+      res.status(401).json({
+        success: false,
+        message: 'Utilisateur non authentifié - ID manquant'
+      });
+      return;
+    }
+
+    logger.info('Configuration de l\'authentification à deux facteurs', { 
+      userId, 
+      email: userEmail,
+      ip: req.ip 
+    });
+    const { password } = req.body;
+    
+    if (!password) {
+      logger.warn('Tentative de configuration 2FA sans mot de passe', { userId });
+      res.status(400).json({
+        success: false,
+        message: 'Mot de passe requis pour configurer l\'authentification à deux facteurs'
+      });
+      return;
+    }
+    
+    logger.info('Configuration de l\'authentification à deux facteurs', { userId, ip: req.ip });
+    
+    // Vérifier le mot de passe avec gestion d'erreur améliorée
+    let isPasswordValid: boolean;
+    try {
+      isPasswordValid = await this.userService.verifyPassword(userId, password);
+    } catch (error: any) {
+      logger.error('Erreur lors de la vérification du mot de passe', { 
+        userId, 
+        error: error.message 
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Erreur interne lors de la vérification'
+      });
+      return;
+    }
+    
+    if (!isPasswordValid) {
+      logger.warn('Configuration 2FA échouée - mot de passe incorrect', { userId });
+      res.status(401).json({
+        success: false,
+        message: 'Mot de passe incorrect'
+      });
+      return;
+    }
+    
+    // Générer le secret 2FA
+    const twoFactorData = await this.authService.generateTwoFactorSecret(userId);
+    
+    if (!twoFactorData) {
+      logger.error('Échec de la génération du secret 2FA', { userId });
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la génération du secret 2FA'
+      });
+      return;
+    }
+    
+    await this.securityAuditService.logEvent({
+      eventType: 'TWO_FACTOR_SETUP_INITIATED',
+      userId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    const executionTime = Date.now() - startTime;
+    logger.info('Secret 2FA généré avec succès', { 
+      userId,
+      executionTime: `${executionTime}ms`
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: 'Secret 2FA généré avec succès',
+      data: twoFactorData
+    });
+  } catch (error: any) {
+    const executionTime = Date.now() - startTime;
+    logger.error('Erreur lors de la configuration 2FA', { 
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.userId,
+      executionTime: `${executionTime}ms`
+    });
+    next(error);
+  }
+}
+
   
   /**
    * Validation de l'authentification à deux facteurs
@@ -1066,7 +1157,39 @@ async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<vo
     const startTime = Date.now();
     
     try {
-      const { userId } = req.user as { userId: string };
+      // Check if req.user exists
+    if (!req.user) {
+      logger.error('req.user is undefined - authentication middleware issue');
+      res.status(401).json({
+        success: false,
+        message: 'Non authentifié'
+      });
+      return;
+    }
+
+         logger.info('req.user content', { 
+      reqUser: req.user,
+      reqUserType: typeof req.user,
+      reqUserKeys: req.user ? Object.keys(req.user) : 'req.user is null/undefined'
+    });
+    // Try one of these:
+const userId = (req.user as any)._id || (req.user as any).id;
+
+
+      if (!userId) {
+      logger.error('userId is undefined in req.user', { reqUser: req.user });
+      res.status(401).json({
+        success: false,
+        message: 'Utilisateur non identifié'
+      });
+      return;
+    }
+
+    logger.info('Extracted userId', { 
+      userId,
+      userIdType: typeof userId 
+    });
+    
       const { token, password } = req.body;
       
       if (!token || !password) {
@@ -1085,6 +1208,14 @@ async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<vo
       
       logger.info('Vérification de l\'authentification à deux facteurs', { userId, ip: req.ip });
       
+
+      // Add this right before the verifyPassword call
+        logger.info('About to verify password', { 
+          userId, 
+          userIdType: typeof userId,
+          userIdValue: userId 
+        });
+
       // Vérifier le mot de passe
       const isPasswordValid = await this.userService.verifyPassword(userId, password);
       
@@ -1097,6 +1228,7 @@ async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<vo
         });
         return;
       }
+      
       
       // Vérifier le code 2FA
       const isValidToken = await this.authService.verifyTwoFactorCode(userId, token);

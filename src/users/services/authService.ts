@@ -317,7 +317,89 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
     }
   }
 
-async generateTwoFactorSecret(userId: string) {
+// async generateTwoFactorSecret(userId: string) {
+//   try {
+//     logger.info('[2FA] Step 1 - Getting user', { userId });
+
+//     const user = await this.userService.getUserById(userId);
+//     if (!user) {
+//       logger.warn('[2FA] User not found', { userId });
+//       return null;
+//     }
+
+//     logger.info('[2FA] Step 2 - Generating secret');
+    
+//     if (!user.email) {
+//       logger.error('[2FA] User is missing email', { userId });
+//       throw new Error('User is missing email');
+//     }
+
+//     const secret = speakeasy.generateSecret({
+//       name: user.email,
+//       issuer: config?.app?.name || 'MyApp',
+//       length: 32
+//     });
+
+//     if (!secret.otpauth_url) {
+//       logger.error('[2FA] Missing OTP Auth URL', { userId });
+//       throw new Error('OTP Auth URL could not be generated');
+//     }
+
+//     logger.debug('[2FA] OTP Auth URL:', secret.otpauth_url);
+
+//     logger.info('[2FA] Step 3 - Generating QR code');
+
+//     let qrCodeUrl: string;
+
+//     // try {
+//     //   qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
+//     // } catch (err: any) {
+//     //   logger.error('[2FA] QR code generation failed', {
+//     //     userId,
+//     //     error: err.message,
+//     //     stack: err.stack
+//     //   });
+//     //   throw new Error('QR code generation failed');
+//     // }
+
+//     logger.info('[2FA] Step 4 - Generating backup codes');
+//     const backupCodes = this.generateBackupCodes();
+
+//     logger.info('[2FA] Step 5 - Updating user with temporary secret');
+
+//     try {
+//       await this.userService.updateUser(userId, {
+//         secret: secret.base32
+//       });
+//     } catch (error: any) {
+//       logger.warn('[2FA] Could not store temporary 2FA secret in DB', {
+//         userId,
+//         error: error.message
+//       });
+//       // Ce n’est pas bloquant, on continue quand même
+//     }
+
+//     logger.info('[2FA] Step 6 - 2FA setup completed', { userId });
+
+//     return {
+//       tempTwoFactorSecret: secret.base32,
+//       otpauthUrl: secret.otpauth_url,
+//       // qrCodeUrl,
+//       backupCodes,
+//       // tempTwoFactorSecret: secret.base32
+
+//     };
+//   } catch (error: any) {
+//     logger.error('[2FA] Error generating 2FA secret', {
+//       error: error.message,
+//       stack: error.stack,
+//       userId
+//     });
+//     throw new Error(`2FA setup failed: ${error.message}`);
+//   }
+//  }
+
+async generateTwoFactorSecret(userId: string): Promise<any | null> {
   try {
     logger.info('[2FA] Step 1 - Getting user', { userId });
 
@@ -327,13 +409,13 @@ async generateTwoFactorSecret(userId: string) {
       return null;
     }
 
-    logger.info('[2FA] Step 2 - Generating secret');
-    
     if (!user.email) {
       logger.error('[2FA] User is missing email', { userId });
       throw new Error('User is missing email');
     }
 
+    logger.info('[2FA] Step 2 - Generating secret');
+    
     const secret = speakeasy.generateSecret({
       name: user.email,
       issuer: config?.app?.name || 'MyApp',
@@ -345,22 +427,10 @@ async generateTwoFactorSecret(userId: string) {
       throw new Error('OTP Auth URL could not be generated');
     }
 
-    logger.debug('[2FA] OTP Auth URL:', secret.otpauth_url);
+    logger.debug('[2FA] OTP Auth URL generated successfully', { userId });
 
-    logger.info('[2FA] Step 3 - Generating QR code');
-
-    let qrCodeUrl: string;
-
-    // try {
-    //   qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
-    // } catch (err: any) {
-    //   logger.error('[2FA] QR code generation failed', {
-    //     userId,
-    //     error: err.message,
-    //     stack: err.stack
-    //   });
-    //   throw new Error('QR code generation failed');
-    // }
+    logger.info('[2FA] Step 3 - Skipping QR code generation');
+    // Users can manually enter the secret or use the otpauth URL
 
     logger.info('[2FA] Step 4 - Generating backup codes');
     const backupCodes = this.generateBackupCodes();
@@ -371,23 +441,23 @@ async generateTwoFactorSecret(userId: string) {
       await this.userService.updateUser(userId, {
         secret: secret.base32
       });
+      logger.info('[2FA] Temporary secret stored successfully', { userId });
     } catch (error: any) {
-      logger.warn('[2FA] Could not store temporary 2FA secret in DB', {
+      logger.error('[2FA] Failed to store temporary 2FA secret in DB', {
         userId,
         error: error.message
       });
-      // Ce n’est pas bloquant, on continue quand même
+      // This is critical - if we can't store the secret, the setup will fail
+      throw new Error('Failed to store 2FA secret');
     }
 
-    logger.info('[2FA] Step 6 - 2FA setup completed', { userId });
+    logger.info('[2FA] Step 6 - 2FA setup completed successfully', { userId });
 
     return {
       tempTwoFactorSecret: secret.base32,
       otpauthUrl: secret.otpauth_url,
-      // qrCodeUrl,
-      backupCodes,
-      // tempTwoFactorSecret: secret.base32
-
+      // qrCodeUrl removed - users can scan the otpauth URL or enter secret manually
+      backupCodes
     };
   } catch (error: any) {
     logger.error('[2FA] Error generating 2FA secret', {
@@ -397,8 +467,174 @@ async generateTwoFactorSecret(userId: string) {
     });
     throw new Error(`2FA setup failed: ${error.message}`);
   }
- }
+}
+// async generateTwoFactorSecret(userId: string): Promise<any | null> {
+//   try {
+//     logger.info('[2FA] Step 1 - Getting user', { userId });
 
+//     const user = await this.userService.getUserById(userId);
+//     if (!user) {
+//       logger.warn('[2FA] User not found', { userId });
+//       return null;
+//     }
+
+//     if (!user.email) {
+//       logger.error('[2FA] User is missing email', { userId });
+//       throw new Error('User is missing email');
+//     }
+
+//     logger.info('[2FA] Step 2 - Generating secret');
+    
+//     const secret = speakeasy.generateSecret({
+//       name: user.email,
+//       issuer: config?.app?.name || 'MyApp',
+//       length: 32
+//     });
+
+//     if (!secret.otpauth_url) {
+//       logger.error('[2FA] Missing OTP Auth URL', { userId });
+//       throw new Error('OTP Auth URL could not be generated');
+//     }
+
+//     logger.debug('[2FA] OTP Auth URL generated successfully', { userId });
+
+//     logger.info('[2FA] Step 3 - Generating QR code');
+
+//     let qrCodeUrl: string;
+//     try {
+//       // Uncommented and added proper error handling
+//       const qrcode = require('qrcode');
+//       qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
+//       logger.info('[2FA] QR code generated successfully', { userId });
+//     } catch (err: any) {
+//       logger.error('[2FA] QR code generation failed', {
+//         userId,
+//         error: err.message,
+//         stack: err.stack
+//       });
+//       throw new Error('QR code generation failed');
+//     }
+
+//     logger.info('[2FA] Step 4 - Generating backup codes');
+//     const backupCodes = this.generateBackupCodes();
+
+//     logger.info('[2FA] Step 5 - Updating user with temporary secret');
+
+//     try {
+//       await this.userService.updateUser(userId, {
+//         secret: secret.base32
+//       });
+//       logger.info('[2FA] Temporary secret stored successfully', { userId });
+//     } catch (error: any) {
+//       logger.error('[2FA] Failed to store temporary 2FA secret in DB', {
+//         userId,
+//         error: error.message
+//       });
+//       // This is critical - if we can't store the secret, the setup will fail
+//       throw new Error('Failed to store 2FA secret');
+//     }
+
+//     logger.info('[2FA] Step 6 - 2FA setup completed successfully', { userId });
+
+//     return {
+//       tempTwoFactorSecret: secret.base32,
+//       otpauthUrl: secret.otpauth_url,
+//       qrCodeUrl,
+//       backupCodes
+//     };
+//   } catch (error: any) {
+//     logger.error('[2FA] Error generating 2FA secret', {
+//       error: error.message,
+//       stack: error.stack,
+//       userId
+//     });
+//     throw new Error(`2FA setup failed: ${error.message}`);
+//   }
+// }
+
+// async generateTwoFactorSecret(userId: string): Promise<any | null> {
+//   try {
+//     logger.info('[2FA] Step 1 - Getting user', { userId });
+
+//     const user = await this.userService.getUserById(userId);
+//     if (!user) {
+//       logger.warn('[2FA] User not found', { userId });
+//       return null;
+//     }
+
+//     if (!user.email) {
+//       logger.error('[2FA] User is missing email', { userId });
+//       throw new Error('User is missing email');
+//     }
+
+//     logger.info('[2FA] Step 2 - Generating secret');
+    
+//     const secret = speakeasy.generateSecret({
+//       name: user.email,
+//       issuer: config?.app?.name || 'MyApp',
+//       length: 32
+//     });
+
+//     if (!secret.otpauth_url) {
+//       logger.error('[2FA] Missing OTP Auth URL', { userId });
+//       throw new Error('OTP Auth URL could not be generated');
+//     }
+
+//     logger.debug('[2FA] OTP Auth URL generated successfully', { userId });
+
+//     logger.info('[2FA] Step 3 - Generating QR code');
+
+//     let qrCodeUrl: string;
+//     try {
+//       // Uncommented and added proper error handling
+//       const qrcode = require('qrcode');
+//       qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
+//       logger.info('[2FA] QR code generated successfully', { userId });
+//     } catch (err: any) {
+//       logger.error('[2FA] QR code generation failed', {
+//         userId,
+//         error: err.message,
+//         stack: err.stack
+//       });
+//       throw new Error('QR code generation failed');
+//     }
+
+//     logger.info('[2FA] Step 4 - Generating backup codes');
+//     const backupCodes = this.generateBackupCodes();
+
+//     logger.info('[2FA] Step 5 - Updating user with temporary secret');
+
+//     try {
+//       await this.userService.updateUser(userId, {
+//         secret: secret.base32
+//       });
+//       logger.info('[2FA] Temporary secret stored successfully', { userId });
+//     } catch (error: any) {
+//       logger.error('[2FA] Failed to store temporary 2FA secret in DB', {
+//         userId,
+//         error: error.message
+//       });
+//       // This is critical - if we can't store the secret, the setup will fail
+//       throw new Error('Failed to store 2FA secret');
+//     }
+
+//     logger.info('[2FA] Step 6 - 2FA setup completed successfully', { userId });
+
+//     return {
+//       tempTwoFactorSecret: secret.base32,
+//       otpauthUrl: secret.otpauth_url,
+//       qrCodeUrl,
+//       backupCodes
+//     };
+//   } catch (error: any) {
+//     logger.error('[2FA] Error generating 2FA secret', {
+//       error: error.message,
+//       stack: error.stack,
+//       userId
+//     });
+//     throw new Error(`2FA setup failed: ${error.message}`);
+//   }
+// }
  /**
  * Vérifie un token de vérification de compte et active le compte
  */
@@ -1083,19 +1319,21 @@ private temporary2FAToken(user: IUser, deviceId?: string): string {
     const payload = {
       userId: user._id?.toString(),
       email: user.email,
-      role: user.role
+      role: user.role,
+      // sessionId: sessionId 
     };
     
     const accessToken = jwt.sign(
       payload,
       config.auth.jwtSecret,
-      { expiresIn: '15m' }
+      { expiresIn: '30m' }
     );
     
     // Generate refresh token
     const refreshToken = jwt.sign(
       payload,
       config.auth.jwtRefreshSecret,
+      
       {
         expiresIn: options?.rememberMe ? '30d' : '7d'
       }

@@ -18,6 +18,7 @@ import { SecurityDetails } from '../types/userTypes';
 import { DeleteUserOptions, DeleteUserResult } from '../types/userTypes';
 const logger = createLogger('UserService');
 
+
 export class UserService {
   private notificationService: NotificationService;
   // private securityAuditService: SecurityAuditService;
@@ -648,30 +649,197 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
 
  /**
    * Vérifie si le mot de passe fourni est correct pour l'utilisateur donné
-   */
-  async verifyPassword(userId: string, password: string): Promise<boolean> {
-    try {
-      logger.info('Vérification du mot de passe en cours', { userId });
+  */
 
-      const user = await User.findById(userId).select('+password');
-      if (!user) {
-        logger.warn('Utilisateur non trouvé lors de la vérification du mot de passe', { userId });
-        return false;
-      }
-
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
-        logger.warn('Mot de passe incorrect', { userId });
-        return false;
-      }
-
-      logger.info('Mot de passe valide', { userId });
-      return true;
-    } catch (error) {
-      logger.error('Erreur lors de la vérification du mot de passe', { error, userId });
-      throw error;
+// async verifyPassword(userId: string, password: string): Promise<boolean> {
+//   try {
+//     logger.info('Vérification du mot de passe en cours', { userId });
+//     logger.info('mot de passe', { password });
+    
+//     // Detailed debugging
+//     logger.debug('User ID debug info:', {
+//       userId,
+//       type: typeof userId,
+//       length: userId.length,
+//       isString: typeof userId === 'string',
+//       trimmed: userId.trim(),
+//       isValidObjectId: mongoose.Types.ObjectId.isValid(userId)
+//     });
+    
+//     // Try different approaches
+//     let user: IUser | null = null;
+    
+//     // Approach 1: Direct findById with string
+//     try {
+//       user = await User.findById(userId).select('+password') as IUser | null;
+//       logger.debug('Approach 1 (direct string):', { found: !!user });
+//     } catch (error) {
+//       const err = error as Error;
+//       logger.debug('Approach 1 failed:', { error: err.message });
+//     }
+    
+//     // Approach 2: Convert to ObjectId explicitly
+//     if (!user && mongoose.Types.ObjectId.isValid(userId)) {
+//       try {
+//         const objectId = new mongoose.Types.ObjectId(userId);
+//         user = await User.findById(objectId).select('+password') as IUser | null;
+//         logger.debug('Approach 2 (explicit ObjectId):', { found: !!user });
+//       } catch (error) {
+//         const err = error as Error;
+//         logger.debug('Approach 2 failed:', { error: err.message });
+//       }
+//     }
+    
+//     // Approach 3: Use findOne with _id
+//     if (!user) {
+//       try {
+//         user = await User.findOne({ _id: userId }).select('+password') as IUser | null;
+//         logger.debug('Approach 3 (findOne):', { found: !!user });
+//       } catch (error) {
+//         const err = error as Error;
+//         logger.debug('Approach 3 failed:', { error: err.message });
+//       }
+//     }
+    
+//     // Approach 4: Search and debug database content
+//     if (!user) {
+//       try {
+//         const allUsers = await User.find({}).limit(5).select('_id email') as IUser[];
+//         logger.debug('Sample users in database:', { 
+//           count: allUsers.length,
+//           sampleIds: allUsers.map(u => ({ 
+//             id: u.id.toString(), 
+//             email: u.email 
+//           }))
+//         });
+        
+//         // Try to find user by converted ID
+//         user = await User.findOne({ 
+//           $or: [
+//             { _id: userId },
+//             ...(mongoose.Types.ObjectId.isValid(userId) ? [{ _id: new mongoose.Types.ObjectId(userId) }] : [])
+//           ]
+//         }).select('+password') as IUser | null;
+//         logger.debug('Approach 4 ($or query):', { found: !!user });
+//       } catch (error) {
+//         const err = error as Error;
+//         logger.debug('Approach 4 failed:', { error: err.message });
+//       }
+//     }
+    
+//     if (!user) {
+//       logger.warn('Utilisateur non trouvé avec toutes les approches', { userId });
+//       return false;
+//     }
+    
+//     logger.info('User found successfully', { 
+//       userId, 
+//       userIdFromDb: user.id.toString(),
+//       hasPassword: !!user.password 
+//     });
+    
+//     if (!user.password) {
+//       logger.warn('User found but no password field', { userId });
+//       return false;
+//     }
+    
+//     const isMatch = await bcrypt.compare(password, user.password);
+    
+//     if (!isMatch) {
+//       logger.warn('Mot de passe incorrect', { userId });
+//       return false;
+//     }
+    
+//     logger.info('Mot de passe valide', { userId });
+//     return true;
+//   } catch (error) {
+//     const err = error as Error;
+//     logger.error('Erreur lors de la vérification du mot de passe', { 
+//       error: err.message, 
+//       stack: err.stack,
+//       userId 
+//     });
+//     throw error;
+//   }
+// }
+async verifyPassword(userId: string, password: string): Promise<boolean> {
+  try {
+    logger.info('Vérification du mot de passe en cours', { userId });
+    logger.info('mot de passe', { password });
+    
+    if (!userId) {
+      logger.warn('User ID is undefined or null');
+      return false;
     }
+    
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      logger.warn('Invalid user ID format', { userId });
+      return false;
+    }
+    
+    const user = await User.findById(userId).select('+password');
+    logger.info('user is', { found: !!user });
+    
+    if (!user) {
+      logger.warn('Utilisateur non trouvé lors de la vérification du mot de passe', { userId });
+      return false;
+    }
+    
+    if (!user.password) {
+      logger.warn('User found but no password field', { userId });
+      return false;
+    }
+    
+    const isMatch = await bcrypt.compare(password, user.password);
+    
+    if (!isMatch) {
+      logger.warn('Mot de passe incorrect', { userId });
+      return false;
+    }
+    
+    logger.info('Mot de passe valide', { userId });
+    return true;
+  } catch (error: any) {
+    logger.error('Erreur lors de la vérification du mot de passe', { 
+      error: error.message, 
+      userId 
+    });
+    throw error;
   }
+}
+  // async verifyPassword(userId: string, password: string): Promise<boolean> {
+  //   try {
+  //     logger.info('Vérification du mot de passe en cours', { userId });
+  //     logger.info(' mot de  passe ', {password});
+
+
+  //     const user = await User.findById(userId).select('+password');
+  //     // const  user   =  await  this.getUserById(userId)
+  //     logger.info('user  is  ',  {user})
+  //     if (!user) {
+  //       logger.warn('Utilisateur non trouvé lors de la vérification du mot de passe', { userId });
+  //       return false;
+  //     }
+
+  //     const   userpassword =  user.password
+  //     logger.debug("le  mot de passe  de  l utilisateur  est   ", {userpassword})
+
+  //     const isMatch = await bcrypt.compare(password, user.password);
+  //     // logger.debug('the password is  :', {user.password})
+
+  //     if (!isMatch) {
+  //       logger.warn('Mot de passe incorrect', { userId });
+  //       return false;
+  //     }
+
+  //     logger.info('Mot de passe valide', { userId });
+  //     return true;
+  //   } catch (error) {
+  //     logger.error('Erreur lors de la vérification du mot de passe', { error, userId });
+  //     throw error;
+  //   }
+  // }
   /**
    * Initialise le processus de réinitialisation de mot de passe
    */
@@ -768,42 +936,86 @@ async updateVerificationToken(userId: string, sendNewEmail = true): Promise<{
   /**
    * Change le mot de passe d'un utilisateur
    */
-  async changePassword(id: string, currentPassword: string, newPassword: string): Promise<boolean> {
-    try {
-      logger.info('Changing password', { id });
-      const user = await User.findById(id).select('+password');
-
-      if (!user) {
-        logger.warn('User not found for password change', { id });
-        return false;
-      }
-
-      // Vérifier le mot de passe actuel
-      const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
-      if (!isPasswordValid) {
-        logger.warn('Invalid current password', { id });
-        return false;
-      }
-
-      // Mettre à jour le mot de passe
-      user.password = await bcrypt.hash(newPassword, 12);
-      user.passwordChangedAt = new Date();
-      await user.save();
-
-      // Invalider tous les jetons d'actualisation sauf le dernier utilisé
-      const latestToken = user.refreshTokens?.pop();
-      user.refreshTokens = latestToken ? [latestToken] : [];
-      await user.save();
-
-      logger.info('Password changed successfully', { id });
-      await this.notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName);
-      
-      return true;
-    } catch (error) {
-      logger.error('Error changing password', { error, id });
-      throw error;
+  
+async changePassword(id: string, currentPassword: string, newPassword: string): Promise<boolean> {
+  try {
+    logger.info('Changing password', { id });
+    
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      logger.warn('Invalid user ID format for password change', { id });
+      return false;
     }
+    
+    const user = await User.findById(new mongoose.Types.ObjectId(id)).select('+password');
+    if (!user) {
+      logger.warn('User not found for password change', { id });
+      return false;
+    }
+    
+    // Vérifier le mot de passe actuel
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordValid) {
+      logger.warn('Invalid current password', { id });
+      return false;
+    }
+    
+    // Mettre à jour le mot de passe
+    user.password = await bcrypt.hash(newPassword, 12);
+    user.passwordChangedAt = new Date();
+    await user.save();
+    
+    // Invalider tous les jetons d'actualisation sauf le dernier utilisé
+    const latestToken = user.refreshTokens?.pop();
+    user.refreshTokens = latestToken ? [latestToken] : [];
+    await user.save();
+    
+    logger.info('Password changed successfully', { id });
+    await this.notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName);
+    
+    return true;
+  } catch (error) {
+    logger.error('Error changing password', { error, id });
+    throw error;
   }
+}
+
+  // async changePassword(id: string, currentPassword: string, newPassword: string): Promise<boolean> {
+  //   try {
+  //     logger.info('Changing password', { id });
+  //     const user = await User.findById(id).select('+password');
+
+  //     if (!user) {
+  //       logger.warn('User not found for password change', { id });
+  //       return false;
+  //     }
+
+  //     // Vérifier le mot de passe actuel
+  //     const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+  //     if (!isPasswordValid) {
+  //       logger.warn('Invalid current password', { id });
+  //       return false;
+  //     }
+
+  //     // Mettre à jour le mot de passe
+  //     user.password = await bcrypt.hash(newPassword, 12);
+  //     user.passwordChangedAt = new Date();
+  //     await user.save();
+
+  //     // Invalider tous les jetons d'actualisation sauf le dernier utilisé
+  //     const latestToken = user.refreshTokens?.pop();
+  //     user.refreshTokens = latestToken ? [latestToken] : [];
+  //     await user.save();
+
+  //     logger.info('Password changed successfully', { id });
+  //     await this.notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName);
+      
+  //     return true;
+  //   } catch (error) {
+  //     logger.error('Error changing password', { error, id });
+  //     throw error;
+  //   }
+  // }
 
   /**
    * Recherche avancée d'utilisateurs avec paramètres spécifiques
