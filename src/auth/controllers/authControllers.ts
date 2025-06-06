@@ -39,6 +39,14 @@ const logger = createLogger('AuthController');
     logger.info('AuthController initialisé avec succès');
   }
 
+    // Méthode utilitaire pour extraire l'userId
+  private extractUserId(user: any): string {
+    if (user.user) {
+      return user.user.id || user.user._id;
+    }
+    return user.userId || user.id || user._id;
+  }
+
   /**
    * Inscription d'un nouvel utilisateur
    */
@@ -1129,13 +1137,27 @@ async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<v
     const executionTime = Date.now() - startTime;
     logger.info('Secret 2FA généré avec succès', { 
       userId,
+      backupCodesCount: twoFactorData.backupCodes?.length || 0,
       executionTime: `${executionTime}ms`
     });
     
     res.status(200).json({
-      success: true,
-      message: 'Secret 2FA généré avec succès',
-      data: twoFactorData
+       success: true,
+        message: 'Configuration 2FA initiée avec succès',
+        data: {
+          qrCodeData: twoFactorData.otpauthUrl,
+          manualEntryKey: twoFactorData.tempTwoFactorSecret,
+          backupCodes: twoFactorData.backupCodes
+        },
+        instructions: {
+          step1: 'Scannez le QR code avec votre application d\'authentification',
+          step2: 'Ou entrez manuellement la clé fournie',
+          step3: 'Sauvegardez précieusement vos codes de sauvegarde',
+          step4: 'Confirmez la configuration avec un code de votre application'
+        }
+      // success: true,
+      // message: 'Secret 2FA généré avec succès',
+      // data: twoFactorData
     });
   } catch (error: any) {
     const executionTime = Date.now() - startTime;
@@ -1150,6 +1172,127 @@ async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<v
 }
 
   
+  // Nouvelle méthode pour confirmer la configuration 2FA
+  async confirmTwoFactorSetup(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Utilisateur non authentifié'
+        });
+        return;
+      }
+
+      const userId = this.extractUserId(req.user);
+      const { token } = req.body;
+
+      if (!token) {
+        res.status(400).json({
+          success: false,
+          message: 'Code de vérification requis'
+        });
+        return;
+      }
+
+      const confirmed = await this.authService.confirmTwoFactorSetup(userId, token);
+
+      if (!confirmed) {
+        res.status(400).json({
+          success: false,
+          message: 'Code de vérification invalide ou expiré'
+        });
+        return;
+      }
+
+      await this.securityAuditService.logEvent({
+        eventType: 'TWO_FACTOR_ENABLED',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+
+      logger.info('2FA activé avec succès', { userId });
+
+      res.status(200).json({
+        success: true,
+        message: 'Authentification à deux facteurs activée avec succès'
+      });
+
+    } catch (error: any) {
+      logger.error('Erreur lors de la confirmation 2FA', { 
+        error: error.message,
+        userId: req.user?.userId 
+      });
+      next(error);
+    }
+  }
+
+  // Méthode pour régénérer les codes de sauvegarde
+  async regenerateBackupCodes(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Utilisateur non authentifié'
+        });
+        return;
+      }
+
+      const userId = this.extractUserId(req.user);
+      const { password } = req.body;
+
+      if (!password) {
+        res.status(400).json({
+          success: false,
+          message: 'Mot de passe requis'
+        });
+        return;
+      }
+
+      // Vérifier le mot de passe
+      const isPasswordValid = await this.userService.verifyPassword(userId, password);
+      if (!isPasswordValid) {
+        res.status(401).json({
+          success: false,
+          message: 'Mot de passe incorrect'
+        });
+        return;
+      }
+
+      const newCodes = await this.authService.regenerateBackupCodes(userId);
+
+      if (!newCodes) {
+        res.status(500).json({
+          success: false,
+          message: 'Erreur lors de la génération des nouveaux codes'
+        });
+        return;
+      }
+
+      await this.securityAuditService.logEvent({
+        eventType: 'BACKUP_CODES_REGENERATED',
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Nouveaux codes de sauvegarde générés',
+        data: { backupCodes: newCodes }
+      });
+
+    } catch (error: any) {
+      logger.error('Erreur lors de la régénération des codes de sauvegarde', { 
+        error: error.message,
+        userId: req.user?.userId 
+      });
+      next(error);
+    }
+  }
+
+
+
   /**
    * Validation de l'authentification à deux facteurs
    */

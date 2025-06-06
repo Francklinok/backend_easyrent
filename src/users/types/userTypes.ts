@@ -134,6 +134,13 @@ export interface BackupCode {
   usedAt?: Date;
   createdAt?: Date;
 }
+// Interface pour les codes de récupération
+export interface RecoveryCode {
+  code: string;
+  used: boolean;
+  usedAt?: Date;
+  createdAt: Date;
+}
 
 export interface TrustedDevice {
   deviceId: string;
@@ -143,13 +150,6 @@ export interface TrustedDevice {
   addedAt: Date;
   lastUsed: Date;
   [key: string]: any;
-}
-
-export interface RecoveryCode {
-  code: string;
-  used: boolean;
-  usedAt?: Date;
-  createdAt: Date;
 }
 
 export interface SecurityDetails {
@@ -187,21 +187,8 @@ export interface RefreshToken {
   ipAddress:string,
 }
 
-export interface IRefreshToken {
-  token: string;
-  hashedToken: string;
-  device?: string;
-  userAgent?: string;
-  ip?: string;
-  location?: ILocation;
-  user: Types.ObjectId;
-  isActive: boolean;
-  lastUsedAt: Date;
-  createdAt: Date;
-  expiresAt: Date;
-  revokedAt?: Date;
-  sessionId?: string;
-}
+
+export interface IRefreshToken extends Omit<RefreshToken, 'tokenId'> {}
 
 export interface IRefreshTokenMethods {
   isExpired(): boolean;
@@ -247,8 +234,6 @@ export interface ITokenStats {
 // ================================
 
 export interface IUser extends Document {
-  // Basic Info
-  // id:string,
   firstName: string;
   lastName: string;
   username: string;
@@ -315,6 +300,11 @@ export interface IUser extends Document {
   recordLoginAttempt: (data: Omit<LoginHistory, 'timestamp'>) => void;
   updateLastLogin: (ipAddress: string, userAgent: string) => void;
   updatePresenceStatus(status: string): void;
+  // backupcode
+  addBackupCodes?(codes: string[]): Promise<IUser>;
+  useBackupCode?(code: string): Promise<boolean>;
+  isValidBackupCode?(code: string): boolean;
+  getRemainingBackupCodes?(): number;
 }
 
 // ================================
@@ -428,17 +418,7 @@ export interface CreateUserDto {
   lastName: string;
   role?: UserRole;
   phoneNumber?: string;
-  address?: {
-    street: string;
-    city: string;
-    state: string;
-    postalCode: string;
-    country: string;
-    coordinates?: {
-      latitude: number;
-      longitude: number;
-    };
-  };
+  address?:Address,
   dateOfBirth?: Date;
   agentDetails?: {
     licenseNumber: string;
@@ -456,29 +436,57 @@ export interface CreateUserDto {
     marketingCommunications?: boolean;
   };
 }
-
 export interface UpdateUserDto {
-  firstName?: string;
-  lastName?: string;
-  phoneNumber?: string;
-  address?: {
-    street: string;
-    city: string;
-    state: string;
-    postalCode: string;
-    country: string;
-    coordinates?: {
-      latitude: number;
-      longitude: number;
-    };
-  };
-  dateOfBirth?: Date;
-  secret: string;
-  tempTwoFactorSecret?: string;
-  profilePicture?: string;
-  preferences?: Partial<IUser['preferences']>;
-  agentDetails?: Partial<NonNullable<IUser['agentDetails']>>;
+  [key: string]: any;
+
+  firstName?: string | null;
+  lastName?: string | null;
+  phoneNumber?: string | null;
+  address?: Address | null;
+  dateOfBirth?: Date | null;
+  secret?: string | null;
+  tempTwoFactorSecret?: string | null;
+  preferences?: Partial<IUser['preferences']> | null;
+  agentDetails?: Partial<NonNullable<IUser['agentDetails']>> | null;
+  username?: string | null;
+  email?: string | null;
+  profilePicture?: string | null;
+  role?: UserRole | null;
+  isActive?: boolean | null;
+  isDeleted?: boolean | null;
+  deletedAt?: Date | null;
+  deletedBy?: Types.ObjectId | null;
+  isEmailVerified?: boolean | null;
+  verificationToken?: string | null;
+  emailVerificationToken?: string | null;
+  emailVerificationTokenExpires?: Date | null;
+  passwordResetToken?: string | null;
+  resetPasswordToken?: string | null;
+  passwordResetExpires?: Date | null;
+  resetPasswordExpires?: Date | null;
+  passwordChangedAt?: Date | null;
+  lastLogin?: Date | null;
+  lastActive?: Date | null;
+  lastIp?: string | null;
+  lastUserAgent?: string | null;
+  presenceStatus?: 'online' | 'away' | 'offline' | null;
+
+  security?: Partial<SecurityDetails> | null;
+
+  // Dot notation support
+  'security.tempTwoFactorSecret'?: string | null;
+  'security.tempTwoFactorSecretExpires'?: Date | null;
+  'security.twoFactorSecret'?: string | null;
+  'security.backupCodes'?: BackupCode[] | null;
+  'security.accountLocked'?: boolean | null;
+  'security.lockExpiresAt'?: Date | null;
+  'security.question'?: string | null;
+  'security.answer'?: string | null;
+  'security.recoveryCodes'?: RecoveryCode[] | null;
+  'security.trustedDevices'?: TrustedDevice[] | null;
 }
+export interface MongoUpdateUserDto extends UpdateUserDto {}
+
 
 export interface ICreateRefreshToken {
   token: string;
@@ -593,7 +601,7 @@ export interface ExtendedUpdateUserDto {
   firstName?: string;
   lastName?: string;
   phoneNumber?: string;
-  address?: any;
+  address?: Address;
   dateOfBirth?: Date;
   secret?: string;
   tempTwoFactorSecret?: string;

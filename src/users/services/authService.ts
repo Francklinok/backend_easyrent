@@ -317,88 +317,6 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
     }
   }
 
-// async generateTwoFactorSecret(userId: string) {
-//   try {
-//     logger.info('[2FA] Step 1 - Getting user', { userId });
-
-//     const user = await this.userService.getUserById(userId);
-//     if (!user) {
-//       logger.warn('[2FA] User not found', { userId });
-//       return null;
-//     }
-
-//     logger.info('[2FA] Step 2 - Generating secret');
-    
-//     if (!user.email) {
-//       logger.error('[2FA] User is missing email', { userId });
-//       throw new Error('User is missing email');
-//     }
-
-//     const secret = speakeasy.generateSecret({
-//       name: user.email,
-//       issuer: config?.app?.name || 'MyApp',
-//       length: 32
-//     });
-
-//     if (!secret.otpauth_url) {
-//       logger.error('[2FA] Missing OTP Auth URL', { userId });
-//       throw new Error('OTP Auth URL could not be generated');
-//     }
-
-//     logger.debug('[2FA] OTP Auth URL:', secret.otpauth_url);
-
-//     logger.info('[2FA] Step 3 - Generating QR code');
-
-//     let qrCodeUrl: string;
-
-//     // try {
-//     //   qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
-//     // } catch (err: any) {
-//     //   logger.error('[2FA] QR code generation failed', {
-//     //     userId,
-//     //     error: err.message,
-//     //     stack: err.stack
-//     //   });
-//     //   throw new Error('QR code generation failed');
-//     // }
-
-//     logger.info('[2FA] Step 4 - Generating backup codes');
-//     const backupCodes = this.generateBackupCodes();
-
-//     logger.info('[2FA] Step 5 - Updating user with temporary secret');
-
-//     try {
-//       await this.userService.updateUser(userId, {
-//         secret: secret.base32
-//       });
-//     } catch (error: any) {
-//       logger.warn('[2FA] Could not store temporary 2FA secret in DB', {
-//         userId,
-//         error: error.message
-//       });
-//       // Ce n’est pas bloquant, on continue quand même
-//     }
-
-//     logger.info('[2FA] Step 6 - 2FA setup completed', { userId });
-
-//     return {
-//       tempTwoFactorSecret: secret.base32,
-//       otpauthUrl: secret.otpauth_url,
-//       // qrCodeUrl,
-//       backupCodes,
-//       // tempTwoFactorSecret: secret.base32
-
-//     };
-//   } catch (error: any) {
-//     logger.error('[2FA] Error generating 2FA secret', {
-//       error: error.message,
-//       stack: error.stack,
-//       userId
-//     });
-//     throw new Error(`2FA setup failed: ${error.message}`);
-//   }
-//  }
-
 async generateTwoFactorSecret(userId: string): Promise<any | null> {
   try {
     logger.info('[2FA] Step 1 - Getting user', { userId });
@@ -439,8 +357,15 @@ async generateTwoFactorSecret(userId: string): Promise<any | null> {
 
     try {
       await this.userService.updateUser(userId, {
-        secret: secret.base32
-      });
+        secret: secret.base32,
+        'security.tempTwoFactorSecret': secret.base32,
+        'security.tempTwoFactorSecretExpires': new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        'security.backupCodes': backupCodes.map((code:any) => ({
+          code,
+          used: false,
+          createdAt: new Date()
+      }))})
+
       logger.info('[2FA] Temporary secret stored successfully', { userId });
     } catch (error: any) {
       logger.error('[2FA] Failed to store temporary 2FA secret in DB', {
@@ -468,173 +393,168 @@ async generateTwoFactorSecret(userId: string): Promise<any | null> {
     throw new Error(`2FA setup failed: ${error.message}`);
   }
 }
-// async generateTwoFactorSecret(userId: string): Promise<any | null> {
-//   try {
-//     logger.info('[2FA] Step 1 - Getting user', { userId });
+////confirm  backup code  
 
-//     const user = await this.userService.getUserById(userId);
-//     if (!user) {
-//       logger.warn('[2FA] User not found', { userId });
-//       return null;
-//     }
+async confirmTwoFactorSetup(userId: string, token: string): Promise<boolean> {
+  try {
+    const user = await this.userService.getUserById(userId);
+    if (!user || !user.security?.tempTwoFactorSecret) {
+      logger.warn('[2FA] No temporary secret found for user', { userId });
+      return false;
+    }
 
-//     if (!user.email) {
-//       logger.error('[2FA] User is missing email', { userId });
-//       throw new Error('User is missing email');
-//     }
+    // Vérifier que le secret temporaire n'a pas expiré
+    if (user.security.tempTwoFactorSecretExpires && 
+        new Date() > user.security.tempTwoFactorSecretExpires) {
+      logger.warn('[2FA] Temporary secret expired', { userId });
+      return false;
+    }
 
-//     logger.info('[2FA] Step 2 - Generating secret');
-    
-//     const secret = speakeasy.generateSecret({
-//       name: user.email,
-//       issuer: config?.app?.name || 'MyApp',
-//       length: 32
-//     });
+    // Vérifier le token TOTP
+    const verified = speakeasy.totp.verify({
+      secret: user.security.tempTwoFactorSecret,
+      encoding: 'base32',
+      token,
+      window: 1
+    });
 
-//     if (!secret.otpauth_url) {
-//       logger.error('[2FA] Missing OTP Auth URL', { userId });
-//       throw new Error('OTP Auth URL could not be generated');
-//     }
+    if (!verified) {
+      logger.warn('[2FA] Invalid token provided', { userId });
+      return false;
+    }
 
-//     logger.debug('[2FA] OTP Auth URL generated successfully', { userId });
+    // FIXED: Activer le 2FA en déplaçant le secret temporaire vers le secret permanent
+    await this.userService.updateUser(userId, {
+      'security.twoFactorSecret': user.security.tempTwoFactorSecret,
+      'security.tempTwoFactorSecret': null,           // FIXED: Added null value
+      'security.tempTwoFactorSecretExpires': null     // FIXED: Added null value and semicolon
+    });
 
-//     logger.info('[2FA] Step 3 - Generating QR code');
+    logger.info('[2FA] Two-factor authentication enabled successfully', { userId });
+    return true;
 
-//     let qrCodeUrl: string;
-//     try {
-//       // Uncommented and added proper error handling
-//       const qrcode = require('qrcode');
-//       qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
-//       logger.info('[2FA] QR code generated successfully', { userId });
-//     } catch (err: any) {
-//       logger.error('[2FA] QR code generation failed', {
-//         userId,
-//         error: err.message,
-//         stack: err.stack
-//       });
-//       throw new Error('QR code generation failed');
-//     }
+  } catch (error: any) {
+    logger.error('[2FA] Error confirming 2FA setup', {
+      error: error.message,
+      userId
+    });
+    return false;
+  }
+}
 
-//     logger.info('[2FA] Step 4 - Generating backup codes');
-//     const backupCodes = this.generateBackupCodes();
+  // Méthode pour valider un code de sauvegarde
+  // async validateBackupCode(userId: string, code: string): Promise<boolean> {
+  //   try {
+  //     const user = await this.userService.getUserById(userId);
+  //     if (!user || !user.security?.backupCodes) {
+  //       return false;
+  //     }
 
-//     logger.info('[2FA] Step 5 - Updating user with temporary secret');
+  //     // Rechercher le code de sauvegarde
+  //     const backupCode = user.security.backupCodes.find(
+  //       bc => bc.code === code && !bc.used
+  //     );
 
-//     try {
-//       await this.userService.updateUser(userId, {
-//         secret: secret.base32
-//       });
-//       logger.info('[2FA] Temporary secret stored successfully', { userId });
-//     } catch (error: any) {
-//       logger.error('[2FA] Failed to store temporary 2FA secret in DB', {
-//         userId,
-//         error: error.message
-//       });
-//       // This is critical - if we can't store the secret, the setup will fail
-//       throw new Error('Failed to store 2FA secret');
-//     }
+  //     if (!backupCode) {
+  //       logger.warn('[2FA] Invalid or already used backup code', { userId });
+  //       return false;
+  //     }
 
-//     logger.info('[2FA] Step 6 - 2FA setup completed successfully', { userId });
+  //     // Marquer le code comme utilisé
+  //     backupCode.used = true;
+  //     backupCode.usedAt = new Date();
 
-//     return {
-//       tempTwoFactorSecret: secret.base32,
-//       otpauthUrl: secret.otpauth_url,
-//       qrCodeUrl,
-//       backupCodes
-//     };
-//   } catch (error: any) {
-//     logger.error('[2FA] Error generating 2FA secret', {
-//       error: error.message,
-//       stack: error.stack,
-//       userId
-//     });
-//     throw new Error(`2FA setup failed: ${error.message}`);
-//   }
-// }
+  //     await user.save();
 
-// async generateTwoFactorSecret(userId: string): Promise<any | null> {
-//   try {
-//     logger.info('[2FA] Step 1 - Getting user', { userId });
+  //     logger.info('[2FA] Backup code used successfully', { 
+  //       userId,
+  //       remainingCodes: user.security.backupCodes.filter(bc => !bc.used).length
+  //     });
 
-//     const user = await this.userService.getUserById(userId);
-//     if (!user) {
-//       logger.warn('[2FA] User not found', { userId });
-//       return null;
-//     }
+  //     return true;
 
-//     if (!user.email) {
-//       logger.error('[2FA] User is missing email', { userId });
-//       throw new Error('User is missing email');
-//     }
+  //   } catch (error: any) {
+  //     logger.error('[2FA] Error validating backup code', {
+  //       error: error.message,
+  //       userId
+  //     });
+  //     return false;
+  //   }
+  // }
+  async validateBackupCode(userId: string, code: string): Promise<boolean> {
+  try {
+    const user = await this.userService.getUserById(userId);
+    if (!user || !user.security?.backupCodes) {
+      return false;
+    }
 
-//     logger.info('[2FA] Step 2 - Generating secret');
-    
-//     const secret = speakeasy.generateSecret({
-//       name: user.email,
-//       issuer: config?.app?.name || 'MyApp',
-//       length: 32
-//     });
+    // Rechercher le code de sauvegarde
+    const backupCode = user.security.backupCodes.find(
+      bc => bc.code === code && !bc.used
+    );
 
-//     if (!secret.otpauth_url) {
-//       logger.error('[2FA] Missing OTP Auth URL', { userId });
-//       throw new Error('OTP Auth URL could not be generated');
-//     }
+    if (!backupCode) {
+      logger.warn('[2FA] Invalid or already used backup code', { userId });
+      return false;
+    }
 
-//     logger.debug('[2FA] OTP Auth URL generated successfully', { userId });
+    // Marquer le code comme utilisé
+    backupCode.used = true;
+    backupCode.usedAt = new Date();
 
-//     logger.info('[2FA] Step 3 - Generating QR code');
+    // FIXED: Use proper update method instead of user.save()
+    await this.userService.updateUser(userId, {
+      'security.backupCodes': user.security.backupCodes
+    });
 
-//     let qrCodeUrl: string;
-//     try {
-//       // Uncommented and added proper error handling
-//       const qrcode = require('qrcode');
-//       qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
-//       logger.info('[2FA] QR code generated successfully', { userId });
-//     } catch (err: any) {
-//       logger.error('[2FA] QR code generation failed', {
-//         userId,
-//         error: err.message,
-//         stack: err.stack
-//       });
-//       throw new Error('QR code generation failed');
-//     }
+    logger.info('[2FA] Backup code used successfully', { 
+      userId,
+      remainingCodes: user.security.backupCodes.filter(bc => !bc.used).length
+    });
 
-//     logger.info('[2FA] Step 4 - Generating backup codes');
-//     const backupCodes = this.generateBackupCodes();
+    return true;
 
-//     logger.info('[2FA] Step 5 - Updating user with temporary secret');
+  } catch (error: any) {
+    logger.error('[2FA] Error validating backup code', {
+      error: error.message,
+      userId
+    });
+    return false;
+  }
+}
 
-//     try {
-//       await this.userService.updateUser(userId, {
-//         secret: secret.base32
-//       });
-//       logger.info('[2FA] Temporary secret stored successfully', { userId });
-//     } catch (error: any) {
-//       logger.error('[2FA] Failed to store temporary 2FA secret in DB', {
-//         userId,
-//         error: error.message
-//       });
-//       // This is critical - if we can't store the secret, the setup will fail
-//       throw new Error('Failed to store 2FA secret');
-//     }
 
-//     logger.info('[2FA] Step 6 - 2FA setup completed successfully', { userId });
+  // Méthode pour générer de nouveaux codes de sauvegarde
+  async regenerateBackupCodes(userId: string): Promise<string[] | null> {
+    try {
+      const newCodes = this.generateBackupCodes();
+      
+      const updateData = {
+        'security.backupCodes': newCodes.map(code => ({
+          code,
+          used: false,
+          createdAt: new Date()
+        }))
+      };
 
-//     return {
-//       tempTwoFactorSecret: secret.base32,
-//       otpauthUrl: secret.otpauth_url,
-//       qrCodeUrl,
-//       backupCodes
-//     };
-//   } catch (error: any) {
-//     logger.error('[2FA] Error generating 2FA secret', {
-//       error: error.message,
-//       stack: error.stack,
-//       userId
-//     });
-//     throw new Error(`2FA setup failed: ${error.message}`);
-//   }
-// }
+      await this.userService.updateUser(userId, updateData);
+
+      logger.info('[2FA] Backup codes regenerated successfully', { 
+        userId,
+        newCodesCount: newCodes.length 
+      });
+
+      return newCodes;
+
+    } catch (error: any) {
+      logger.error('[2FA] Error regenerating backup codes', {
+        error: error.message,
+        userId
+      });
+      return null;
+    }
+  }
+  
  /**
  * Vérifie un token de vérification de compte et active le compte
  */
@@ -708,34 +628,70 @@ async verifyAccountToken(token: string): Promise<{ success: boolean; message: st
 
   /**
    * Vérifie un code 2FA
-   */
-  async verifyTwoFactorCode(userId: string, code: string): Promise<boolean> {
-    try {
-      const user = await this.userService.getUserById(userId) as UserInfo | null;
-      if (!user || !user.twoFactorSecret) {
-        return false;
-      }
+  //  */
+  // async verifyTwoFactorCode(userId: string, code: string): Promise<boolean> {
+  //   try {
+  //     const user = await this.userService.getUserById(userId) as UserInfo | null;
+  //     if (!user || !user.twoFactorSecret) {
+  //       return false;
+  //     }
 
-      const isValid = speakeasy.totp.verify({
-        secret: user.twoFactorSecret,
-        encoding: 'base32',
-        token: code,
-        window: 2
-      });
+  //     const isValid = speakeasy.totp.verify({
+  //       secret: user.twoFactorSecret,
+  //       encoding: 'base32',
+  //       token: code,
+  //       window: 2
+  //     });
       
-      if (isValid) {
-        logger.info('2FA code verified successfully', { userId });
-      } else {
-        logger.warn('Invalid 2FA code', { userId });
-      }
+  //     if (isValid) {
+  //       logger.info('2FA code verified successfully', { userId });
+  //     } else {
+  //       logger.warn('Invalid 2FA code', { userId });
+  //     }
 
-      return isValid;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Error verifying 2FA code', { error: errorMessage, userId });
+  //     return isValid;
+  //   } catch (error) {
+  //     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  //     logger.error('Error verifying 2FA code', { error: errorMessage, userId });
+  //     return false;
+  //   }
+  // }
+  async verifyTwoFactorCode(userId: string, code: string): Promise<boolean> {
+  try {
+    const user = await this.userService.getUserById(userId) 
+    if (!user || !user.security?.tempTwoFactorSecret) {
       return false;
     }
+
+    const isValid = speakeasy.totp.verify({
+      secret: user.security.tempTwoFactorSecret,
+      encoding: 'base32',
+      token: code,
+      window: 2
+    });
+
+    if (isValid) {
+      // Si le code est bon, on sauvegarde le secret de façon permanente
+      await this.userService.updateUser(userId, {
+        'security.twoFactorSecret': user.security.tempTwoFactorSecret,
+        'security.tempTwoFactorSecret': null,
+        'security.tempTwoFactorSecretExpires': null
+      });
+      logger.info('2FA setup confirmed and saved permanently', { userId });
+    } else {
+      logger.warn('Invalid 2FA code during setup', { userId });
+    }
+
+    return isValid;
+  } catch (error) {
+    logger.error('Error during 2FA setup confirmation', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      userId
+    });
+    return false;
   }
+}
+
 
   /**
    * Génère des tokens après une 2FA réussie
@@ -1430,309 +1386,24 @@ private temporary2FAToken(user: IUser, deviceId?: string): string {
     throw new Error(`Erreur lors de la génération des tokens: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
   }
 }
-// async generateAuthTokens(
-//   user: IUser,
-//   options?: AuthOptions
-// ): Promise<AuthOptions> {
-//   try {
-//     // Generate access token
-//     const payload = {
-//       userId: user._id?.toString(),
-//       email: user.email,
-//       role: user.role
-//     };
-    
-//     const accessToken = jwt.sign(
-//       payload,
-//       config.auth.jwtSecret,
-//       { expiresIn: '15m' }
-//     );
-    
-//     // Generate refresh token
-//     const refreshToken = jwt.sign(
-//       payload,
-//       config.auth.jwtRefreshSecret,
-//       {
-//         expiresIn: options?.rememberMe ? '30d' : '7d'
-//       }
-//     );
-    
-//     if (!refreshToken) {
-//       throw new Error('Impossible de générer le refresh token');
-//     }
-    
-//     // Create refresh token document with proper typing
-//     const refreshTokenDoc: RefreshToken = {
-//       tokenId: crypto.randomUUID(), // ou une autre méthode pour générer l'ID
-//       token: refreshToken,
-//       hashedToken: crypto.createHash('sha256').update(refreshToken).digest('hex'),
-//       user: user._id as Types.ObjectId,  // Explicit casting
-//       device: options?.deviceInfo?.deviceId || 'Unknown',
-//       userAgent: options?.deviceInfo?.userAgent || 'Unknown',
-//       ip: options?.deviceInfo?.ip || 'Unknown',
-//       ipAddress: options?.deviceInfo?.ip || 'Unknown', // pour correspondre à RefreshToken
-//       sessionId: crypto.randomUUID(),
-//       expiresAt: new Date(Date.now() + (options?.rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000),
-//       isActive: true,
-//       lastUsedAt: new Date(),
-//       createdAt: new Date()
-//     };
-    
-//     logger.info('Tentative d\'ajout du refresh token', {
-//       userId: user._id?.toString(),
-//       refreshTokensCountBefore: user.refreshTokens?.length || 0,
-//       hasRefreshToken: !!refreshToken,
-//       refreshTokenLength: refreshToken?.length || 0
-//     });
-    
-//     // Initialize array if it doesn't exist
-//     if (!user.refreshTokens) {
-//       user.refreshTokens = [];
-//     }
-    
-//     // Add refresh token to user array
-//     user.refreshTokens.push(refreshTokenDoc);
-    
-//     logger.info('Refresh token ajouté au tableau utilisateur', {
-//       userId: user._id?.toString(),
-//       refreshTokensCountAfter: user.refreshTokens.length,
-//       lastTokenDevice: refreshTokenDoc.device
-//     });
-    
-//     // Save user
-//     const savedUser = await user.save();
-    
-//     logger.info('Utilisateur sauvegardé avec tokens', {
-//       userId: user._id?.toString(),
-//       refreshTokensInSavedUser: savedUser.refreshTokens?.length || 0,
-//       saveSuccessful: !!savedUser._id
-//     });
-    
-//     // Final verification
-//     const verificationUser = await User.findById(user._id).select('+refreshTokens');
-   
-//     logger.info('Vérification finale en base de données', {
-//       userId: user._id?.toString(),
-//       refreshTokensInDB: verificationUser?.refreshTokens?.length || 0,
-//       verificationSuccessful: (verificationUser?.refreshTokens?.length || 0) > 0
-//     });
-    
-//     if (!verificationUser?.refreshTokens || verificationUser.refreshTokens.length === 0) {
-//       logger.error('❌ ÉCHEC CRITIQUE : Le refresh token n\'a pas été sauvegardé !');
-//       throw new Error('Échec de sauvegarde du refresh token');
-//     }
-    
-//     logger.info('✅ Tokens générés et sauvegardés avec succès', {
-//       userId: user._id?.toString(),
-//       hasRefreshTokens: verificationUser.refreshTokens.length,
-//       accessTokenLength: accessToken.length,
-//       refreshTokenLength: refreshToken.length
-//     });
-    
-   
 
-//     return {
-//       accessToken,
-//       refreshToken
-//     };
-//   } catch (error) {
-//     logger.error('Erreur lors de la génération des tokens', {
-//       error: error instanceof Error ? error.message : 'Erreur inconnue',
-//       userId: user._id?.toString(),
-//       stack: error instanceof Error ? error.stack : undefined
-//     });
-//     throw new Error(`Erreur lors de la génération des tokens: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
-//   }
-// }
-
-//   async generateAuthTokens(
-//   user: IUser,
-//   options?: AuthOptions
-// ): Promise<AuthTokens> {
-//   try {
-//     // Générer l'access token
-//     const payload = {
-//       userId: user._id?.toString(),
-//       email: user.email,
-//       role: user.role
-//     };
-
-//     const accessToken = jwt.sign(
-//       payload,
-//       config.auth.jwtSecret,
-//       { expiresIn: '15m' }
-//     );
-
-//     // ⚠️ CORRECTION : Générer TOUJOURS le refresh token, pas seulement si rememberMe
-//     const refreshToken = jwt.sign(
-//       payload,
-//       config.auth.jwtRefreshSecret,
-//       { 
-//         expiresIn: options?.rememberMe ? '30d' : '7d' // Plus long si "Se souvenir de moi"
-//       }
-//     );
-
-//     // ⚠️ VÉRIFICATION : S'assurer que le refresh token existe
-//     if (!refreshToken) {
-//       throw new Error('Impossible de générer le refresh token');
-//     }
-
-//     // ⚠️ PARTIE CRUCIALE : Créer le document refresh token
-//     const refreshTokenDoc: Partial<IRefreshToken> = {
-//       token: refreshToken,
-//       hashedToken: crypto.createHash('sha256').update(refreshToken).digest('hex'),
-//       user: user._id,
-//       device: options?.deviceInfo?.deviceId || 'Unknown',
-//       userAgent: options?.deviceInfo?.userAgent || 'Unknown',
-//       ip: options?.deviceInfo?.ip || 'Unknown',
-//       sessionId: crypto.randomUUID(),
-//       expiresAt: new Date(Date.now() + (options?.rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000),
-//       isActive: true,
-//       lastUsedAt: new Date(),
-//       createdAt: new Date()
-//     };
-
-//     logger.info('Tentative d\'ajout du refresh token', {
-//       userId: user._id?.toString(),
-//       refreshTokensCountBefore: user.refreshTokens?.length || 0,
-//       hasRefreshToken: !!refreshToken,
-//       refreshTokenLength: refreshToken?.length || 0
-//     });
-
-//     // ⚠️ INITIALISER LE TABLEAU S'IL N'EXISTE PAS
-//     if (!user.refreshTokens) {
-//       user.refreshTokens = [];
-//     }
-
-//     // Ajouter le refresh token au tableau de l'utilisateur
-//     user.refreshTokens.push(refreshTokenDoc as IRefreshToken);
-
-//     logger.info('Refresh token ajouté au tableau utilisateur', {
-//       userId: user._id?.toString(),
-//       refreshTokensCountAfter: user.refreshTokens.length,
-//       lastTokenDevice: refreshTokenDoc.device
-//     });
-
-//     // ⚠️ SAUVEGARDER L'UTILISATEUR - C'EST CRUCIAL !
-//     const savedUser = await user.save();
-
-//     logger.info('Utilisateur sauvegardé avec tokens', {
-//       userId: user._id?.toString(),
-//       refreshTokensInSavedUser: savedUser.refreshTokens?.length || 0,
-//       saveSuccessful: !!savedUser._id
-//     });
-
-//     // ⚠️ VÉRIFICATION FINALE : Relire depuis la base
-//     const verificationUser = await User.findById(user._id).select('+refreshTokens');
-    
-//     logger.info('Vérification finale en base de données', {
-//       userId: user._id?.toString(),
-//       refreshTokensInDB: verificationUser?.refreshTokens?.length || 0,
-//       verificationSuccessful: (verificationUser?.refreshTokens?.length || 0) > 0
-//     });
-
-//     if (!verificationUser?.refreshTokens || verificationUser.refreshTokens.length === 0) {
-//       logger.error('❌ ÉCHEC CRITIQUE : Le refresh token n\'a pas été sauvegardé !');
-//       throw new Error('Échec de sauvegarde du refresh token');
-//     }
-
-//     logger.info('✅ Tokens générés et sauvegardés avec succès', {
-//       userId: user._id?.toString(),
-//       hasRefreshTokens: verificationUser.refreshTokens.length,
-//       accessTokenLength: accessToken.length,
-//       refreshTokenLength: refreshToken.length
-//     });
-
-//     return {
-//       accessToken,
-//       refreshToken
-//     };
-
-//   } catch (error) {
-//     logger.error('Erreur lors de la génération des tokens', {
-//       error: error instanceof Error ? error.message : 'Erreur inconnue',
-//       userId: user._id?.toString(),
-//       stack: error instanceof Error ? error.stack : undefined
-//     });
-//     throw new Error(`Erreur lors de la génération des tokens: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
-//   }
-// }
-
-// async generateAuthTokens(
-//   user: IUser, 
-//   options?: AuthOptions
-// ): Promise<AuthTokens> {
-//   try {
-//     // Générer l'access token
-    
-//       const payload = {
-//       userId: user._id?.toString(),
-//       email: user.email,
-//       role: user.role
-//     };
-
-//     const accessToken = jwt.sign(
-//       payload,
-//       config.auth.jwtSecret,
-//       { expiresIn: '15m' }
-//     );
-
-//     let refreshToken: string | undefined;
-
-//     if (options?.rememberMe) {
-//       refreshToken = jwt.sign(
-//         payload,
-//         config.auth.jwtRefreshSecret,
-//         { expiresIn: '7d' }
-//       );
-//     }
-
-//     // ⚠️ PARTIE CRUCIALE : Sauvegarder le refresh token en base
-//     const refreshTokenDoc:IRefreshToken = {
-//       token: refreshToken,
-//       hashedToken: crypto.createHash('sha256').update(refreshToken).digest('hex'),
-//       user: user._id,
-//       device: options?.deviceInfo?.device || 'Unknown',
-//       userAgent: options?.deviceInfo?.userAgent,
-//       ip: options?.deviceInfo?.ip,
-//       sessionId: crypto.randomUUID(),
-//       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 jours
-//       isActive: true,
-//       lastUsedAt: new Date()
-//     };
-
-//     // Ajouter le refresh token au tableau de l'utilisateur
-//     user.refreshTokens.push(refreshTokenDoc);
-    
-//     // ⚠️ SAUVEGARDER L'UTILISATEUR - C'EST CRUCIAL !
-//     await user.save();
-
-//     logger.info('Tokens générés et sauvegardés avec succès', {
-//       userId: user._id?.toString(),
-//       hasRefreshTokens: user.refreshTokens.length
-//     });
-
-//     return {
-//       accessToken,
-//       refreshToken
-//     };
-
-//   } catch (error) {
-//     logger.error('Erreur lors de la génération des tokens', {
-//       error: error instanceof Error ? error.message : 'Erreur inconnue',
-//       userId: user._id?.toString()
-//     });
-//     throw new Error('Erreur lors de la génération des tokens');
-//   }
-// }
   /**
    * Génère des codes de secours pour la 2FA
    */
-  private generateBackupCodes(): string[] {
-    const codes: string[] = [];
-    for (let i = 0; i < 10; i++) {
-      // Génère des codes de 8 caractères alphanumériques
-      const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+  // private generateBackupCodes(): string[] {
+  //   const codes: string[] = [];
+  //   for (let i = 0; i < 10; i++) {
+  //     // Génère des codes de 8 caractères alphanumériques
+  //     const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+  //     codes.push(code);
+  //   }
+  //   return codes;
+  // } 
+  private generateBackupCodes(count: number = 10): string[] {
+    const codes = [];
+    for (let i = 0; i < count; i++) {
+      // Génère un code aléatoire de 8 caractères
+      const code = Math.random().toString(36).substring(2, 10).toUpperCase();
       codes.push(code);
     }
     return codes;

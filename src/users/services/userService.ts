@@ -16,6 +16,9 @@ import { AppError } from '../../auth/utils/AppError';
 import { FilterQuery } from 'mongoose';
 import { SecurityDetails } from '../types/userTypes';
 import { DeleteUserOptions, DeleteUserResult } from '../types/userTypes';
+import { MongoUpdateUserDto } from '../types/userTypes';
+
+
 const logger = createLogger('UserService');
 
 
@@ -405,7 +408,7 @@ async debugUser(email: string): Promise<void> {
 
   async updateUser(id: string, updateData: UpdateUserDto | Partial<IUser>): Promise<IUser | null> {
   try {
-    logger.info('Updating user', { id });
+    logger.info('Updating user process start', { id });
    
     // Supprimer les champs sensibles ou spéciaux
     const { password, email, isDeleted, ...safeUpdateData } = updateData as any;
@@ -452,6 +455,7 @@ async debugUser(email: string): Promise<void> {
       {
         $set: updateObject,
         $currentDate: { updatedAt: true }
+        // FIXED: Removed duplicate updateData parameter
       },
       { new: true, runValidators: true }
     ).select('-password -resetPasswordToken -emailVerificationToken');
@@ -469,6 +473,120 @@ async debugUser(email: string): Promise<void> {
     throw error;
   }
 }
+
+/**
+ * update security details
+ */
+// async updateSecurityDetails(userId: string, securityData: Partial<SecurityDetails>): Promise<IUser | null> {
+//   try {
+//     const updateData: MongoUpdateUserDto = {}; // FIXED: Added missing semicolon and proper declaration
+
+//     Object.keys(securityData).forEach(key => {
+//       const value = (securityData as any)[key];
+//       if (value !== undefined) {
+//         updateData[`security.${key}`] = value;
+//       }
+//     });
+    
+//     return await this.updateUser(userId, updateData);
+//   } catch (error: any) {
+//     logger.error('Error updating security details', { userId, error: error.message });
+//     throw error;
+//   }
+// }
+
+
+  // Méthode pour mettre à jour spécifiquement les secrets 2FA
+  async updateTwoFactorSecrets(userId: string, secrets: {
+    tempTwoFactorSecret?: string;
+    tempTwoFactorSecretExpires?: Date;
+    twoFactorSecret?: string;
+  }): Promise<IUser | null> {
+    try {
+      const updateData: MongoUpdateUserDto = {};
+      
+      if (secrets.tempTwoFactorSecret !== undefined) {
+        updateData['security.tempTwoFactorSecret'] = secrets.tempTwoFactorSecret;
+      }
+      
+      if (secrets.tempTwoFactorSecretExpires !== undefined) {
+        updateData['security.tempTwoFactorSecretExpires'] = secrets.tempTwoFactorSecretExpires;
+      }
+      
+      if (secrets.twoFactorSecret !== undefined) {
+        updateData['security.twoFactorSecret'] = secrets.twoFactorSecret;
+      }
+      
+      return await this.updateUser(userId, updateData);
+      
+    } catch (error: any) {
+      logger.error('Error updating 2FA secrets', { userId, error: error.message });
+      throw error;
+    }
+  }
+
+  // // Méthode pour mettre à jour les codes de sauvegarde
+  // async updateBackupCodes(userId: string, backupCodes: Array<{
+  //   code: string;
+  //   used: boolean;
+  //   createdAt: Date;
+  //   usedAt?: Date;
+  // }>): Promise<IUser | null> {
+  //   try {
+  //     const updateData: MongoUpdateUserDto = {
+  //       'security.backupCodes': backupCodes
+  //     };
+      
+  //     return await this.updateUser(userId, updateData);
+      
+  //   } catch (error: any) {
+  //     logger.error('Error updating backup codes', { userId, error: error.message });
+  //     throw error;
+  //   }
+  // }
+
+  // Méthode pour obtenir les détails de sécurité
+  async getSecurityDetails(userId: string): Promise<SecurityDetails | null> {
+    try {
+      const user = await User.findById(userId).select('security');
+      return user?.security || null;
+      
+    } catch (error: any) {
+      logger.error('Error getting security details', { userId, error: error.message });
+      throw error;
+    }
+  }
+
+
+  // Méthode pour obtenir les codes de sauvegarde non utilisés
+  async getAvailableBackupCodes(userId: string): Promise<string[]> {
+    try {
+      const user = await User.findById(userId).select('security.backupCodes');
+      if (!user?.security?.backupCodes) {
+        return [];
+      }
+      
+      return user.security.backupCodes
+        .filter(code => !code.used)
+        .map(code => code.code);
+        
+    } catch (error: any) {
+      logger.error('Error getting available backup codes', { userId, error: error.message });
+      return [];
+    }
+  }
+
+
+
+
+
+
+
+
+
+
+
+
   /**
    * Désactive un compte utilisateur
    */
@@ -979,43 +1097,6 @@ async changePassword(id: string, currentPassword: string, newPassword: string): 
     throw error;
   }
 }
-
-  // async changePassword(id: string, currentPassword: string, newPassword: string): Promise<boolean> {
-  //   try {
-  //     logger.info('Changing password', { id });
-  //     const user = await User.findById(id).select('+password');
-
-  //     if (!user) {
-  //       logger.warn('User not found for password change', { id });
-  //       return false;
-  //     }
-
-  //     // Vérifier le mot de passe actuel
-  //     const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
-  //     if (!isPasswordValid) {
-  //       logger.warn('Invalid current password', { id });
-  //       return false;
-  //     }
-
-  //     // Mettre à jour le mot de passe
-  //     user.password = await bcrypt.hash(newPassword, 12);
-  //     user.passwordChangedAt = new Date();
-  //     await user.save();
-
-  //     // Invalider tous les jetons d'actualisation sauf le dernier utilisé
-  //     const latestToken = user.refreshTokens?.pop();
-  //     user.refreshTokens = latestToken ? [latestToken] : [];
-  //     await user.save();
-
-  //     logger.info('Password changed successfully', { id });
-  //     await this.notificationService.sendPasswordChangeConfirmationEmail(user.email, user.firstName);
-      
-  //     return true;
-  //   } catch (error) {
-  //     logger.error('Error changing password', { error, id });
-  //     throw error;
-  //   }
-  // }
 
   /**
    * Recherche avancée d'utilisateurs avec paramètres spécifiques

@@ -178,7 +178,12 @@ const UserSchema = new Schema<IUser>(
     refreshTokens: [RefreshTokenSchema],
     loginHistory: [LoginHistorySchema],
     loginAttempts: [LoginHistorySchema],
-    security: SecurityDetailsSchema,
+
+    security: {
+      type:SecurityDetailsSchema,
+      default: () => ({})
+
+    },
     
     // Préférences et données utilisateur
     preferences: {
@@ -513,5 +518,72 @@ UserSchema.methods.updatePresenceStatus = function(status: string): void {
 
 const User = model<IUser>('User', UserSchema);
 
+// backupcode  
+
+// Méthodes pour gérer les codes de sauvegarde
+UserSchema.methods.addBackupCodes = function(codes: string[]) {
+  if (!this.security) {
+    this.security = {};
+  }
+  if (!this.security.backupCodes) {
+    this.security.backupCodes = [];
+  }
+  
+  const backupCodes = codes.map(code => ({
+    code,
+    used: false,
+    createdAt: new Date()
+  }));
+  
+  this.security.backupCodes = backupCodes;
+  return this.save();
+};
+
+// Méthode pour utiliser un code de sauvegarde
+UserSchema.methods.useBackupCode = function(code: string) {
+  if (!this.security || !this.security.backupCodes) {
+    return false;
+  }
+  
+  const backupCode = this.security.backupCodes.find(
+   ( bc:any) => bc.code === code && !bc.used
+  );
+  
+  if (backupCode) {
+    backupCode.used = true;
+    backupCode.usedAt = new Date();
+    return this.save().then(() => true);
+  }
+  
+  return false;
+};
+
+// Méthode pour vérifier si un code de sauvegarde est valide
+UserSchema.methods.isValidBackupCode = function(code: string): boolean {
+  if (!this.security || !this.security.backupCodes) {
+    return false;
+  }
+  
+  return this.security.backupCodes.some(
+   ( bc:any) => bc.code === code && !bc.used
+  );
+};
+
+// Méthode pour compter les codes de sauvegarde restants
+UserSchema.methods.getRemainingBackupCodes = function(): number {
+  if (!this.security || !this.security.backupCodes) {
+    return 0;
+  }
+  
+  return this.security.backupCodes.filter((bc:any) => !bc.used).length;
+};
+
+// Middleware pre-save pour initialiser security si nécessaire
+UserSchema.pre('save', function(next) {
+  if (!this.security) {
+    this.security = {};
+  }
+  next();
+});
 
 export default User;
