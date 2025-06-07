@@ -9,28 +9,26 @@ const TOKEN_REGEX = /^[a-zA-Z0-9_-]+$/;
 const TWO_FA_CODE_REGEX = /^\d{6}$/;
 
 // ============ VALIDATEURS RÉUTILISABLES ============
-export  const commonValidation = {
-  email: (): ValidationChain => 
+
+export const validate = {
+  email: (): ValidationChain =>
     body('email')
       .trim()
       .toLowerCase()
-      .isEmail()
-      .normalizeEmail()
-      .withMessage('Format d\'email invalide')
-      .isLength({ max: 320 })
-      .withMessage('Email trop long'),
+      .isEmail().withMessage('Format d\'email invalide')
+      .isLength({ max: 320 }).withMessage('Email trop long'),
 
   password: (isRequired = true): ValidationChain => {
-    const validator = body('password');
-    
+    let validator = body('password');
+
     if (isRequired) {
-      validator.notEmpty().withMessage('Le mot de passe est requis');
+      validator = validator.notEmpty().withMessage('Le mot de passe est requis');
     }
-    
+
     return validator
       .isLength({ min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH })
       .withMessage(`Le mot de passe doit contenir entre ${PASSWORD_MIN_LENGTH} et ${PASSWORD_MAX_LENGTH} caractères`)
-      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
       .withMessage('Le mot de passe doit contenir au moins une minuscule, une majuscule, un chiffre et un caractère spécial');
   },
 
@@ -46,21 +44,17 @@ export  const commonValidation = {
   firstName: (): ValidationChain =>
     body('firstName')
       .trim()
-      .notEmpty()
-      .withMessage('Le prénom est requis')
-      .isLength({ min: 2, max: 50 })
-      .withMessage('Le prénom doit contenir entre 2 et 50 caractères')
-      .matches(/^[a-zA-ZÀ-ÿ\s-']+$/)
+      .notEmpty().withMessage('Le prénom est requis')
+      .isLength({ min: 2, max: 50 }).withMessage('Le prénom doit contenir entre 2 et 50 caractères')
+      .matches(/^[a-zA-ZÀ-ÿ\s\-']+$/)
       .withMessage('Le prénom contient des caractères invalides'),
 
   lastName: (): ValidationChain =>
     body('lastName')
       .trim()
-      .notEmpty()
-      .withMessage('Le nom est requis')
-      .isLength({ min: 2, max: 50 })
-      .withMessage('Le nom doit contenir entre 2 et 50 caractères')
-      .matches(/^[a-zA-ZÀ-ÿ\s-']+$/)
+      .notEmpty().withMessage('Le nom est requis')
+      .isLength({ min: 2, max: 50 }).withMessage('Le nom doit contenir entre 2 et 50 caractères')
+      .matches(/^[a-zA-ZÀ-ÿ\s\-']+$/)
       .withMessage('Le nom contient des caractères invalides'),
 
   phoneNumber: (): ValidationChain =>
@@ -72,12 +66,9 @@ export  const commonValidation = {
 
   token: (paramName = 'token'): ValidationChain =>
     param(paramName)
-      .notEmpty()
-      .withMessage('Token manquant')
-      .matches(TOKEN_REGEX)
-      .withMessage('Format de token invalide')
-      .isLength({ min: 16, max: 256 })
-      .withMessage('Token invalide'),
+      .notEmpty().withMessage('Token manquant')
+      .matches(TOKEN_REGEX).withMessage('Format de token invalide')
+      .isLength({ min: 16, max: 256 }).withMessage('Token invalide'),
 
   twoFactorCode: (): ValidationChain =>
     body('code')
@@ -87,10 +78,8 @@ export  const commonValidation = {
 
   refreshToken: (): ValidationChain =>
     body('refreshToken')
-      .notEmpty()
-      .withMessage('Token de rafraîchissement requis')
-      .isJWT()
-      .withMessage('Format de token invalide'),
+      .notEmpty().withMessage('Token de rafraîchissement requis')
+      .isJWT().withMessage('Format de token invalide'),
 
   sessionId: (): ValidationChain =>
     param('id')

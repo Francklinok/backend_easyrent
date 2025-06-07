@@ -3,6 +3,16 @@ import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('AuthMiddleware');
 
+import { IUser } from '../../users/types/userTypes'; // adapte le chemin si besoin
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: IUser;
+      requestId?: string; // ✅ Ajoute cette ligne
+    }
+  }
+}
 
 /**
  * Middleware pour journaliser les requêtes sensibles avec plus de détails

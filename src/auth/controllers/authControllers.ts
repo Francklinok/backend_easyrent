@@ -1155,9 +1155,7 @@ async setupTwoFactor(req: Request, res: Response, next: NextFunction): Promise<v
           step3: 'Sauvegardez précieusement vos codes de sauvegarde',
           step4: 'Confirmez la configuration avec un code de votre application'
         }
-      // success: true,
-      // message: 'Secret 2FA généré avec succès',
-      // data: twoFactorData
+    
     });
   } catch (error: any) {
     const executionTime = Date.now() - startTime;
@@ -1373,8 +1371,9 @@ const userId = (req.user as any)._id || (req.user as any).id;
       }
       
       
-      // Vérifier le code 2FA
+      // Vérifier le code 2FA ..haven't  be  test
       const isValidToken = await this.authService.verifyTwoFactorCode(userId, token);
+      logger.debug('the return of the  validate function  is:',{isValidToken})
       
       if (!isValidToken) {
         logger.warn('Vérification 2FA échouée - code invalide', { userId });
@@ -1644,14 +1643,26 @@ const userId = (req.user as any)._id || (req.user as any).id;
   /**
    * Obtenir le profil de l'utilisateur connecté
    */
+  
   async getProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
     const startTime = Date.now();
     
     try {
-      const { userId } = req.user as { userId: string };
+      const userId = req.user?.userId;
+
+      // const userId = (req.user as { userId: string })?.userId;
+
+      // const { userId } = req.user?.userId as { userId: string };
+      logger.debug('userid  is  :',{ userId })
       
       logger.info('Récupération du profil utilisateur', { userId });
-      
+
+
+      if (!userId) {
+         res.status(401).json({ message: "Unauthorized" });
+         return
+      }
+
       const user = await this.userService.getUserById(userId);
       
       if (!user) {
@@ -1683,6 +1694,7 @@ const userId = (req.user as any)._id || (req.user as any).id;
             username: user.username,
             firstName: user.firstName,
             lastName: user.lastName,
+            profilePicture:  user. profilePicture,
             phoneNumber: user.phoneNumber,
             dateOfBirth: user.dateOfBirth,
             address: user.address,
@@ -1770,6 +1782,7 @@ const userId = (req.user as any)._id || (req.user as any).id;
             username: updatedUser.username,
             firstName: updatedUser.firstName,
             lastName: updatedUser.lastName,
+            profilePicture:updatedUser.profilePicture,
             phoneNumber: updatedUser.phoneNumber,
             dateOfBirth: updatedUser.dateOfBirth,
             address: updatedUser.address,
@@ -1790,6 +1803,93 @@ const userId = (req.user as any)._id || (req.user as any).id;
     }
   }
 
+  async updateProfilePicture(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const startTime = Date.now();
+  
+  try {
+    const { userId } = req.user as { userId: string };
+    const { profilePicture } = req.body;
+    
+    logger.info('Mise à jour de la photo de profil utilisateur', { userId, ip: req.ip });
+    
+    // Vérifier que la photo de profil est fournie
+    if (!profilePicture) {
+      logger.warn('Tentative de mise à jour sans photo de profil', { userId });
+      
+      res.status(400).json({
+        success: false,
+        message: 'Photo de profil requise'
+      });
+      return;
+    }
+    
+    // Optionnel : Validation du format de l'image (URL ou base64)
+    if (typeof profilePicture !== 'string' || profilePicture.trim() === '') {
+      res.status(400).json({
+        success: false,
+        message: 'Format de photo de profil invalide'
+      });
+      return;
+    }
+    
+    const updateData = { profilePicture };
+    
+    const updatedUser = await this.userService.updateUser(userId, updateData);
+    
+    if (!updatedUser) {
+      logger.error('Échec de la mise à jour de la photo de profil', { userId });
+      
+      res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé'
+      });
+      return;
+    }
+    
+    await this.securityAuditService.logEvent({
+      eventType: 'PROFILE_PICTURE_UPDATED',
+      userId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      details: { updatedFields: ['profilePicture'] }
+    });
+    
+    const executionTime = Date.now() - startTime;
+    logger.info('Photo de profil mise à jour avec succès', {
+      userId,
+      executionTime: `${executionTime}ms`
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: 'Photo de profil mise à jour avec succès',
+      data: {
+        user: {
+          id: updatedUser._id || updatedUser.id,
+          email: updatedUser.email,
+          username: updatedUser.username,
+          firstName: updatedUser.firstName,
+          lastName: updatedUser.lastName,
+          profilePicture: updatedUser.profilePicture,
+          phoneNumber: updatedUser.phoneNumber,
+          dateOfBirth: updatedUser.dateOfBirth,
+          address: updatedUser.address,
+          emailVerified: updatedUser.emailVerified,
+          twoFactorEnabled: updatedUser.preferences?.twoFactorEnabled || false
+        }
+      }
+    });
+  } catch (error: any) {
+    const executionTime = Date.now() - startTime;
+    logger.error('Erreur lors de la mise à jour de la photo de profil', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.userId,
+      executionTime: `${executionTime}ms`
+    });
+    next(error);
+  }
+}
   /**
    * Suppression du compte utilisateur
    */

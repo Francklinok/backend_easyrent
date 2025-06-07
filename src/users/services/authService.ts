@@ -393,7 +393,6 @@ async generateTwoFactorSecret(userId: string): Promise<any | null> {
     throw new Error(`2FA setup failed: ${error.message}`);
   }
 }
-////confirm  backup code  
 
 async confirmTwoFactorSetup(userId: string, token: string): Promise<boolean> {
   try {
@@ -441,48 +440,15 @@ async confirmTwoFactorSetup(userId: string, token: string): Promise<boolean> {
     return false;
   }
 }
-
-  // Méthode pour valider un code de sauvegarde
-  // async validateBackupCode(userId: string, code: string): Promise<boolean> {
-  //   try {
-  //     const user = await this.userService.getUserById(userId);
-  //     if (!user || !user.security?.backupCodes) {
-  //       return false;
-  //     }
-
-  //     // Rechercher le code de sauvegarde
-  //     const backupCode = user.security.backupCodes.find(
-  //       bc => bc.code === code && !bc.used
-  //     );
-
-  //     if (!backupCode) {
-  //       logger.warn('[2FA] Invalid or already used backup code', { userId });
-  //       return false;
-  //     }
-
-  //     // Marquer le code comme utilisé
-  //     backupCode.used = true;
-  //     backupCode.usedAt = new Date();
-
-  //     await user.save();
-
-  //     logger.info('[2FA] Backup code used successfully', { 
-  //       userId,
-  //       remainingCodes: user.security.backupCodes.filter(bc => !bc.used).length
-  //     });
-
-  //     return true;
-
-  //   } catch (error: any) {
-  //     logger.error('[2FA] Error validating backup code', {
-  //       error: error.message,
-  //       userId
-  //     });
-  //     return false;
-  //   }
-  // }
+  
   async validateBackupCode(userId: string, code: string): Promise<boolean> {
   try {
+
+    const secret = speakeasy.generateSecret({ name: 'MyApp (test@example.com)' });
+
+    logger.debug('Secret base32 pour  verification:', secret.base32);
+    logger.debug('OTPAuth URL:', secret.otpauth_url);
+
     const user = await this.userService.getUserById(userId);
     if (!user || !user.security?.backupCodes) {
       return false;
@@ -660,8 +626,12 @@ async verifyAccountToken(token: string): Promise<{ success: boolean; message: st
   try {
     const user = await this.userService.getUserById(userId) 
     if (!user || !user.security?.tempTwoFactorSecret) {
+      logger.debug('user  is  not  define')
+
       return false;
     }
+
+    logger.info('the  code  is  :',{code})
 
     const isValid = speakeasy.totp.verify({
       secret: user.security.tempTwoFactorSecret,
@@ -669,6 +639,14 @@ async verifyAccountToken(token: string): Promise<{ success: boolean; message: st
       token: code,
       window: 2
     });
+    
+    const generatedToken = speakeasy.totp({
+  secret: user.security.tempTwoFactorSecret,
+  encoding: 'base32'
+});
+logger.debug('expected token (TOTP) would be:', { generatedToken });
+
+
 
     if (isValid) {
       // Si le code est bon, on sauvegarde le secret de façon permanente

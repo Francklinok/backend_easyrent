@@ -1,14 +1,15 @@
 import express from 'express';
-import { body, param } from 'express-validator';
 import {
   // validate,
   authenticate,
+  validationRules,
   // requireTwoFactor,
   // apiLimiter,
   // authLimiter,
   // sensitiveOperationLimiter,
-  // sensitiveRequestLogger
+  sensitiveRequestLogger
 } from '../middlewares';
+
 
 import AuthControllers from "../controllers/authControllers";
 // import { authenticate } from '../../users/middleware/authMiddleware';
@@ -21,12 +22,8 @@ authRouter.post(
   '/register',
   // apiLimiter,
   // authLimiter,
-  // sensitiveRequestLogger,
-  // validate([
-  //   body('email').isEmail().withMessage('Email invalide'),
-  //   body('password').isLength({ min: 6 }).withMessage('Mot de passe trop court'),
-  //   body('username').notEmpty().withMessage('Le nom d\'utilisateur est requis')
-  // ]),
+  sensitiveRequestLogger,
+  validationRules.register,
   authController.register.bind(authController)
   // register
   
@@ -38,6 +35,7 @@ authRouter.post('/verifyAccount',
 )
 
 authRouter.get('/verify-email', 
+  validationRules.verifyEmail,
   authController.verifyEmail.bind(authController)
 );
 
@@ -49,17 +47,15 @@ authRouter.post(
   '/login',
   // apiLimiter,
   // authLimiter,
-  // sensitiveRequestLogger,
-  // validate([
-  //   body('email').isEmail().withMessage('Email invalide'),
-  //   body('password').notEmpty().withMessage('Mot de passe requis'),
-  // ]),
+  sensitiveRequestLogger,
+  validationRules.login,
   authController.login.bind(authController)
 );
 
 // Refresh Token
 authRouter.post(
   '/refresh-token',
+  validationRules.refreshToken,
   // apiLimiter,
   authController.refreshToken.bind(authController)
 );
@@ -69,10 +65,8 @@ authRouter.post(
   '/forgot-password',
   // apiLimiter,
   // authLimiter,
-  // sensitiveRequestLogger,
-  // validate([
-  //   body('email').isEmail().withMessage('Email invalide')
-  // ]),
+  sensitiveRequestLogger,
+  validationRules.password,
   authController.forgotPassword.bind(authController)
 );
 
@@ -81,23 +75,23 @@ authRouter.post(
   '/reset-password',
   // apiLimiter,
   // sensitiveOperationLimiter,
-  // sensitiveRequestLogger,
-  // validate([
-  //   param('token').notEmpty().withMessage('Jeton manquant'),
-  //   body('password').isLength({ min: 6 }).withMessage('Mot de passe trop court')
-  // ]),
+  sensitiveRequestLogger,
+  validationRules.resetPassword,
   authController.resetPassword.bind(authController)
 );
+
+authRouter.post('/change-Password',  authenticate, authController.changePassword.bind(authController))
+
 
 // Verify Email
 authRouter.get(
   '/verify-email/:token',
   // // apiLimiter,
-  // validate([
-  //   param('token').notEmpty().withMessage('Jeton invalide')
-  // ]),
+  validationRules.verifyEmail,
   authController.verifyEmail.bind(authController)
 );
+
+authRouter.post('/resend-verification-email', authController.resendVerificationEmail.bind(authController));
 
 // ─────────── Routes authentifiées ───────────
 // Logout (authentifié uniquement)
@@ -112,7 +106,7 @@ authRouter.post(
   '/2fa/setup',
   authenticate,
 //   // sensitiveOperationLimiter,
-//   // sensitiveRequestLogger,
+  sensitiveRequestLogger,
   authController.setupTwoFactor.bind(authController)
 );
 
@@ -120,25 +114,19 @@ authRouter.post(
 authRouter.post(
   '/2fa/verify',
     authenticate,
-
-  // // sensitiveRequestLogger,
-  // validate([
-  //   body('code').isNumeric().withMessage('Code invalide'),
-  //   body('token').notEmpty().withMessage('Token requis')
-  // ]),
+  sensitiveRequestLogger,
+  validationRules.verifyTwoFactor,
   authController.verifyTwoFactor.bind(authController)
 );
 
 // Disable 2FA (auth + sensible)
 authRouter.post(
   '/2fa/disable',
-  // authenticate,
+  authenticate,
   // requireTwoFactor,
   // sensitiveOperationLimiter,
-  // sensitiveRequestLogger,
-  // validate([
-  //   body('password').notEmpty().withMessage('Mot de passe requis')
-  // ]),
+  sensitiveRequestLogger,
+   validationRules.password,
   authController.disableTwoFactor.bind(authController)
 );
 
@@ -156,11 +144,17 @@ authRouter.post(
 //   param('id').notEmpty().withMessage('ID de session requis'),
 //   authController.revokeSession.bind(authController)
 // );
-authRouter.post('/resend-verification-email', authController.resendVerificationEmail.bind(authController));
-authRouter.post('/change-Password',  authenticate, authController.changePassword.bind(authController))
 authRouter.get('/validateTwoFactorLogin',  authController.validateTwoFactorLogin.bind(authController))
 //profile
-authRouter.get('/getProfile',  authController.getProfile.bind(authController))
+authRouter.get('/get-profile', 
+  authenticate, 
+   authController.getProfile.bind(authController))
+
+authRouter.put('/update-profile',
+  authenticate, 
+  validationRules.updateProfilePicture,
+  authController.updateProfilePicture.bind(authController))
+
 authRouter.patch('/updateProfile',  authController.updateProfile.bind(authController))
 //account deletion
 authRouter.delete('/deleteAccount',  authController.deleteAccount.bind(authController))

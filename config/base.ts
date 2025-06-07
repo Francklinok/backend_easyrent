@@ -74,15 +74,8 @@ const baseConfig: Config = {
     jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     passwordSaltRounds: parseInt(process.env.PASSWORD_SALT_ROUNDS || '10', 10),
     mfaEnabled: process.env.MFA_ENABLED === 'true',
-    
-    // Nouvelles options utiles
     tokenCleanupInterval: process.env.TOKEN_CLEANUP_INTERVAL || '1h',
     maxRefreshTokensPerUser: parseInt(process.env.MAX_REFRESH_TOKENS_PER_USER || '5', 10),
-
-    // jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
-    // jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
-    // passwordSaltRounds: parseInt(process.env.PASSWORD_SALT_ROUNDS || '10', 10),
-    // mfaEnabled: process.env.MFA_ENABLED === 'true',
   },
   database: {
     url: getRequiredEnvString('DATABASE_URL'),
