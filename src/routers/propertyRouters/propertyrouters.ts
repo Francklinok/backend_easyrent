@@ -18,30 +18,42 @@ import searchProperties from "../../property/controllers/searchProperties";
 
 import updateProperty from "../../property/controllers/updateProperty";
 import updatePropertyStatus from "../../property/controllers/updatePropertyStatus";
-
-const router = express.Router();
+import validationRules from "../../property/middlewares/validateCreateProperty";
+import { authenticate } from "../../auth/middlewares";
+const propertyRouter = express.Router();
 
 // Apply rate limiter middleware
-router.use(rateLimiter(15 * 60 * 1000, 100));
+propertyRouter.use(rateLimiter(15 * 60 * 1000, 100));
 
-// POST route to create a property
-router.post('/', validateCreateProperty, checkOwnerAuthorization, createProperty);
+// // POST route to create a property
+propertyRouter.post('/', 
+    authenticate,
+    validationRules.validateProperty,
+    // checkOwnerAuthorization,
+    createProperty);
 
-// GET routes for retrieving properties
-router.get('/', getProperties); // Get all properties
-router.get('/owner', getPropertiesByOwner); // Get properties by owner
-router.get('/:id', validatePropertyId, getPropertyById); // Get property by ID
-router.get('/similar', getSimilarProperties); // Get similar properties
-router.get('/stats', getPropertyStats); // Get property stats
+// // GET routes for retrieving properties
+propertyRouter.get('/', 
+    // authenticate,
+    // checkOwnerAuthorization,
+    getProperties
+); // Get all properties
+propertyRouter.get('/owner/:ownerId', getPropertiesByOwner);
 
-// DELETE routes for deleting properties
-router.delete('/:id', checkOwnerAuthorization, deleteProperty); // Delete property
-router.delete('/permanent/:id', checkOwnerAuthorization, permanentDeleteProperty); // Permanent delete property
+propertyRouter.get('/:id', validatePropertyId, getPropertyById); // Get property by ID
+// propertyRouter.get('/similar', getSimilarProperties); // Get similar properties
+// propertyRouter.get('/stats', getPropertyStats); // Get property stats
 
-// PATCH routes
-router.patch('/restore/:id', restoreProperty); // Restore deleted property
-router.patch('/:id', updateProperty); // Update property details
-router.patch('/status/:id', updatePropertyStatus); // Update property status
+// // DELETE routes for deleting properties
+// propertyRouter.delete('/:id', checkOwnerAuthorization, deleteProperty); // Delete property
+// propertyRouter.delete('/permanent/:id', checkOwnerAuthorization, permanentDeleteProperty); // Permanent delete property
 
-// Search route
-router.get('/search', searchProperties); // Search properties
+// // PATCH routes
+// propertyRouter.patch('/restore/:id', restoreProperty); // Restore deleted property
+// propertyRouter.patch('/:id', updateProperty); // Update property details
+// propertyRouter.patch('/status/:id', updatePropertyStatus); // Update property status
+
+// // Search route
+// propertyRouter.get('/search', searchProperties); // Search properties
+
+export default propertyRouter;  

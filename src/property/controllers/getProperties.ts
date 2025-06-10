@@ -31,7 +31,9 @@ const logger = createLogger('propertyController');
     // Construire les filtres
     const filters: Record<string, any> = { isActive };
     
-    if (area) filters.area = area;
+    // if (area) filters.area = area;
+    if (area) filters.area = { $regex: new RegExp(area, 'i') };
+
     if (minRent) filters.monthlyRent = { $gte: minRent };
     if (maxRent) filters.monthlyRent = { ...filters.monthlyRent, $lte: maxRent };
     if (minBedrooms) filters.bedrooms = { $gte: minBedrooms };

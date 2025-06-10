@@ -22,7 +22,7 @@ const logger = createLogger('propertyController');
     
     // Ajouter l'ID de l'utilisateur actuel comme propriétaire si non spécifié
     if (!propertyData.ownerId && req.user) {
-      propertyData.ownerId = req.user.id;
+      propertyData.ownerId = req.user.userId;
     }
     
     // Créer la propriété avec optimisation pour ne pas déclencher de validations inutiles

@@ -5,7 +5,7 @@ import { createLogger } from '../../utils/logger/logger';
 // Tu dois typer req.user — on utilise une interface pour étendre Request
 interface AuthenticatedRequest extends Request {
   user?: {
-    id: string;
+    userId: string;
     role?: string;
   };
 }
@@ -22,7 +22,7 @@ const checkOwnerAuthorization = async (
 ): Promise<void> => {
   try {
     const propertyId = req.params.id;
-    const userId = req.user?.id;
+    const userId = req.user?.userId
 
     if (!userId) {
       res.status(401).json({  

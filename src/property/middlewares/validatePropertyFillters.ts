@@ -1,7 +1,6 @@
-import { query } from 'express-validator';
+import { query,  validationResult } from 'express-validator';
 import mongoose from 'mongoose';
 import { PropertyStatus } from '../types/propertyType';
-import { validateResults } from '../utils/validateResults';
 
 /**
  * Middleware pour valider les filtres de recherche de propriétés
@@ -31,5 +30,5 @@ export const validatePropertyFilters = [
     .optional()
     .isIn(['asc', 'desc'])
     .withMessage('L\'ordre de tri doit être "asc" ou "desc"'),
-  validateResults
+  validationResult
 ];

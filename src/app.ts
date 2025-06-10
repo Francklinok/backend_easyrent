@@ -14,6 +14,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import config from '../config';
 import auThrouter from './auth/routers/authrouters';
+import propertyRouter from './routers/propertyRouters/propertyrouters';
 // import router from '../auth/routers/authrouters';
 import { errorHandler } from './auth/utils/errorHandler';
 import { UserPresenceService } from './users/services/userPresence';
@@ -112,13 +113,11 @@ app.get('/', (req, res) => {
 });
 
 // // Routes API
-try{
-  app.use('/api/v1/auth', auThrouter);
+app.use('/api/v1/auth', auThrouter);
+//property  routes
+app.use('/api/properties', propertyRouter);
 
-}catch(error){
-    console.error('❌ Erreur lors du chargement des routes:', error);
 
-}
 
 
 
