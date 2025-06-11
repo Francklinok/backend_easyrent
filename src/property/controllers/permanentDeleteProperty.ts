@@ -44,7 +44,7 @@ const logger = createLogger('propertyController');
     
     // Supprimer des documents liés si nécessaire
     // Par exemple, supprimer les avis liés à cette propriété
-    await mongoose.model('Review').deleteMany({ propertyId: id }, { session });
+    await mongoose.model('Property').deleteMany({ propertyId: id }, { session });
     
     await session.commitTransaction();
     session.endSession();

@@ -25,12 +25,18 @@ const propertyRouter = express.Router();
 // Apply rate limiter middleware
 propertyRouter.use(rateLimiter(15 * 60 * 1000, 100));
 
+// // Search route
+propertyRouter.get('/search', searchProperties); // Search properties
+
 // // POST route to create a property
 propertyRouter.post('/', 
     authenticate,
     validationRules.validateProperty,
     // checkOwnerAuthorization,
     createProperty);
+
+propertyRouter.patch('/:id', updateProperty); // Update property details
+
 
 // // GET routes for retrieving properties
 propertyRouter.get('/', 
@@ -41,19 +47,16 @@ propertyRouter.get('/',
 propertyRouter.get('/owner/:ownerId', getPropertiesByOwner);
 
 propertyRouter.get('/:id', validatePropertyId, getPropertyById); // Get property by ID
-// propertyRouter.get('/similar', getSimilarProperties); // Get similar properties
-// propertyRouter.get('/stats', getPropertyStats); // Get property stats
+propertyRouter.get('/:id/similar', getSimilarProperties);
+propertyRouter.get('/stats', getPropertyStats); // Get property stats
 
 // // DELETE routes for deleting properties
-// propertyRouter.delete('/:id', checkOwnerAuthorization, deleteProperty); // Delete property
-// propertyRouter.delete('/permanent/:id', checkOwnerAuthorization, permanentDeleteProperty); // Permanent delete property
+propertyRouter.delete('/:id', authenticate, checkOwnerAuthorization, deleteProperty); // Delete property
+propertyRouter.delete('/permanent/:id',authenticate, checkOwnerAuthorization, validatePropertyId, permanentDeleteProperty); // Permanent delete property
 
 // // PATCH routes
-// propertyRouter.patch('/restore/:id', restoreProperty); // Restore deleted property
-// propertyRouter.patch('/:id', updateProperty); // Update property details
-// propertyRouter.patch('/status/:id', updatePropertyStatus); // Update property status
+propertyRouter.put('/restore/:id',authenticate, checkOwnerAuthorization, validatePropertyId, restoreProperty); // Restore deleted property
+propertyRouter.patch('/status/:id', updatePropertyStatus); // Update property status
 
-// // Search route
-// propertyRouter.get('/search', searchProperties); // Search properties
 
 export default propertyRouter;  
