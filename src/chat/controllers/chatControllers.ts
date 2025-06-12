@@ -1,275 +1,486 @@
-import Conversation from "../model/conversationModel";
-import  Message from "../model/chatModel"
-import  sharp from  "sharp"
-import  analyzeMessageWithAI from  "../services/service"
+
+// controllers/chatController.js
+import ChatService from "../services/chatService";
+import { validationResult } from 'express-validator';
+import RateLimiter from '../middleware/rateLimiter';
+import { asyncHandler } from '../utils/asyncHandler';
+import { ApiResponse } from '../utils/apiResponse';
+import { ApiError } from '../utils/apiError';
+import { populate } from "dotenv";
 
 class ChatController {
   constructor(io) {
     this.io = io;
+    this.chatService = new ChatService(io);
+    this.rateLimiter = new RateLimiter();
+    
+    // Écouter les événements du service
+    this.setupServiceEventListeners();
   }
 
-  async createOrGetConversation(req, res) {
-    try {
-      const { participantId, type = 'direct', propertyId } = req.body;
-      const userId = req.user.id;
+  setupServiceEventListeners() {
+    this.chatService.on('conversationCreated', (conversation) => {
+      console.log(`Nouvelle conversation créée: ${conversation._id}`);
+    });
 
-      let conversation;
-      if (type === 'direct') {
-        conversation = await Conversation.findOne({
-          participants: { $all: [userId, participantId], $size: 2 },
-          type: 'direct'
-        }).populate('participants', 'name avatar email');
-      }
-
-      if (!conversation) {
-        conversation = new Conversation({
-          participants: type === 'direct' ? [userId, participantId] : [userId],
-          type,
-          propertyId
-        });
-        await conversation.save();
-        await conversation.populate('participants', 'name avatar email');
-      }
-
-      res.json(conversation);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+    this.chatService.on('error', (error) => {
+      console.error('Erreur du service de chat:', error);
+    });
+  }
+  /**
+   * Crée ou récupère une conversation
+   */
+  createOrGetConversation = asyncHandler(async (req, res) => {
+    // Validation des erreurs
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw new ApiError(400, 'Données de validation invalides', errors.array());
     }
-  }
 
-  async getUserConversations(req, res) {
-    try {
-      const userId = req.user.id;
+    const { participantId, type = 'direct', propertyId } = req.body;
+    const userId = req.user.id;
 
-      const conversations = await Conversation.find({
-        participants: userId
-      })
-        .populate('participants', 'name avatar email lastSeen')
-        .populate('propertyId', 'title price images location')
-        .sort({ updatedAt: -1 });
-
-      const conversationsWithLastMessage = await Promise.all(
-        conversations.map(async (conv) => {
-          const lastMessage = await Message.findOne({ conversationId: conv._id })
-            .sort({ createdAt: -1 })
-            .populate('senderId', 'name avatar');
-
-          const unreadCount = await Message.countDocuments({
-            conversationId: conv._id,
-            'status.read.userId': { $ne: userId },
-            senderId: { $ne: userId }
-          });
-
-          return {
-            ...conv.toObject(),
-            lastMessage,
-            unreadCount
-          };
-        })
-      );
-
-      res.json(conversationsWithLastMessage);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+    // Vérifier les permissions
+    if (type === 'direct' && !participantId) {
+      throw new ApiError(400, 'participantId requis pour les conversations directes');
     }
-  }
 
-  async sendMessage(req, res) {
-    try {
-      const { conversationId, content, messageType, replyTo, scheduledFor } = req.body;
-      const userId = req.user.id;
+    const conversation = await this.chatService.createOrGetConversation({
+      participantId,
+      type,
+      propertyId,
+      userId
+    });
 
-      let mediaData = null;
-      if (req.file) {
-        mediaData = {
-          filename: req.file.filename,
-          originalName: req.file.originalname,
-          size: req.file.size,
-          mimetype: req.file.mimetype
-        };
+    res.status(200).json(
+      new ApiResponse(200, conversation, 'Conversation récupérée avec succès')
+    );
+  });
 
-        if (req.file.mimetype.startsWith('image/')) {
-          const imagePath = req.file.path;
-          const metadata = await sharp(imagePath).metadata();
-          mediaData.dimensions = { width: metadata.width, height: metadata.height };
+  /**
+   * Récupère les conversations de l'utilisateur
+   */
+  getUserConversations = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const { 
+      page = 1, 
+      limit = 20, 
+      filter = 'all',
+      sortBy = 'updatedAt',
+      sortOrder = 'desc'
+    } = req.query;
 
-          const compressedPath = `uploads/compressed_${req.file.filename}`;
-          await sharp(imagePath)
-            .resize(800, 600, { fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: 80 })
-            .toFile(compressedPath);
+    // Validation des paramètres
+    const validFilters = ['all', 'unread', 'groups', 'direct', 'archived'];
+    if (!validFilters.includes(filter)) {
+      throw new ApiError(400, 'Filtre invalide');
+    }
 
-          mediaData.compressed = true;
+    const conversations = await this.chatService.getUserConversations({
+      userId,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      filter,
+      sortBy,
+      sortOrder
+    });
+
+    res.status(200).json(
+      new ApiResponse(200, {
+        conversations,
+        pagination: {
+          currentPage: parseInt(page),
+          limit: parseInt(limit),
+          total: conversations.length
         }
-      }
+      }, 'Conversations récupérées avec succès')
+    );
+  });
 
-      const aiInsights = await analyzeMessageWithAI(content, messageType);
-
-      const message = new Message({
-        conversationId,
-        senderId: userId,
-        content,
-        messageType: messageType || 'text',
-        mediaData,
-        replyTo: replyTo || null,
-        scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
-        isScheduled: !!scheduledFor,
-        aiInsights
-      });
-
-      await message.save();
-      await message.populate('senderId', 'name avatar');
-      if (replyTo) await message.populate('replyTo');
-
-      await Conversation.findByIdAndUpdate(conversationId, {
-        updatedAt: new Date(),
-        $inc: { 'analytics.messageCount': 1 }
-      });
-
-      const conversation = await Conversation.findById(conversationId);
-      conversation.participants.forEach(participantId => {
-        if (participantId.toString() !== userId) {
-          this.io.to(participantId.toString()).emit('newMessage', message);
-        }
-      });
-
-      res.json(message);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+  /**
+   * Envoie un message
+   */
+  sendMessage = asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw new ApiError(400, 'Données de validation invalides', errors.array());
     }
-  }
 
-  async getMessages(req, res) {
-    try {
-      const { conversationId } = req.params;
-      const { page = 1, limit = 50 } = req.query;
-      const userId = req.user.id;
+    // Appliquer la limitation de débit
+    await this.rateLimiter.checkLimit(req.user.id, 'sendMessage', 60, 100); // 100 messages par minute
 
-      const messages = await Message.find({
-        conversationId,
-        $or: [{ isDeleted: false }, { isDeleted: true, deletedFor: { $ne: userId } }]
-      })
-        .populate('senderId', 'name avatar')
-        .populate('replyTo')
-        .sort({ createdAt: -1 })
-        .limit(limit * 1)
-        .skip((page - 1) * limit);
+    const { 
+      conversationId, 
+      content, 
+      messageType = 'text', 
+      replyTo, 
+      scheduledFor,
+      priority = 'normal',
+      mentions = []
+    } = req.body;
+    
+    const userId = req.user.id;
 
-      await Message.updateMany(
-        {
-          conversationId,
-          senderId: { $ne: userId },
-          'status.read.userId': { $ne: userId }
-        },
-        {
-          $addToSet: {
-            'status.read': { userId, timestamp: new Date() }
+    // Validation spécifique au type de message
+    await this.validateMessageByType(messageType, content, req.file);
+
+    const message = await this.chatService.sendMessage({
+      conversationId,
+      content,
+      messageType,
+      replyTo,
+      scheduledFor,
+      userId,
+      file: req.file,
+      priority,
+      mentions
+    });
+
+    res.status(201).json(
+      new ApiResponse(201, message, 'Message envoyé avec succès')
+    );
+  });
+
+  /**
+   * Récupère les messages d'une conversation
+   */
+  getMessages = asyncHandler(async (req, res) => {
+    const { conversationId } = req.params;
+    const { 
+      page = 1, 
+      limit = 50,
+      messageType,
+      dateRange,
+      searchQuery
+    } = req.query;
+    
+    const userId = req.user.id;
+
+    // Vérifier l'accès à la conversation
+    await this.verifyConversationAccess(conversationId, userId);
+
+    let parsedDateRange = null;
+    if (dateRange) {
+      try {
+        parsedDateRange = JSON.parse(dateRange);
+      } catch (error) {
+        throw new ApiError(400, 'Format de plage de dates invalide');
+      }
+    }
+
+    const messages = await this.chatService.getMessages({
+      conversationId,
+      userId,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      messageType,
+      dateRange: parsedDateRange,
+      searchQuery
+    });
+
+    res.status(200).json(
+      new ApiResponse(200, {
+        messages,
+        pagination: {
+          currentPage: parseInt(page),
+          limit: parseInt(limit)
+        }
+      }, 'Messages récupérés avec succès')
+    );
+  });
+
+  /**
+   * Réagit à un message
+   */
+  reactToMessage = asyncHandler(async (req, res) => {
+    const { messageId } = req.params;
+    const { emoji, customReaction } = req.body;
+    const userId = req.user.id;
+
+    // Validation
+    if (!emoji && !customReaction) {
+      throw new ApiError(400, 'Emoji ou réaction personnalisée requis');
+    }
+
+    const result = await this.chatService.reactToMessage({
+      messageId,
+      emoji,
+      userId,
+      customReaction
+    });
+
+    res.status(200).json(
+      new ApiResponse(200, result, 'Réaction ajoutée avec succès')
+    );
+  });
+
+  /**
+   * Supprime un message
+   */
+  deleteMessage = asyncHandler(async (req, res) => {
+    const { messageId } = req.params;
+    const { deleteFor = 'me', reason } = req.body;
+    const userId = req.user.id;
+
+    // Validation
+    const validDeleteOptions = ['me', 'everyone'];
+    if (!validDeleteOptions.includes(deleteFor)) {
+      throw new ApiError(400, 'Option de suppression invalide');
+    }
+
+    const result = await this.chatService.deleteMessage({
+      messageId,
+      deleteFor,
+      userId,
+      reason
+    });
+
+    res.status(200).json(
+      new ApiResponse(200, result, 'Message supprimé avec succès')
+    );
+  });
+
+  /**
+   * Restaure un message supprimé
+   */
+  restoreMessage = asyncHandler(async (req, res) => {
+    const { messageId } = req.params;
+    const userId = req.user.id;
+
+    const message = await this.chatService.restoreMessage(messageId, userId);
+
+    res.status(200).json(
+      new ApiResponse(200, message, 'Message restauré avec succès')
+    );
+  });
+
+  /**
+   * Recherche dans les messages
+   */
+  searchMessages = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const {
+      query,
+      conversationId,
+      messageType,
+      dateRange,
+      page = 1,
+      limit = 20
+    } = req.query;
+
+    if (!query || query.trim().length < 2) {
+      throw new ApiError(400, 'La requête de recherche doit contenir au moins 2 caractères');
+    }
+
+    let parsedDateRange = null;
+    if (dateRange) {
+      try {
+        parsedDateRange = JSON.parse(dateRange);
+      } catch (error) {
+        throw new ApiError(400, 'Format de plage de dates invalide');
+      }
+    }
+
+    const messages = await this.chatService.searchMessages({
+      userId,
+      query: query.trim(),
+      conversationId,
+      messageType,
+      dateRange: parsedDateRange,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+    res.status(200).json(
+      new ApiResponse(200, {
+        messages,
+        query: query.trim(),
+        pagination: {
+          currentPage: parseInt(page),
+          limit: parseInt(limit)
+        }
+      }, 'Recherche effectuée avec succès')
+    );
+  });
+
+  /**
+   * Marque une conversation comme lue
+   */
+  markConversationAsRead = asyncHandler(async (req, res) => {
+    const { conversationId } = req.params;
+    const userId = req.user.id;
+
+    await this.verifyConversationAccess(conversationId, userId);
+    await this.chatService.markConversationAsRead(conversationId, userId);
+
+    res.status(200).json(
+      new ApiResponse(200, {}, 'Conversation marquée comme lue')
+    );
+  });
+
+  /**
+   * Gère le statut de frappe
+   */
+  handleTyping = asyncHandler(async (req, res) => {
+    const { conversationId } = req.body;
+    const { isTyping = true } = req.body;
+    const userId = req.user.id;
+
+    await this.verifyConversationAccess(conversationId, userId);
+    await this.chatService.handleTypingStatus(conversationId, userId, isTyping);
+
+    res.status(200).json(
+      new ApiResponse(200, {}, 'Statut de frappe mis à jour')
+    );
+  });
+
+  /**
+   * Archive une conversation
+   */
+  archiveConversation = asyncHandler(async (req, res) => {
+    const { conversationId } = req.params;
+    const userId = req.user.id;
+
+    await this.verifyConversationAccess(conversationId, userId);
+    const conversation = await this.chatService.archiveConversation(conversationId, userId);
+
+    res.status(200).json(
+      new ApiResponse(200, conversation, 'Conversation archivée avec succès')
+    );
+  });
+
+  /**
+   * Épingle un message
+   */
+  pinMessage = asyncHandler(async (req, res) => {
+    const { messageId } = req.params;
+    const userId = req.user.id;
+
+    const result = await this.chatService.pinMessage(messageId, userId);
+
+    res.status(200).json(
+      new ApiResponse(200, result, 'Message épinglé avec succès')
+    );
+  });
+
+  /**
+   * Obtient les statistiques de conversation
+   */
+  getConversationStats = asyncHandler(async (req, res) => {
+    const { conversationId } = req.params;
+    const userId = req.user.id;
+
+    await this.verifyConversationAccess(conversationId, userId);
+    const stats = await this.chatService.getConversationStats(conversationId);
+
+    res.status(200).json(
+      new ApiResponse(200, stats, 'Statistiques récupérées avec succès')
+    );
+  });
+
+  // Méthodes utilitaires privées
+
+  async validateMessageByType(messageType, content, file) {
+    switch (messageType) {
+      case 'text':
+        if (!content || content.trim().length === 0) {
+          throw new ApiError(400, 'Le contenu est requis pour les messages texte');
+        }
+        if (content.length > 10000) {
+          throw new ApiError(400, 'Le message est trop long (max 10000 caractères)');
+        }
+        break;
+      
+      case 'image':
+        if (!file) {
+          throw new ApiError(400, 'Fichier requis pour les messages image');
+        }
+        if (!file.mimetype.startsWith('image/')) {
+          throw new ApiError(400, 'Le fichier doit être une image');
+        }
+        if (file.size > 10 * 1024 * 1024) { // 10MB
+          throw new ApiError(400, 'L\'image est trop volumineuse (max 10MB)');
+        }
+        break;
+      
+      case 'video':
+        if (!file) {
+          throw new ApiError(400, 'Fichier requis pour les messages vidéo');
+        }
+        if (!file.mimetype.startsWith('video/')) {
+          throw new ApiError(400, 'Le fichier doit être une vidéo');
+        }
+        if (file.size > 100 * 1024 * 1024) { // 100MB
+          throw new ApiError(400, 'La vidéo est trop volumineuse (max 100MB)');
+        }
+        break;
+      
+      case 'audio':
+        if (!file) {
+          throw new ApiError(400, 'Fichier requis pour les messages audio');
+        }
+        if (!file.mimetype.startsWith('audio/')) {
+          throw new ApiError(400, 'Le fichier doit être un audio');
+        }
+        if (file.size > 25 * 1024 * 1024) { // 25MB
+          throw new ApiError(400, 'L\'audio est trop volumineux (max 25MB)');
+        }
+        break;
+      
+      case 'document':
+        if (!file) {
+          throw new ApiError(400, 'Fichier requis pour les messages document');
+        }
+        const allowedDocTypes = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'text/plain',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        ];
+        if (!allowedDocTypes.includes(file.mimetype)) {
+          throw new ApiError(400, 'Type de document non supporté');
+        }
+        if (file.size > 50 * 1024 * 1024) { // 50MB
+          throw new ApiError(400, 'Le document est trop volumineux (max 50MB)');
+        }
+        break;
+      
+      case 'location':
+        if (!content) {
+          throw new ApiError(400, 'Les données de localisation sont requises');
+        }
+        try {
+          const locationData = JSON.parse(content);
+          if (!locationData.latitude || !locationData.longitude) {
+            throw new ApiError(400, 'Latitude et longitude requises');
           }
+        } catch (error) {
+          throw new ApiError(400, 'Format de localisation invalide');
         }
-      );
-
-      res.json(messages.reverse());
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+        break;
+      
+      default:
+        throw new ApiError(400, 'Type de message non supporté');
     }
   }
 
-  async reactToMessage(req, res) {
-    try {
-      const { messageId } = req.params;
-      const { emoji } = req.body;
-      const userId = req.user.id;
-
-      const message = await Message.findById(messageId);
-      if (!message) return res.status(404).json({ error: 'Message non trouvé' });
-
-      message.reactions = message.reactions.filter(
-        r => r.userId.toString() !== userId
-      );
-
-      if (emoji) {
-        message.reactions.push({ userId, emoji });
-      }
-
-      await message.save();
-
-      const conversation = await Conversation.findById(message.conversationId);
-      conversation.participants.forEach(participantId => {
-        this.io.to(participantId.toString()).emit('messageReaction', {
-          messageId,
-          reactions: message.reactions
-        });
-      });
-
-      res.json({ success: true, reactions: message.reactions });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+  async verifyConversationAccess(conversationId, userId) {
+    const conversation = await this.chatService.getConversationById(conversationId);
+    if (!conversation) {
+      throw new ApiError(404, 'Conversation non trouvée');
     }
-  }
-
-  async deleteMessage(req, res) {
-    try {
-      const { messageId } = req.params;
-      const { deleteFor = 'me' } = req.body;
-      const userId = req.user.id;
-
-      const message = await Message.findById(messageId);
-      if (!message) return res.status(404).json({ error: 'Message non trouvé' });
-
-      if (deleteFor === 'everyone' && message.senderId.toString() !== userId) {
-        return res.status(403).json({ error: 'Non autorisé' });
-      }
-
-      if (deleteFor === 'everyone') {
-        message.isDeleted = true;
-        message.deletedAt = new Date();
-        message.content = null;
-      } else {
-        message.deletedFor.push(userId);
-      }
-
-      await message.save();
-
-      const conversation = await Conversation.findById(message.conversationId);
-      conversation.participants.forEach(participantId => {
-        this.io.to(participantId.toString()).emit('messageDeleted', {
-          messageId,
-          deleteFor,
-          deletedBy: userId
-        });
-      });
-
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+    
+    const hasAccess = conversation.participants.some(
+      participant => participant.toString() === userId
+    );
+    
+    if (!hasAccess) {
+      throw new ApiError(403, 'Accès à la conversation non autorisé');
     }
-  }
-
-  async restoreMessage(req, res) {
-    try {
-      const { messageId } = req.params;
-      const userId = req.user.id;
-
-      const message = await Message.findById(messageId);
-      if (!message || !message.canRestore) {
-        return res.status(404).json({ error: 'Message non restaurable' });
-      }
-
-      message.deletedFor = message.deletedFor.filter(id => id.toString() !== userId);
-
-      if (message.deletedFor.length === 0) {
-        message.isDeleted = false;
-        message.deletedAt = null;
-      }
-
-      await message.save();
-      await message.populate('senderId', 'name avatar');
-
-      res.json(message);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
+    
+    return conversation;
   }
 }
-
-module.exports = ChatController;
+export default ChatController;

@@ -13,7 +13,7 @@ export class UserPresenceService {
   // Clé du prefix pour Redis
   private readonly REDIS_PREFIX = 'user:presence:';
   // Durée en secondes avant qu'un utilisateur soit considéré comme "away"
-  private readonly AWAY_TIMEOUT = 300; // 5 minutes
+  private readonly AWAY_TIMEOUT = 120; // 5 minutes
   // Durée en secondes avant qu'un utilisateur soit considéré comme "offline"
   private readonly OFFLINE_TIMEOUT = 900; // 15 minutes
   // Durée d'expiration des entrées Redis en secondes
