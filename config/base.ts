@@ -110,13 +110,25 @@ const baseConfig: Config = {
             process.env.SMTP_PASS &&
             process.env.SMTP_PORT
           ),
-        },
+  },
   sendgrid: {
     apiKey: process.env.SENDGRID_API_KEY,
     enabled: process.env.SENDGRID_ENABLED === 'true',
     fromAddress:process.env.SENDGRID_FROM_EMAIL || 'noreply@easyrent.com'
   },
+  webpush: {
+    enabled: process.env.WEBPUSH_ENABLED === 'true',
+    vapidSubject: process.env.VAPID_SUBJECT,
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY!,
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY!
+  },
 
+  firebase: {
+    enabled: process.env.FIREBASE_ENABLED === 'true',
+    projectId: process.env.FIREBASE_PROJECT_ID!,
+    serviceAccount: {
+      // Votre service account Firebase
+    },},
   security: {
     level: (process.env.SECURITY_LEVEL as 'low' | 'medium' | 'high' | 'adaptive') || 'adaptive',
     rateLimit: {

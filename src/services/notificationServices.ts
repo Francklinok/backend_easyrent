@@ -3,28 +3,19 @@ import sgMail from '@sendgrid/mail';
 import { createLogger } from '../utils/logger/logger';
 import { VerificationStatus } from '../users/types/userTypes';
 import config from '../../config';
+import  webpush from  'web-push'
+import  admin from  'firebase-admin'
+import { EmailOptions,QueuedEmail} from '../type/notificationType';
 
 const logger = createLogger('NotificationService');
-
-interface EmailOptions {
-  to: string;
-  subject: string;
-  html: string;
-  text?: string;
-}
-interface QueuedEmail extends EmailOptions {
-  id: string;
-  priority: 'high' | 'normal' | 'low';
-  attempts: number;
-  maxAttempts: number;
-  scheduledAt: Date;
-}
 
 export class NotificationService {
   private transporter!: Transporter;
   private fromEmail: string;
   private isSendGridEnabled: boolean;
   private isSMTPEnabled: boolean;
+  private isWebPushEnabled: boolean;
+  private isFirebaseEnabled: boolean;
   private emailStrategy: 'sendgrid-first' | 'smtp-first';
   private emailQueue: QueuedEmail[] = [];
   private isProcessingQueue = false;
@@ -39,31 +30,54 @@ export class NotificationService {
       requests: 0,
       resetTime: Date.now() + 60000,
       limit: 60 // Conservative limit for SMTP
+    },
+     firebase: {
+      requests: 0,
+      resetTime: Date.now() + 60000,
+      limit: 1000 // Firebase permet beaucoup plus
+    },
+    webpush: {
+      requests: 0,
+      resetTime: Date.now() + 60000,
+      limit: 500
     }
   };
 
   constructor() {
     this.fromEmail = config.sendgrid.fromAddress || config.email.fromAddress || 'noreply@easyrent.com';
-      this.emailStrategy = config.email.strategy;
-
+    this.emailStrategy = config.email.strategy;
     // Vérifier et initialiser SendGrid
     this.isSendGridEnabled = this.initializeSendGrid();
     
     // Vérifier et initialiser SMTP
     this.isSMTPEnabled = this.initializeSMTP();
-    
+
+    this.isWebPushEnabled = this.initializeWebPush();
+    this.isFirebaseEnabled = this.initializeFirebase();
+    this.logServicesStatus();
     // Vérifier qu'au moins un service est disponible
-    if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
-      logger.error('Aucun service email configuré ! Vérifiez vos variables d\'environnement.');
-    } else {
-      logger.info('Services email initialisés', {
-        sendgrid: this.isSendGridEnabled,
-        smtp: this.isSMTPEnabled,
-          strategy: this.emailStrategy,
-        primaryService: this.getPrimaryService()
-      });
-    }
   }
+
+  private logServicesStatus(): void {
+    const availableServices = [];
+    if (this.isSendGridEnabled) availableServices.push('SendGrid');
+    if (this.isSMTPEnabled) availableServices.push('SMTP');
+    if (this.isWebPushEnabled) availableServices.push('WebPush');
+    if (this.isFirebaseEnabled) availableServices.push('Firebase');
+
+    if (availableServices.length === 0) {
+      logger.error('Aucun service de notification configuré !');
+    } else {
+      logger.info('Services de notification initialisés', {
+        services: availableServices,
+        emailStrategy: this.emailStrategy,
+        primaryEmailService: this.getPrimaryService(),
+        pushServices: {
+          webPush: this.isWebPushEnabled,
+          firebase: this.isFirebaseEnabled
+        }
+      })}}
+
     private getPrimaryService(): string {
     if (this.emailStrategy === 'smtp-first' && this.isSMTPEnabled) return 'SMTP';
     if (this.emailStrategy === 'sendgrid-first' && this.isSendGridEnabled) return 'SendGrid';
@@ -71,7 +85,6 @@ export class NotificationService {
     if (this.isSMTPEnabled) return 'SMTP';
     return 'None';
   }
-
   /**
    * Initialise SendGrid
    */
@@ -157,6 +170,66 @@ export class NotificationService {
       return false;
     }
   }
+  /**
+   * Initialise Web Push
+   */
+  private initializeWebPush(): boolean {
+    if (!config.webpush?.enabled || !config.webpush.vapidPublicKey || !config.webpush.vapidPrivateKey) {
+      logger.warn('Web Push non configuré', {
+        enabled: config.webpush?.enabled,
+        hasPublicKey: !!config.webpush?.vapidPublicKey,
+        hasPrivateKey: !!config.webpush?.vapidPrivateKey
+      });
+      return false;
+    }
+
+    try {
+      webpush.setVapidDetails(
+        config.webpush.vapidSubject || 'mailto:noreply@easyrent.com',
+        config.webpush.vapidPublicKey,
+        config.webpush.vapidPrivateKey
+      );
+
+      logger.info('Web Push initialisé avec succès');
+      return true;
+    } catch (error) {
+      logger.error('Erreur lors de l\'initialisation Web Push', {
+        error: error instanceof Error ? error.message : 'Erreur inconnue'
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Initialise Firebase Admin
+   */
+  private initializeFirebase(): boolean {
+    if (!config.firebase?.enabled || !config.firebase.serviceAccount) {
+      logger.warn('Firebase non configuré', {
+        enabled: config.firebase?.enabled,
+        hasServiceAccount: !!config.firebase?.serviceAccount
+      });
+      return false;
+    }
+
+    try {
+      if (!admin.apps.length) {
+        admin.initializeApp({
+          credential: admin.credential.cert(config.firebase.serviceAccount),
+          projectId: config.firebase.projectId
+        });
+      }
+
+      logger.info('Firebase Admin initialisé avec succès');
+      return true;
+    } catch (error) {
+      logger.error('Erreur lors de l\'initialisation Firebase', {
+        error: error instanceof Error ? error.message : 'Erreur inconnue'
+      });
+      return false;
+    }
+  }
+
 
   /**
    * Vérification de connexion SMTP asynchrone
@@ -182,13 +255,184 @@ export class NotificationService {
   }
 
   /**
+   * Envoie une notification push via Firebase Cloud Messaging
+   */
+  async sendFCMPushNotification(
+    tokens: string | string[], 
+    notification: PushNotificationOptions
+  ): Promise<boolean> {
+    if (!this.isFirebaseEnabled) {
+      logger.warn('Firebase non disponible pour l\'envoi de push notifications');
+      return false;
+    }
+
+    if (!this.canSendPush('firebase')) {
+      logger.warn('Limite de taux Firebase atteinte');
+      return false;
+    }
+
+    try {
+      const tokensArray = Array.isArray(tokens) ? tokens : [tokens];
+      const validTokens = tokensArray.filter(token => token && token.trim() !== '');
+
+      if (validTokens.length === 0) {
+        logger.warn('Aucun token FCM valide fourni');
+        return false;
+      }
+
+      const message = {
+        notification: {
+          title: notification.title,
+          body: notification.body,
+          imageUrl: notification.icon
+        },
+        data: {
+          ...notification.data,
+          click_action: 'FLUTTER_NOTIFICATION_CLICK',
+          timestamp: new Date().toISOString()
+        },
+        android: {
+          notification: {
+            channelId: notification.androidChannelId || 'default',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            icon: notification.androidIcon || 'ic_notification',
+            color: notification.androidColor || '#4A90E2'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: notification.title,
+                body: notification.body
+              },
+              badge: notification.badge || 1,
+              sound: notification.sound || 'default',
+              category: notification.category || 'DEFAULT'
+            }
+          }
+        },
+        tokens: validTokens
+      };
+
+      const response = await admin.messaging().sendMulticast(message);
+      this.updateRateLimit('firebase');
+
+      // Nettoyer les tokens invalides
+      if (response.failureCount > 0) {
+        await this.cleanupInvalidFCMTokens(validTokens, response.responses);
+      }
+
+      logger.info('Notification FCM envoyée', {
+        successCount: response.successCount,
+        failureCount: response.failureCount,
+        tokens: validTokens.length
+      });
+
+      return response.successCount > 0;
+    } catch (error) {
+      logger.error('Erreur lors de l\'envoi FCM', {
+        error: error instanceof Error ? error.message : 'Erreur inconnue',
+        tokens: Array.isArray(tokens) ? tokens.length : 1
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Envoie une notification Web Push
+   */
+  async sendWebPushNotification(
+    subscriptions: WebPushSubscription | WebPushSubscription[],
+    notification: PushNotificationOptions
+  ): Promise<boolean> {
+    if (!this.isWebPushEnabled) {
+      logger.warn('Web Push non disponible');
+      return false;
+    }
+
+    if (!this.canSendPush('webpush')) {
+      logger.warn('Limite de taux Web Push atteinte');
+      return false;
+    }
+
+    try {
+      const subscriptionsArray = Array.isArray(subscriptions) ? subscriptions : [subscriptions];
+      const validSubscriptions = subscriptionsArray.filter(sub => 
+        sub && sub.endpoint && sub.keys && sub.keys.p256dh && sub.keys.auth
+      );
+
+      if (validSubscriptions.length === 0) {
+        logger.warn('Aucune subscription Web Push valide fournie');
+        return false;
+      }
+
+      const payload = JSON.stringify({
+        title: notification.title,
+        body: notification.body,
+        icon: notification.icon,
+        badge: notification.badge || '/notification-badge.png',
+        data: {
+          ...notification.data,
+          timestamp: new Date().toISOString()
+        },
+        actions: notification.actions || [],
+        requireInteraction: notification.requireInteraction || false,
+        silent: notification.silent || false,
+        tag: notification.tag || 'default',
+        renotify: notification.renotify || false
+      });
+
+      const promises = validSubscriptions.map(async (subscription, index) => {
+        try {
+          const result = await webpush.sendNotification(subscription, payload, {
+            TTL: notification.ttl || 86400, // 24 heures par défaut
+            urgency: notification.urgency || 'normal',
+            topic: notification.topic
+          });
+          
+          return { success: true, index, result };
+        } catch (error: any) {
+          // Gérer les subscriptions expirées
+          if (error.statusCode === 410 || error.statusCode === 404) {
+            await this.removeExpiredWebPushSubscription(subscription);
+          }
+          
+          return { success: false, index, error };
+        }
+      });
+
+      const results = await Promise.allSettled(promises);
+      this.updateRateLimit('webpush');
+      
+      const successCount = results.filter(r => 
+        r.status === 'fulfilled' && r.value.success
+      ).length;
+
+      logger.info('Notifications Web Push envoyées', {
+        total: validSubscriptions.length,
+        success: successCount,
+        failed: validSubscriptions.length - successCount
+      });
+
+      return successCount > 0;
+    } catch (error) {
+      logger.error('Erreur lors de l\'envoi Web Push', {
+        error: error instanceof Error ? error.message : 'Erreur inconnue'
+      });
+      return false;
+    }
+  }
+
+  /**
    * Validate email address format
    */
   private isValidEmail(email: string): boolean {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   }
-
   /**
    * Envoie un email via SendGrid
    */
@@ -246,7 +490,6 @@ export class NotificationService {
       return false;
     }
   }
-
   /**
    * Envoie un email via SMTP
    */
@@ -303,7 +546,133 @@ export class NotificationService {
       return false;
     }
   }
+  
+  /**
+   * Méthode unifiée pour envoyer des notifications
+   */
+  async sendNotification(options: {
+    type: 'email' | 'push' | 'both';
+    email?: EmailOptions;
+    push?: {
+      fcmTokens?: string[];
+      webpushSubscriptions?: WebPushSubscription[];
+      notification: PushNotificationOptions;
+    };
+    priority?: 'high' | 'normal' | 'low';
+  }): Promise<{ email: boolean; push: boolean }> {
+    const results = { email: false, push: false };
 
+    try {
+      // Envoi des emails
+      if (options.type === 'email' || options.type === 'both') {
+        if (options.email) {
+          if (options.priority === 'high') {
+            results.email = await this.sendUrgentEmail(options.email);
+          } else {
+            results.email = await this.sendEmailSafely(options.email);
+          }
+        }
+      }
+
+      // Envoi des notifications push
+      if (options.type === 'push' || options.type === 'both') {
+        if (options.push) {
+          const pushPromises: Promise<boolean>[] = [];
+
+          // Firebase push notifications
+          if (options.push.fcmTokens && options.push.fcmTokens.length > 0) {
+            pushPromises.push(
+              this.sendFCMPushNotification(options.push.fcmTokens, options.push.notification)
+            );
+          }
+
+          // Web push notifications
+          if (options.push.webpushSubscriptions && options.push.webpushSubscriptions.length > 0) {
+            pushPromises.push(
+              this.sendWebPushNotification(options.push.webpushSubscriptions, options.push.notification)
+            );
+          }
+
+          if (pushPromises.length > 0) {
+            const pushResults = await Promise.all(pushPromises);
+            results.push = pushResults.some(result => result);
+          }
+        }
+      }
+
+      return results;
+    } catch (error) {
+      logger.error('Erreur lors de l\'envoi de notification unifiée', {
+        error: error instanceof Error ? error.message : 'Erreur inconnue',
+        type: options.type
+      });
+      return results;
+    }
+  }
+    
+  /**
+   * Nettoie les tokens FCM invalides
+   */
+  private async cleanupInvalidFCMTokens(tokens: string[], responses: any[]): Promise<void> {
+    const invalidTokens: string[] = [];
+    
+    responses.forEach((response, index) => {
+      if (!response.success && response.error) {
+        const errorCode = response.error.code;
+        if (errorCode === 'messaging/invalid-registration-token' || 
+            errorCode === 'messaging/registration-token-not-registered') {
+          invalidTokens.push(tokens[index]);
+        }
+      }
+    });
+
+    if (invalidTokens.length > 0) {
+      logger.info('Nettoyage des tokens FCM invalides', { count: invalidTokens.length });
+      // Ici vous pouvez ajouter la logique pour supprimer les tokens de votre base de données
+      // await User.updateMany(...);
+    }
+  }
+
+  /**
+   * Supprime une subscription Web Push expirée
+   */
+  private async removeExpiredWebPushSubscription(subscription: WebPushSubscription): Promise<void> {
+    try {
+      logger.info('Suppression d\'une subscription Web Push expirée', {
+        endpoint: subscription.endpoint
+      });
+      // Ici vous pouvez ajouter la logique pour supprimer la subscription de votre base de données
+      // await User.updateMany(...);
+    } catch (error) {
+      logger.error('Erreur lors de la suppression de la subscription expirée', {
+        error: error instanceof Error ? error.message : 'Erreur inconnue'
+      });
+    }
+  }
+
+/**
+   * Masque l'email pour les logs
+   */
+  private maskEmail(email: string): string {
+    if (!email || email.length < 3) return '***';
+    const [local, domain] = email.split('@');
+    if (!domain) return email.substring(0, 3) + '***';
+    return local.substring(0, Math.min(3, local.length)) + '***@' + domain;
+  }
+
+  /**
+   * Vérifie si on peut envoyer des push notifications
+   */
+  private canSendPush(service: 'firebase' | 'webpush'): boolean {
+    const now = Date.now();
+    
+    if (now > this.rateLimiter[service].resetTime) {
+      this.rateLimiter[service].requests = 0;
+      this.rateLimiter[service].resetTime = now + 60000;
+    }
+
+    return this.rateLimiter[service].requests < this.rateLimiter[service].limit;
+  }
   /**
  * Improved email sending method that respects the configured strategy
  */
@@ -387,48 +756,6 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
       return this.isSendGridEnabled ? ['sendgrid', 'smtp'] : ['smtp', 'sendgrid'];
   }
 }
-  // private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
-  //   // Vérifier qu'au moins un service est disponible
-  //   if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
-  //     logger.error('Aucun service email disponible', {
-  //       to: this.maskEmail(mailOptions.to),
-  //       subject: mailOptions.subject
-  //     });
-  //     return false;
-  //   }
-
-  //   // Essayer SendGrid en priorité
-  //   if (this.isSendGridEnabled) {
-  //     logger.debug('Tentative d\'envoi via SendGrid...');
-  //     const sendGridSuccess = await this.sendWithSendGrid(mailOptions);
-      
-  //     if (sendGridSuccess) {
-  //       return true;
-  //     }
-      
-  //     logger.warn('SendGrid a échoué, tentative SMTP...');
-  //   }
-
-  //   // Fallback vers SMTP
-  //   if (this.isSMTPEnabled) {
-  //     logger.debug('Tentative d\'envoi via SMTP...');
-  //     const smtpSuccess = await this.sendWithSMTP(mailOptions);
-      
-  //     if (smtpSuccess) {
-  //       return true;
-  //     }
-  //   }
-
-  //   // Tous les services ont échoué
-  //   logger.error('Échec de tous les services email', {
-  //     to: this.maskEmail(mailOptions.to),
-  //     subject: mailOptions.subject,
-  //     sendgridEnabled: this.isSendGridEnabled,
-  //     smtpEnabled: this.isSMTPEnabled
-  //   });
-
-  //   return false;
-  // }
 
   private async queueEmail(
     mailOptions: EmailOptions, 
@@ -598,15 +925,35 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
   }
 
   /**
-   * Masque l'email pour les logs
+   * Met à jour les compteurs de limite de taux (étendue)
    */
-  private maskEmail(email: string): string {
-    if (!email || email.length < 3) return '***';
-    const [local, domain] = email.split('@');
-    if (!domain) return email.substring(0, 3) + '***';
-    return local.substring(0, Math.min(3, local.length)) + '***@' + domain;
+  private updateRateLimit(service: 'sendgrid' | 'smtp' | 'firebase' | 'webpush'): void {
+    if (this.rateLimiter[service]) {
+      this.rateLimiter[service].requests++;
+    }
   }
 
+  /**
+   * Obtient le statut de tous les services
+   */
+  getServicesStatus(): {
+    email: { sendgrid: boolean; smtp: boolean; primary: string };
+    push: { firebase: boolean; webpush: boolean };
+  } {
+    return {
+      email: {
+        sendgrid: this.isSendGridEnabled,
+        smtp: this.isSMTPEnabled,
+        primary: this.getPrimaryService()
+      },
+      push: {
+        firebase: this.isFirebaseEnabled,
+        webpush: this.isWebPushEnabled
+      }
+    };
+  }
+
+  
   /**
    * Test de la configuration email
    */
@@ -648,20 +995,6 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
     }
 
     testResults.overall = testResults.sendgrid || testResults.smtp;
-
-    // // Test SMTP
-    // if (this.isSMTPEnabled && this.transporter) {
-    //   try {
-    //     await this.transporter.verify();
-    //     testResults.smtp = true;
-    //     logger.info('SMTP configuré et prêt');
-    //   } catch (error) {
-    //     logger.error('Test SMTP échoué', { error });
-    //   }
-    // }
-
-    // testResults.overall = testResults.sendgrid || testResults.smtp;
-
     logger.info('Résultats des tests email', testResults);
     return testResults;
   }
@@ -1460,48 +1793,4 @@ private getAccountStatusNotificationTemplate(
     </div>
   `;
 }
-
-
-  //   private getSecurityAlertEmailTemplate(firstName: string, alertMessage: string, comment?: string): string {
-  //   return `
-  //     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-  //       <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
-  //         <h1 style="color: #dc3545;">🚨 Alerte de Sécurité</h1>
-  //         <p>Bonjour ${firstName},</p>
-  //         <p style="font-size: 16px; font-weight: bold; color: #dc3545;">${alertMessage}</p>
-  //         ${comment ? `<p style="font-style: italic; color: #666;">Détails: ${comment}</p>` : ''}
-          
-  //         <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 20px 0;">
-  //           <p style="margin: 0; color: #856404;">
-  //             <strong>Si cette activité ne provient pas de vous, veuillez immédiatement :</strong>
-  //           </p>
-  //         </div>
-          
-  //         <ol style="color: #333;">
-  //           <li>Changer votre mot de passe</li>
-  //           <li>Activer l'authentification à deux facteurs si ce n'est pas déjà fait</li>
-  //           <li>Contacter notre équipe de support</li>
-  //         </ol>
-          
-  //         <div style="text-align: center; margin: 30px 0;">
-  //           <a href="${config.app.frontendUrl}/change-password" 
-  //              style="background-color: #dc3545; color: white; padding: 12px 24px; text-decoration: none; 
-  //                     border-radius: 4px; display: inline-block; margin: 5px;">
-  //             Changer mot de passe
-  //           </a>
-  //           <a href="${config.app.frontendUrl}/security-settings" 
-  //              style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; 
-  //                     border-radius: 4px; display: inline-block; margin: 5px;">
-  //             Paramètres sécurité
-  //           </a>
-  //         </div>
-          
-  //         <p style="font-size: 14px; color: #666;">
-  //           Si cette activité provient de vous, vous pouvez ignorer cet email.
-  //         </p>
-  //         <p style="font-weight: bold;">L'équipe de sécurité</p>
-  //       </div>
-  //     </div>
-  //   `;
-  // }
 }
