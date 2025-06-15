@@ -1,10 +1,11 @@
+
 import { Document } from "mongoose";
 import { Types } from "mongoose";
-
 
 export interface IMessage extends Document {
   msgId: Types.ObjectId;
   senderId: Types.ObjectId;
+  conversationId: Types.ObjectId;
   content: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'contact' | 'property' | 'voice_note' | 'ar_preview' | 'virtual_tour';
   mediaData?: {
     filename?: string;
@@ -57,7 +58,7 @@ export interface IMessage extends Document {
     sentiment?: string;
     intentDetection?: string;
     autoSuggestions?: string[];
-    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    priority?: 'low' | 'medium'|'normal'| 'high' | 'urgent';
   };
   theme?: 'light' | 'dark' | 'auto';
   scheduledFor?: Date;
@@ -66,7 +67,7 @@ export interface IMessage extends Document {
     expiresAt: Date;
     accessCode: string;
   };
-  createdAt?: Date;
+  createdAt: Date;
   updatedAt?: Date;
 }
 
@@ -117,3 +118,108 @@ export interface IConversation extends Document {
   createdAt?: Date;
   updatedAt?: Date;
 }
+
+export type NotificationPayload = {
+  type: 'push';
+  push: {
+    notification: {
+      title: string;
+      body: string;
+      data: Record<string, any>;
+    };
+    fcmTokens?: string[];
+    webpushSubscriptions?: any[];
+  };
+  priority?: 'low' | 'medium'| 'normal'| 'high' | 'urgent';
+};
+
+export interface MediaFile {
+  filename: string;
+  originalname: string;
+  size: number;
+  mimetype: string;
+  path: string;
+}
+export interface CreateConversationParams {
+  participantId: string;
+  type?: 'direct' | 'group';
+  propertyId?: string;
+  userId: string;
+}
+
+export interface GetUserConversationsParams {
+  userId: string;
+  page?: number;
+  limit?: number;
+  filter?: 'all' | 'unread' | 'groups' | 'direct';
+}
+
+export interface SendMessageParams {
+  conversationId: string;
+  content: string;
+  messageType?: 'text' | 'image' | 'video' | 'audio' | 'file';
+  replyTo?: string;
+  scheduleFor?: string;
+  userId: string;
+  file?: MediaFile;
+  priority?: 'low' | 'medium'|'normal'| 'high' | 'urgent';
+  mentions?: any[];
+}
+
+export interface GetMessagesParams {
+  conversationId: string;
+  userId: string;
+  page?: number;
+  limit?: number;
+  messageType?: string | null;
+  dateRange?: { start: string; end: string }|null;
+  searchQuery?: string | null;
+}
+
+export interface ReactToMessageParams {
+  messageId: string;
+  emoji?: string;
+  userId: string;
+  customReaction?: any;
+}
+
+export interface DeleteMessageParams {
+  messageId: string;
+  deleteFor?: 'me' | 'everyone';
+  userId: string;
+  reason?: string | null;
+  canDeleteMessages?:boolean
+}
+
+export  interface UserPermissions {
+  canDeleteMessages?: boolean;
+}
+
+export interface SearchMessagesParams {
+  userId: string;
+  query: string;
+  conversationId?: string |null;
+  messageType?: string |null;
+  dateRange?: { start: string; end: string }|null;
+  page?: number;
+  limit?: number;
+}
+
+export interface ReactionAnalytics {
+  messageId: string;
+  reactions: Record<string, number>;
+  totalReactions: number;
+  uniqueUsers: string[];
+  timeline: Array<{
+    userId: string;
+    emoji: string;
+    timestamp: Date;
+  }>;
+}
+
+export interface CacheService {
+  get<T>(key: string): Promise<T | null>;
+  set(key: string, value: any, ttl?: number): Promise<void>;
+  isUserOnline?(userId: string): boolean;
+}
+

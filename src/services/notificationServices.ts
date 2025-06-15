@@ -4,8 +4,12 @@ import { createLogger } from '../utils/logger/logger';
 import { VerificationStatus } from '../users/types/userTypes';
 import config from '../../config';
 import  webpush from  'web-push'
-import  admin from  'firebase-admin'
 import { EmailOptions,QueuedEmail} from '../type/notificationType';
+import { PushNotificationOptions } from '../type/notificationType';
+import { WebPushSubscription } from '../type/notificationType';
+import * as admin from 'firebase-admin';
+import { ServiceAccount } from 'firebase-admin';
+import { MulticastMessage } from 'firebase-admin/messaging';
 
 const logger = createLogger('NotificationService');
 
@@ -96,7 +100,6 @@ export class NotificationService {
       });
       return false;
     }
-
     try {
       sgMail.setApiKey(config.sendgrid.apiKey);
       logger.info('SendGrid initialisé avec succès');
@@ -122,8 +125,6 @@ export class NotificationService {
           });
           return false;
         }
-    
-
     try {
       this.transporter = nodemailer.createTransport({
         host: config.email.host,
@@ -182,7 +183,6 @@ export class NotificationService {
       });
       return false;
     }
-
     try {
       webpush.setVapidDetails(
         config.webpush.vapidSubject || 'mailto:noreply@easyrent.com',
@@ -215,7 +215,7 @@ export class NotificationService {
     try {
       if (!admin.apps.length) {
         admin.initializeApp({
-          credential: admin.credential.cert(config.firebase.serviceAccount),
+          credential: admin.credential.cert(config.firebase.serviceAccount as  ServiceAccount),
           projectId: config.firebase.projectId
         });
       }
@@ -229,8 +229,6 @@ export class NotificationService {
       return false;
     }
   }
-
-
   /**
    * Vérification de connexion SMTP asynchrone
    */
@@ -253,7 +251,6 @@ export class NotificationService {
       });
     }
   }
-
   /**
    * Envoie une notification push via Firebase Cloud Messaging
    */
@@ -261,6 +258,7 @@ export class NotificationService {
     tokens: string | string[], 
     notification: PushNotificationOptions
   ): Promise<boolean> {
+
     if (!this.isFirebaseEnabled) {
       logger.warn('Firebase non disponible pour l\'envoi de push notifications');
       return false;
@@ -279,7 +277,6 @@ export class NotificationService {
         logger.warn('Aucun token FCM valide fourni');
         return false;
       }
-
       const message = {
         notification: {
           title: notification.title,
@@ -312,12 +309,12 @@ export class NotificationService {
               sound: notification.sound || 'default',
               category: notification.category || 'DEFAULT'
             }
-          }
-        },
+          }    
+        }, 
         tokens: validTokens
       };
-
-      const response = await admin.messaging().sendMulticast(message);
+    const response = await (admin.messaging() as any).sendMulticast(message);
+      // const response = await admin.messaging().sendMulticast(message);
       this.updateRateLimit('firebase');
 
       // Nettoyer les tokens invalides
@@ -446,8 +443,6 @@ export class NotificationService {
       logger.error('Invalid email address for SendGrid', { to: this.maskEmail(mailOptions.to) });
       return false;
     }
-
-
     try {
       const msg = {
         to: mailOptions.to,
@@ -558,7 +553,9 @@ export class NotificationService {
       webpushSubscriptions?: WebPushSubscription[];
       notification: PushNotificationOptions;
     };
-    priority?: 'high' | 'normal' | 'low';
+    
+    priority?: 'low' | 'medium'|'normal'| 'high' | 'urgent';
+
   }): Promise<{ email: boolean; push: boolean }> {
     const results = { email: false, push: false };
 
@@ -613,26 +610,45 @@ export class NotificationService {
   /**
    * Nettoie les tokens FCM invalides
    */
-  private async cleanupInvalidFCMTokens(tokens: string[], responses: any[]): Promise<void> {
-    const invalidTokens: string[] = [];
+  // private async cleanupInvalidFCMTokens(tokens: string[], responses: any[]): Promise<void> {
+  //   const invalidTokens: string[] = [];
     
-    responses.forEach((response, index) => {
-      if (!response.success && response.error) {
-        const errorCode = response.error.code;
-        if (errorCode === 'messaging/invalid-registration-token' || 
-            errorCode === 'messaging/registration-token-not-registered') {
-          invalidTokens.push(tokens[index]);
-        }
-      }
-    });
+  //   responses.forEach((response, index) => {
+  //     if (!response.success && response.error) {
+  //       const errorCode = response.error.code;
+  //       if (errorCode === 'messaging/invalid-registration-token' || 
+  //           errorCode === 'messaging/registration-token-not-registered') {
+  //         invalidTokens.push(tokens[index]);
+  //       }
+  //     }
+  //   });
 
-    if (invalidTokens.length > 0) {
-      logger.info('Nettoyage des tokens FCM invalides', { count: invalidTokens.length });
-      // Ici vous pouvez ajouter la logique pour supprimer les tokens de votre base de données
-      // await User.updateMany(...);
-    }
+  //   if (invalidTokens.length > 0) {
+  //     logger.info('Nettoyage des tokens FCM invalides', { count: invalidTokens.length });
+  //     // Ici vous pouvez ajouter la logique pour supprimer les tokens de votre base de données
+  //     // await User.updateMany(...);
+  //   }
+  // }
+
+  private async cleanupInvalidFCMTokens(tokens: string[], responses: admin.messaging.SendResponse[]): Promise<void> {
+  const invalidTokens = tokens.filter((_, index) => {
+    const response = responses[index];
+    return !response.success && response.error && (
+      response.error.code === 'messaging/invalid-registration-token' ||
+      response.error.code === 'messaging/registration-token-not-registered'
+    );
+  });
+
+  if (invalidTokens.length > 0) {
+    logger.info('Nettoyage des tokens FCM invalides', { count: invalidTokens.length });
+
+    // Exemple de suppression dans une collection MongoDB
+    // await User.updateMany(
+    //   { fcmTokens: { $in: invalidTokens } },
+    //   { $pull: { fcmTokens: { $in: invalidTokens } } }
+    // );
   }
-
+}
   /**
    * Supprime une subscription Web Push expirée
    */
@@ -641,7 +657,7 @@ export class NotificationService {
       logger.info('Suppression d\'une subscription Web Push expirée', {
         endpoint: subscription.endpoint
       });
-      // Ici vous pouvez ajouter la logique pour supprimer la subscription de votre base de données
+      // ajout de  la logique de  suppresion  de  la subscription dans  la  base de données
       // await User.updateMany(...);
     } catch (error) {
       logger.error('Erreur lors de la suppression de la subscription expirée', {
@@ -733,7 +749,6 @@ private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
 
   return false;
 }
-
 
   /**
    * Strip HTML tags for plain text version
@@ -898,8 +913,10 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
   /**
    * Update rate limiter after sending
    */
-  private updateRateLimit(service: 'sendgrid' | 'smtp'): void {
-    this.rateLimiter[service].requests++;
+  private updateRateLimit(service: 'sendgrid' | 'smtp' | 'firebase' | 'webpush'): void {
+    if (this.rateLimiter[service]) {
+      this.rateLimiter[service].requests++;
+    }
   }
 
   /**
@@ -922,15 +939,6 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
     }
     
     return true;
-  }
-
-  /**
-   * Met à jour les compteurs de limite de taux (étendue)
-   */
-  private updateRateLimit(service: 'sendgrid' | 'smtp' | 'firebase' | 'webpush'): void {
-    if (this.rateLimiter[service]) {
-      this.rateLimiter[service].requests++;
-    }
   }
 
   /**
@@ -1048,7 +1056,6 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
     return this.sendEmailSafely(mailOptions);
   }
 
-
   async sendWelcomeEmail(email: string, firstName: string): Promise<boolean> {
     this.debugVerificationEmail(email,firstName)
 
@@ -1064,7 +1071,6 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
   /**
    * password reset email
    */
-
  async sendPasswordResetEmail(email: string, resetLink: string, firstName: string): Promise<boolean> {
     if (!resetLink) {
       logger.error('Reset link is missing', { email: this.maskEmail(email) });
@@ -1676,7 +1682,6 @@ private getAccountStatusNotificationTemplate(
   private getAgentVerificationStatusTemplate(firstName: string, status: VerificationStatus, comment?: string): string {
     let statusMessage: string;
     let statusColor: string;
-    
     switch (status) {
       case VerificationStatus.VERIFIED:
         statusMessage = 'Votre compte agent a été vérifié avec succès. Vous pouvez maintenant accéder à toutes les fonctionnalités d\'agent sur EasyRent.';

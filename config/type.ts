@@ -48,7 +48,7 @@ export interface Config {
     enabled:boolean,
 
   };
-    sendgrid: {
+  sendgrid: {
     apiKey?: string;
     enabled: boolean;
     fromAddress: string;
@@ -63,16 +63,17 @@ export interface Config {
     enabled: boolean;
     projectId: string;
     serviceAccount: {
-    type: string;
-    project_id: string;
-    private_key_id: string;
-    private_key: string;
-    client_email: string;
-    client_id: string;
-    auth_uri: string;
-    token_uri: string;
-    auth_provider_x509_cert_url: string;
-    client_x509_cert_url: string;
+      type: string;
+      project_id: string;
+      private_key_id: string;
+      private_key: string;
+      client_email: string;
+      client_id: string;
+      auth_uri: string;
+      token_uri: string;
+      auth_provider_x509_cert_url: string;
+      client_x509_cert_url: string;
+    };
   };
   security: {
     level: 'low' | 'medium' | 'high' | 'adaptive';
@@ -96,4 +97,4 @@ export interface Config {
 }
 
 
-}
+
