@@ -1,7 +1,7 @@
 
 import { Document } from "mongoose";
 import { Types } from "mongoose";
-
+import { Request } from "express";
 export interface IMessage extends Document {
   msgId: Types.ObjectId;
   senderId: Types.ObjectId;
@@ -223,3 +223,19 @@ export interface CacheService {
   isUserOnline?(userId: string): boolean;
 }
 
+
+export interface CustomRequestBody {
+  participantId?: string;
+  type?: string;
+  propertyId?: string;
+}
+
+export  interface CustomUser {
+  id: string;
+  // tu peux ajouter d'autres propriétés ici (role, email, etc.)
+}
+
+export  interface CustomRequest extends Request {
+  body: CustomRequestBody;
+  user: CustomUser;
+}

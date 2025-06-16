@@ -117,10 +117,6 @@ app.use('/api/v1/auth', auThrouter);
 //property  routes
 app.use('/api/properties', propertyRouter);
 
-
-
-
-
 // Middlewares de gestion d'erreurs - doivent être en dernier
 // app.use(propertyErrorHandler);
 // app.use(errorHandler);

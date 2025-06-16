@@ -1,18 +1,31 @@
-// ✅ Version corrigée de rateLimiter.ts
+// middlewares/rateLimiter.ts
 import { Request, Response, NextFunction } from 'express';
 
 const rateLimiter = (windowMs: number, maxRequests: number) => {
   const requests: Record<string, { count: number; resetTime: number }> = {};
 
   return (req: Request, res: Response, next: NextFunction): void => {
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
     const now = Date.now();
+    const ip = (req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') as string;
 
-    if (!requests[ip] || now > requests[ip].resetTime) {
+    // Nettoyer les IP expirées
+    for (const key in requests) {
+      if (now > requests[key].resetTime) {
+        delete requests[key];
+      }
+    }
+
+    if (!requests[ip]) {
       requests[ip] = {
         count: 0,
         resetTime: now + windowMs,
       };
+    }
+
+    if (now > requests[ip].resetTime) {
+      // Réinitialise la fenêtre
+      requests[ip].count = 0;
+      requests[ip].resetTime = now + windowMs;
     }
 
     if (requests[ip].count >= maxRequests) {
@@ -20,7 +33,7 @@ const rateLimiter = (windowMs: number, maxRequests: number) => {
         success: false,
         message: 'Trop de requêtes, veuillez réessayer plus tard',
       });
-      return; // ✅ CORRECTION ICI : return void
+      return;
     }
 
     requests[ip].count += 1;
@@ -31,7 +44,7 @@ const rateLimiter = (windowMs: number, maxRequests: number) => {
       'X-RateLimit-Reset': Math.ceil(requests[ip].resetTime / 1000).toString(),
     });
 
-    next(); // continue la chaîne
+    next();
   };
 };
 
