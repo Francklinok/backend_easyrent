@@ -1,5 +1,3 @@
-
-
 export interface Config {
   app: {
     name: string;
@@ -93,8 +91,33 @@ export interface Config {
   }; 
   rateLimit?: {
     max?: number;
+  };    
+  messageMaxLength: number;
+  typingTimeout: number;
+  cacheTTL: {
+    conversation: number;
+    userConversations: number;
+    searchIndex: number;
+    patterns: number;
+    reactions: number;
   };
-}
+  pagination: {
+    defaultLimit: number;
+    maxLimit: number;
+  };
+  encryption: {
+    algorithm: string;
+    ivLength: number;
+  };
+  imageVariants: {
+    thumbnail: { width: number; height: number; quality: number };
+    medium: { width: number; height: number; quality: number };
+    large: { width: number; height: number; quality: number };
+  };
+  // cache_ttl:{
+  //   conversation:number;
+  //   user_conversation:number;
+  // }
 
-
+  }
 

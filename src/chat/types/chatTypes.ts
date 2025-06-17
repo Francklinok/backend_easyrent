@@ -6,7 +6,8 @@ export interface IMessage extends Document {
   msgId: Types.ObjectId;
   senderId: Types.ObjectId;
   conversationId: Types.ObjectId;
-  content: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'contact' | 'property' | 'voice_note' | 'ar_preview' | 'virtual_tour';
+  messageType: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'contact' | 'property' | 'voice_note' | 'ar_preview' | 'virtual_tour';
+  content:string;
   mediaData?: {
     filename?: string;
     originalName?: string;
@@ -22,6 +23,7 @@ export interface IMessage extends Document {
     emoji: string;
     timestamp: Date;
   }[];
+  mentions?: Types.ObjectId[];
   status: {
     sent: Date;
     delivered: {
@@ -55,10 +57,14 @@ export interface IMessage extends Document {
     propertyId?: Types.ObjectId;
   };
   aiInsights?: {
-    sentiment?: string;
+    sentiment?:{
+      score?: number;
+      label?: string;
+    } ;
     intentDetection?: string;
     autoSuggestions?: string[];
     priority?: 'low' | 'medium'|'normal'| 'high' | 'urgent';
+
   };
   theme?: 'light' | 'dark' | 'auto';
   scheduledFor?: Date;
@@ -71,7 +77,9 @@ export interface IMessage extends Document {
   updatedAt?: Date;
 }
 
+
 export interface IConversation extends Document {
+  _id: Types.ObjectId
   participants: Types.ObjectId[];
   type: 'direct' | 'group' | 'property_discussion';
   groupInfo?: {
@@ -120,7 +128,9 @@ export interface IConversation extends Document {
 }
 
 export type NotificationPayload = {
-  type: 'push';
+  userId: string;
+  type: "push" | "email" | "both"; // Remove "message", "reminder", "call"
+  // type: 'push' |'reminder' | 'call' ;
   push: {
     notification: {
       title: string;
@@ -181,14 +191,18 @@ export interface ReactToMessageParams {
   emoji?: string;
   userId: string;
   customReaction?: any;
+  reactionType: string; // ou un type spécifique : 'like' | 'love' | 'haha' | etc.
+  conversationId: string;
 }
 
 export interface DeleteMessageParams {
   messageId: string;
+  conversationId: string; 
   deleteFor?: 'me' | 'everyone';
   userId: string;
   reason?: string | null;
   canDeleteMessages?:boolean
+  deleteType: 'soft' | 'hard';
 }
 
 export  interface UserPermissions {
@@ -232,7 +246,6 @@ export interface CustomRequestBody {
 
 export  interface CustomUser {
   id: string;
-  // tu peux ajouter d'autres propriétés ici (role, email, etc.)
 }
 
 export  interface CustomRequest extends Request {

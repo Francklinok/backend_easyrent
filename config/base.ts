@@ -156,7 +156,37 @@ const baseConfig: Config = {
   rateLimit: {
     max: parseInt(process.env.RATE_LIMIT_MAX || '100')
   },
-};
+  messageMaxLength: parseInt(process.env.CHAT_MESSAGE_MAX_LENGTH || '10000', 10),
+  typingTimeout: parseInt(process.env.TYPING_TIMEOUT || '10000', 10),
+    cacheTTL: {
+      conversation: 3600,
+      userConversations: 300,
+      searchIndex: 3600 * 24 * 7,
+      patterns: 3600 * 12,
+      reactions: 3600 * 24 * 30,
+    },
+    pagination: {
+      defaultLimit: 20,
+      maxLimit: 100,
+    },
+    encryption: {
+      algorithm: 'aes-256-gcm',
+      ivLength: 16,
+    },
+    imageVariants: {
+      thumbnail: { width: 150, height: 150, quality: 60 },
+      medium: { width: 800, height: 600, quality: 80 },
+      large: { width: 1920, height: 1080, quality: 90 },
+    },
+    // cache_ttl:{
+    //   conversation:process.env.CACHE_TTL_CONVERSATION? parseInt(process.env.CACHE_TTL_CONVERSATION, 10) : 3600,
+    //   user_conversation:process.env.CACHE_TTL_USER_CONVERSATIONS
+    //   ? parseInt(process.env.CACHE_TTL_USER_CONVERSATIONS, 10)
+    //   : 3600, 
+    // 
+  
+  };
 
-// Exportation de la configuration de base
+
+
 export default baseConfig;

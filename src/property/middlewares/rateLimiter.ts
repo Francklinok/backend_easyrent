@@ -21,7 +21,6 @@ const rateLimiter = (windowMs: number, maxRequests: number) => {
         resetTime: now + windowMs,
       };
     }
-
     if (now > requests[ip].resetTime) {
       // Réinitialise la fenêtre
       requests[ip].count = 0;
