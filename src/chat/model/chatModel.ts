@@ -1,8 +1,9 @@
-import mongoose  from "mongoose";
+import mongoose ,{ Document,Types } from "mongoose";
 import { IMessage } from "../types/chatTypes";
-import { IConversation } from "../types/chatTypes";
 
 const  Schema =   mongoose.Schema
+
+type IMessageDocument = IMessage & Document;
 
 const MessageSchema =  new Schema<IMessage>({
     msgId:{
@@ -67,6 +68,10 @@ const MessageSchema =  new Schema<IMessage>({
   isDeleted: { type: Boolean, default: false },
   deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   deletedAt: Date,
+  deletedBy:{
+      type: Types.ObjectId,
+      ref: 'User' 
+       },
   canRestore: { type: Boolean, default: true },
   
   // Édition de message
@@ -110,5 +115,5 @@ const MessageSchema =  new Schema<IMessage>({
 
 
 
-const Message = mongoose.model<IMessage>('Message', MessageSchema);
+const Message = mongoose.model<IMessageDocument>('Message', MessageSchema);
 export  default  Message

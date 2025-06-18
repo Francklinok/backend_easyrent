@@ -1,6 +1,6 @@
 import { ApiError } from "../utils/apiError";
 import { ApiResponse } from "../utils/apiResponse";
-import ChatService from "../services/chatService";
+import ChatService from "../services/chatServices";
 import { validationResult } from 'express-validator';
 import { asyncHandler } from "../../auth/utils/handlerError";
 import { Server as IOServer } from 'socket.io';

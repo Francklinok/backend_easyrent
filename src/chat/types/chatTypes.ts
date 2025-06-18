@@ -44,6 +44,7 @@ export interface IMessage extends Document {
   isDeleted: boolean;
   deletedFor: Types.ObjectId[];
   deletedAt?: Date;
+  deletedBy?: Types.ObjectId;
   canRestore: boolean;
   isEdited: boolean;
   editHistory: {
@@ -245,7 +246,7 @@ export interface CustomRequestBody {
 }
 
 export  interface CustomUser {
-  id: string;
+  userId: string;
 }
 
 export  interface CustomRequest extends Request {
