@@ -47,6 +47,8 @@ app.use(cors({
 }));
 app.use(compression());
 
+app.use(express.json());
+
 // Configuration du rate limiter pour prévenir les attaques par force brute
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

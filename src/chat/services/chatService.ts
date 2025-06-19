@@ -13,6 +13,7 @@ import { IMessage,
   NotificationPayload,
   UserPermissions,
   ReactionAnalytics,
+  EnrichedConversation,
   SearchMessagesParams} from '../types/chatTypes';
 import { GetMessagesParams } from '../types/chatTypes';
 import { MediaFile } from '../types/chatTypes';
@@ -66,22 +67,41 @@ class ChatService extends EventEmitter {
     userId
   }: CreateConversationParams): Promise<IConversation> {
     try {
-      // Validation des entrées
-      if (!userId || !participantId) {
-        throw new Error('UserId et participantId sont requis');
+
+      if (!userId) {
+        throw new Error('userId est requis');
       }
 
-      if (userId === participantId) {
+      if (type === 'direct' && !participantId) {
+        throw new Error('participantId est requis pour une conversation directe');
+      }
+
+      if (type === 'direct' && userId === participantId) {
         throw new Error('Impossible de créer une conversation avec soi-même');
       }
 
-      const cacheKey = `conversation:${userId}:${participantId}:${type}`;
+      // Validation des entrées
+      // if (!userId || !participantId) {
+      //   throw new Error('UserId et participantId sont requis');
+      // }
+
+      // if (userId === participantId) {
+      //   throw new Error('Impossible de créer une conversation avec soi-même');
+      // }
+       const participants = type === 'direct' && participantId 
+      ? [userId, participantId] 
+      : [userId];
+    
+
+      const ids = participants.sort(); // Tri pour éviter les doublons
+      const cacheKey = `conversation:${ids[0]}:${ids[1]}:${type}`;
+
      
       // Vérification du cache avec type safety
       let conversation = await this.cacheService.get<IConversation>(cacheKey);
      
       if (!conversation) {
-        if (type === 'direct') {
+        if (type === 'direct'&& participantId) {
           conversation = await Conversation.findOne({
             participants: { $all: [userId, participantId], $size: 2 },
             type: 'direct'
@@ -94,6 +114,7 @@ class ChatService extends EventEmitter {
             type,
             propertyId,
             createdAt: new Date(),
+            createdBy: userId,
             settings: {
               encryption: true,
               disappearingMessages: {
@@ -145,118 +166,228 @@ class ChatService extends EventEmitter {
   /**
    * Récupère les conversations d'un utilisateur (version optimisée)
    */
-  async getUserConversations({
-    userId,
-    page = 1,
-    limit = 20,
-    filter = 'all'
-  }: GetUserConversationsParams): Promise<any[]> {
-    try {
-      // Validation et normalisation des paramètres
-      const { page: validPage, limit: validLimit } = ValidationService.validatePagination(page, limit);
+  // async getUserConversations({
+  //   userId,
+  //   page = 1,
+  //   limit = 20,
+  //   filter = 'all'
+  // }: GetUserConversationsParams): Promise<any[]> {
+  //   try {
+  //     // Validation et normalisation des paramètres
+  //     const { page: validPage, limit: validLimit } = ValidationService.validatePagination(page, limit);
       
-      const cacheKey = `user_conversations:${userId}:${validPage}:${validLimit}:${filter}`;
+  //     const cacheKey = `user_conversations:${userId}:${validPage}:${validLimit}:${filter}`;
      
-      // Vérification du cache
-      let cachedResult = await this.cacheService.get<any[]>(cacheKey);
-      if (cachedResult && Array.isArray(cachedResult)) {
-        return cachedResult;
-      }
+  //     // Vérification du cache
+  //     let cachedResult = await this.cacheService.get<any[]>(cacheKey);
+  //     if (cachedResult && Array.isArray(cachedResult)) {
+  //       return cachedResult;
+  //     }
 
-      // Construction de la requête avec optimisations
-      let query: any = { participants: userId };
+  //     // Construction de la requête avec optimisations
+  //     let query: any = { participants: userId };
       
-      switch (filter) {
-        case 'groups':
-          query.type = 'group';
-          break;
-        case 'direct':
-          query.type = 'direct';
-          break;
-        // case 'archived':
-        //   query.isArchived = true;
-        //   break;
-        case 'unread':
-          // Le filtrage des non-lus se fera après enrichissement
-          break;
-      }
+  //     switch (filter) {
+  //       case 'groups':
+  //         query.type = 'group';
+  //         break;
+  //       case 'direct':
+  //         query.type = 'direct';
+  //         break;
+  //       // case 'archived':
+  //       //   query.isArchived = true;
+  //       //   break;
+  //       case 'unread':
+  //         // Le filtrage des non-lus se fera après enrichissement
+  //         break;
+  //     }
 
-      // Requête optimisée avec indexes
-      const conversations = await Conversation.find(query)
-        .populate('participants', 'name avatar email isOnline lastSeen')
-        .populate('propertyId', 'title price images location')
-        .sort({ updatedAt: -1 })
-        .limit(validLimit)
-        .skip((validPage - 1) * validLimit)
-        .lean(); // Utilisation de lean() pour de meilleures performances
+  //     // Requête optimisée avec indexes
+  //     const conversations = await Conversation.find(query)
+  //       .populate('participants', 'name avatar email isOnline lastSeen')
+  //       .populate('propertyId', 'title price images location')
+  //       .sort({ updatedAt: -1 })
+  //       .limit(validLimit)
+  //       .skip((validPage - 1) * validLimit)
+  //       .lean(); // Utilisation de lean() pour de meilleures performances
 
-      // Enrichissement en parallèle avec gestion d'erreurs
-      const enrichedConversations = await Promise.allSettled(
-        conversations.map(async (conv:any) => {
-          try {
-            const conversationId = conv._id as Types.ObjectId;
-            const [lastMessage, unreadCount, typingUsers] = await Promise.all([
-              this.getLastMessage(conversationId),
-              this.getUnreadCount(conversationId, userId),
-              this.getTypingUsers(conversationId, userId)
-            ]);
+  //     // Enrichissement en parallèle avec gestion d'erreurs
+  //     const enrichedConversations = await Promise.allSettled(
+  //       conversations.map(async (conv:any) => {
+  //         try {
+  //           const conversationId = conv._id as Types.ObjectId;
+  //           const [lastMessage, unreadCount, typingUsers] = await Promise.all([
+  //             this.getLastMessage(conversationId),
+  //             this.getUnreadCount(conversationId, userId),
+  //             this.getTypingUsers(conversationId, userId)
+  //           ]);
 
-            return {
-              ...conv,
-              lastMessage,
-              unreadCount,
-              typingUsers,
-              isOnline: this.getConversationOnlineStatus(conv.participants),
-              encryptionStatus: conv.settings?.encryption ? 'enabled' : 'disabled'
-            };
-          } catch (error) {
-            console.error(`Erreur enrichissement conversation ${conv._id}:`, error);
-            return {
-              ...conv,
-              lastMessage: null,
-              unreadCount: 0,
-              typingUsers: [],
-              isOnline: false,
-              encryptionStatus: 'disabled',
-              error: 'Enrichment failed'
-            };
-          }
-        })
-      );
+  //           return {
+  //             ...conv,
+  //             lastMessage,
+  //             unreadCount,
+  //             typingUsers,
+  //             isOnline: this.getConversationOnlineStatus(conv.participants),
+  //             encryptionStatus: conv.settings?.encryption ? 'enabled' : 'disabled'
+  //           };
+  //         } catch (error) {
+  //           console.error(`Erreur enrichissement conversation ${conv._id}:`, error);
+  //           return {
+  //             ...conv,
+  //             lastMessage: null,
+  //             unreadCount: 0,
+  //             typingUsers: [],
+  //             isOnline: false,
+  //             encryptionStatus: 'disabled',
+  //             error: 'Enrichment failed'
+  //           };
+  //         }
+  //       })
+  //     );
 
-      // Extraction des résultats réussis
-      const validConversations = enrichedConversations
-        .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
-        .map(result => result.value);
+  //     // Extraction des résultats réussis
+  //     const validConversations = enrichedConversations
+  //       .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
+  //       .map(result => result.value);
 
-      // Filtrage des conversations non lues
-      const result = filter === 'unread'
-        ? validConversations.filter(conv => conv.unreadCount > 0)
-        : validConversations;
+  //     // Filtrage des conversations non lues
+  //     const result = filter === 'unread'
+  //       ? validConversations.filter(conv => conv.unreadCount > 0)
+  //       : validConversations;
 
-      // Cache avec TTL plus court pour les données dynamiques
-      await this.cacheService.set(cacheKey, result, config.cacheTTL.userConversations);
+  //     // Cache avec TTL plus court pour les données dynamiques
+  //     await this.cacheService.set(cacheKey, result, config.cacheTTL.userConversations);
       
-      return result;
-    } catch (error) {
-      this.emit('error', { operation: 'getUserConversations', error, userId });
-      throw error;
+  //     return result;
+  //   } catch (error) {
+  //     this.emit('error', { operation: 'getUserConversations', error, userId });
+  //     throw error;
+  //   }
+  // }
+  async getUserConversations({
+  userId,
+  page = 1,
+  limit = 20,
+  filter = 'all',
+  sortBy = 'updatedAt',
+  sortOrder = 'desc'
+}: GetUserConversationsParams): Promise<EnrichedConversation[]> {
+  try {
+    // Validation et normalisation des paramètres
+    const { page: validPage, limit: validLimit } = ValidationService.validatePagination(page, limit);
+   
+    const cacheKey = `user_conversations:${userId}:${validPage}:${validLimit}:${filter}`;
+   
+    // Vérification du cache
+    let cachedResult = await this.cacheService.get<EnrichedConversation[]>(cacheKey);
+    if (cachedResult && Array.isArray(cachedResult)) {
+      return cachedResult;
     }
+
+    // Construction de la requête avec optimisations
+    let query: any = { participants: userId };
+   
+    switch (filter) {
+      case 'groups':
+        query.type = 'group';
+        break;
+      case 'direct':
+        query.type = 'direct';
+        break;
+      case 'archived':
+        query.isArchived = { $elemMatch: { userId } };
+        break;
+      case 'unread':
+        // Le filtrage des non-lus se fera après enrichissement
+        break;
+    }
+
+    // Build sort object
+    const sortObj: Record<string, 1 | -1> = {};
+    sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Requête optimisée avec indexes
+    const conversations = await Conversation.find(query)
+      .populate('participants', 'name avatar email isOnline lastSeen')
+      .populate('propertyId', 'title price images location')
+      .sort(sortObj)
+      .limit(validLimit)
+      .skip((validPage - 1) * validLimit)
+      .lean() as IConversation[]; // Type assertion for lean()
+
+    // Enrichissement en parallèle avec gestion d'erreurs
+    const enrichedConversations = await Promise.allSettled(
+      conversations.map(async (conv: IConversation): Promise<EnrichedConversation> => {
+        try {
+          const conversationId = conv._id as Types.ObjectId;
+          const [lastMessage, unreadCount, typingUsers] = await Promise.all([
+            this.getLastMessage(conversationId),
+            this.getUnreadCount(conversationId, userId),
+            this.getTypingUsers(conversationId, userId)
+          ]);
+
+          return {
+            ...conv,
+            lastMessage,
+            unreadCount,
+            typingUsers,
+            isOnline: this.getConversationOnlineStatus(conv.participants),
+            encryptionStatus: conv.settings?.encryption ? 'enabled' : 'disabled'
+          } as EnrichedConversation;
+        } catch (error) {
+          console.error(`Erreur enrichissement conversation ${conv._id}:`, error);
+          return {
+            ...conv,
+            lastMessage: null,
+            unreadCount: 0,
+            typingUsers: [],
+            isOnline: false,
+            encryptionStatus: 'disabled',
+            error: 'Enrichment failed'
+          } as EnrichedConversation;
+        }
+      })
+    );
+
+    // Extraction des résultats réussis
+    const validConversations = enrichedConversations
+      .filter((result): result is PromiseFulfilledResult<EnrichedConversation> => 
+        result.status === 'fulfilled'
+      )
+      .map(result => result.value);
+
+    // Filtrage des conversations non lues
+    const result = filter === 'unread'
+      ? validConversations.filter(conv => conv.unreadCount > 0)
+      : validConversations;
+
+    // Cache avec TTL plus court pour les données dynamiques
+    await this.cacheService.set(cacheKey, result, config.cacheTTL.userConversations);
+   
+    return result;
+  } catch (error) {
+    this.emit('error', { operation: 'getUserConversations', error, userId });
+    throw error;
   }
+}
   /**
    * Envoie un message avec traitement avancé (version améliorée)
    */
-  async sendMessage({
-    conversationId,
-    content,
-    messageType = 'text',
-    replyTo,
-    scheduleFor,
-    userId,
-    file,
-    priority = 'normal',
-    mentions = []
-  }: SendMessageParams): Promise<IMessage> {
+  async sendMessage(
+    params: SendMessageParams,
+    file?: MediaFile
+  ): Promise<IMessage> {
+    const {
+        conversationId,
+        content,
+        messageType = 'text',
+        replyTo,
+        scheduleFor,
+        userId,
+        priority = 'normal',
+        mentions = []
+      } = params;
+
     try {
       // Validation d'entrée renforcée
       ValidationService.validateMessageInput({

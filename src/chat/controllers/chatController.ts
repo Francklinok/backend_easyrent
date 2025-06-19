@@ -1,14 +1,16 @@
 import { ApiError } from "../utils/apiError";
 import { ApiResponse } from "../utils/apiResponse";
-import ChatService from "../services/chatServices";
+import ChatService from "../services/chatService";
 import { validationResult } from 'express-validator';
 import { asyncHandler } from "../../auth/utils/handlerError";
 import { Server as IOServer } from 'socket.io';
 import RateLimiter from "../../utils/RateLimits";
-import { getRedisClient } from "../../lib/redisClient";
-
+// import { getRedisClient } from "../../lib/redisClient";
+import { CustomRequest } from "../types/chatTypes";
+import { Request,Response } from "express";
+import { SendMessageRequest,MediaFile,ReactionRequest } from "../types/chatTypes";
 class ChatController {
-   private io: IOServer;
+  private io: IOServer;
   private chatService: ChatService;
   private rateLimiter: RateLimiter;
   private redisClient;
@@ -31,11 +33,10 @@ class ChatController {
       console.error('Erreur du service de chat:', error);
     });
   }
-  
   /**
    * Crée ou récupère une conversation
    */
-  createOrGetConversation = asyncHandler(async (req:Request, res:Response) => {
+  createOrGetConversation = asyncHandler(async (req:CustomRequest, res:Response) => {
     // Validation des erreurs
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -43,16 +44,21 @@ class ChatController {
     }
 
     const { participantId, type = 'direct', propertyId } = req.body;
-    const userId = req.user.id;
+    const  userId = req.user.userId
 
     // Vérifier les permissions
-    if (type === 'direct' && !participantId) {
-      throw new ApiError(400, 'participantId requis pour les conversations directes');
+    if (type === 'direct') {
+      if (!participantId) {
+        throw new ApiError(400, 'participantId requis pour les conversations directes');
+      }
+      if (participantId === userId) {
+        throw new ApiError(400, 'Impossible de créer une conversation avec soi-même');
+      }
     }
 
     const conversation = await this.chatService.createOrGetConversation({
       participantId,
-      type,
+      type: type as 'direct' | 'group' | 'property_discussion', 
       propertyId,
       userId
     });
@@ -65,143 +71,212 @@ class ChatController {
   /**
    * Récupère les conversations de l'utilisateur
    */
-  getUserConversations = asyncHandler(async (req:Request, res:Response) => {
-    const userId = req.user.id;
-    const { 
-      page = 1, 
-      limit = 20, 
-      filter = 'all',
-      sortBy = 'updatedAt',
-      sortOrder = 'desc'
-    } = req.query;
+  
+  getStringFromQuery = (value: any, defaultValue: string): string => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') return value[0];
+  return defaultValue;
+  };
+  getUserConversations = asyncHandler(async (req: CustomRequest, res: Response) => {
+      const userId = req.user.userId;
+      
+      // Safely extract query parameters
+      const pageStr = this.getStringFromQuery(req.query.page, '1');
+      const limitStr = this.getStringFromQuery(req.query.limit, '20');
+      const filter = this.getStringFromQuery(req.query.filter, 'all');
+      const sortBy = this.getStringFromQuery(req.query.sortBy, 'updatedAt');
+      const sortOrder = this.getStringFromQuery(req.query.sortOrder, 'desc');
 
-    // Validation des paramètres
-    const validFilters = ['all', 'unread', 'groups', 'direct', 'archived'];
-    if (!validFilters.includes(filter)) {
-      throw new ApiError(400, 'Filtre invalide');
-    }
+      // Validation des paramètres
+      const validFilters = ['all', 'unread', 'groups', 'direct', 'archived'] as const;
+      const validSortOrders = ['asc', 'desc'] as const;
+      
+      // Type-safe filter validation
+      if (!validFilters.includes(filter as any)) {
+        throw new ApiError(400, 'Filtre invalide');
+      }
+      
+      if (!validSortOrders.includes(sortOrder as any)) {
+        throw new ApiError(400, 'Ordre de tri invalide');
+      }
 
-    const conversations = await this.chatService.getUserConversations({
-      userId,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      filter,
-      sortBy,
-      sortOrder
-    });
+      // Parse query parameters safely
+      const pageNum = parseInt(pageStr, 10);
+      const limitNum = parseInt(limitStr, 10);
+      
+      if (isNaN(pageNum) || pageNum < 1) {
+        throw new ApiError(400, 'Page invalide');
+      }
+      
+      if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+        throw new ApiError(400, 'Limite invalide');
+      }
 
-    res.status(200).json(
-      new ApiResponse(200, {
-        conversations,
-        pagination: {
-          currentPage: parseInt(page),
-          limit: parseInt(limit),
-          total: conversations.length
-        }
-      }, 'Conversations récupérées avec succès')
-    );
+      const conversations = await this.chatService.getUserConversations({
+        userId,
+        page: pageNum,
+        limit: limitNum,
+        filter: filter as 'all' | 'unread' | 'groups' | 'direct' | 'archived',
+        sortBy: sortBy,
+        sortOrder: sortOrder as 'asc' | 'desc'
+      });
+
+      res.status(200).json(
+        new ApiResponse(200, {
+          conversations,
+          pagination: {
+            currentPage: pageNum,
+            limit: limitNum,
+            total: conversations.length
+          }
+        }, 'Conversations récupérées avec succès')
+      );
   });
+    /**
+     * Envoie un message
+     */
+    // sendMessage = asyncHandler(async (req:SendMessageRequest, res:Response) => {
+    //   const errors = validationResult(req);
+    //   if (!errors.isEmpty()) {
+    //     throw new ApiError(400, 'Données de validation invalides', errors.array());
+    //   }
 
-  /**
-   * Envoie un message
-   */
-  sendMessage = asyncHandler(async (req:Request, res:Response) => {
+    //   // Appliquer la limitation de débit
+    //   await this.rateLimiter.checkLimit(req.user.userId, 'sendMessage', 60, 100); // 100 messages par minute
+
+    //   const { 
+    //     conversationId, 
+    //     content, 
+    //     messageType = 'text', 
+    //     replyTo, 
+    //     scheduleFor,
+    //     priority = 'normal',
+    //     mentions = []
+    //   } = req.body;
+      
+    //   const userId = req.user.userId;
+
+    //   // Validation spécifique au type de message
+    //   await this.validateMessageByType(messageType, content, req.file);
+
+    //   const message = await this.chatService.sendMessage({
+    //     conversationId,
+    //     content,
+    //     messageType,
+    //     replyTo,
+    //     scheduleFor,
+    //     userId,
+    //     file: req.file as MediaFile | undefined,
+    //     priority,
+    //     mentions
+    //   });
+
+    //   res.status(201).json(
+    //     new ApiResponse(201, message, 'Message envoyé avec succès')
+    //   );
+    // });
+  sendMessage = asyncHandler(async (req: SendMessageRequest, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       throw new ApiError(400, 'Données de validation invalides', errors.array());
     }
 
-    // Appliquer la limitation de débit
-    await this.rateLimiter.checkLimit(req.user.id, 'sendMessage', 60, 100); // 100 messages par minute
-
-    const { 
-      conversationId, 
-      content, 
-      messageType = 'text', 
-      replyTo, 
-      scheduledFor,
+    const {
+      conversationId,
+      content,
+      messageType = 'text',
+      replyTo,
+      scheduleFor,
       priority = 'normal',
       mentions = []
     } = req.body;
-    
-    const userId = req.user.id;
+
+    const userId = req.user.userId;
 
     // Validation spécifique au type de message
     await this.validateMessageByType(messageType, content, req.file);
 
-    const message = await this.chatService.sendMessage({
-      conversationId,
-      content,
-      messageType,
-      replyTo,
-      scheduledFor,
-      userId,
-      file: req.file,
-      priority,
-      mentions
-    });
+    const message = await this.chatService.sendMessage(
+      {
+        conversationId,
+        content,
+        messageType,
+        replyTo,
+        scheduleFor,
+        userId,
+        priority,
+        mentions
+      },
+      req.file as MediaFile | undefined // passé comme second param
+    );
 
     res.status(201).json(
       new ApiResponse(201, message, 'Message envoyé avec succès')
     );
   });
+    /**
+     * Récupère les messages d'une conversation
+     */
 
-  /**
-   * Récupère les messages d'une conversation
-   */
-  getMessages = asyncHandler(async (req, res) => {
-    const { conversationId } = req.params;
-    const { 
-      page = 1, 
-      limit = 50,
-      messageType,
-      dateRange,
-      searchQuery
-    } = req.query;
-    
-    const userId = req.user.id;
+getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
+  const { conversationId } = req.params;
+  const userId = req.user.userId;
+  const allowedMessageTypes = ['text', 'image', 'video', 'audio', 'file'] as const;
 
-    // Vérifier l'accès à la conversation
-    await this.verifyConversationAccess(conversationId, userId);
+  const pageStr = this.getStringFromQuery(req.query.page, '1');
+  const limitStr = this.getStringFromQuery(req.query.limit, '50');
+  const rawMessageType = this.getStringFromQuery(req.query.messageType, '');
+  const searchQuery = this.getStringFromQuery(req.query.searchQuery, '');
+  const dateRangeRaw = this.getStringFromQuery(req.query.dateRange, '');
+  const messageType = allowedMessageTypes.includes(rawMessageType as any)
+  ? (rawMessageType as typeof allowedMessageTypes[number])
+  : undefined;
+  const page = parseInt(pageStr, 10);
+  const limit = parseInt(limitStr, 10);
 
-    let parsedDateRange = null;
-    if (dateRange) {
-      try {
-        parsedDateRange = JSON.parse(dateRange);
-      } catch (error) {
-        throw new ApiError(400, 'Format de plage de dates invalide');
-      }
+  if (isNaN(page) || page < 1) throw new ApiError(400, 'Page invalide');
+  if (isNaN(limit) || limit < 1 || limit > 100) throw new ApiError(400, 'Limite invalide');
+
+  // Vérifier l'accès à la conversation
+  await this.verifyConversationAccess(conversationId, userId);
+
+  let parsedDateRange: any = null;
+  if (dateRangeRaw) {
+    try {
+      parsedDateRange = JSON.parse(dateRangeRaw);
+    } catch (error) {
+      throw new ApiError(400, 'Format de plage de dates invalide');
     }
+  }
 
-    const messages = await this.chatService.getMessages({
-      conversationId,
-      userId,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      messageType,
-      dateRange: parsedDateRange,
-      searchQuery
-    });
-
-    res.status(200).json(
-      new ApiResponse(200, {
-        messages,
-        pagination: {
-          currentPage: parseInt(page),
-          limit: parseInt(limit)
-        }
-      }, 'Messages récupérés avec succès')
-    );
+  const messages = await this.chatService.getMessages({
+    conversationId,
+    userId,
+    page,
+    limit,
+    messageType,
+    dateRange: parsedDateRange,
+    searchQuery
   });
+
+  res.status(200).json(
+    new ApiResponse(200, {
+      messages,
+      pagination: {
+        currentPage: page,
+        limit
+      }
+    }, 'Messages récupérés avec succès')
+  );
+});
 
   /**
    * Réagit à un message
    */
-  reactToMessage = asyncHandler(async (req, res) => {
-    const { messageId } = req.params;
+  reactToMessage = asyncHandler(async (req:ReactionRequest, res:Response) => {
+    const { messageId,conversationId} = req.params;
     const { emoji, customReaction } = req.body;
-    const userId = req.user.id;
-
+    const userId = req.user.userId;
     // Validation
     if (!emoji && !customReaction) {
       throw new ApiError(400, 'Emoji ou réaction personnalisée requis');
@@ -211,7 +286,9 @@ class ChatController {
       messageId,
       emoji,
       userId,
-      customReaction
+      customReaction,
+      conversationId,
+      reactionType: emoji ? 'emoji' : 'custom'
     });
 
     res.status(200).json(

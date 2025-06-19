@@ -1,6 +1,5 @@
 
-import { Document } from "mongoose";
-import { Types } from "mongoose";
+import { Document, Types  } from "mongoose";
 import { Request } from "express";
 export interface IMessage extends Document {
   msgId: Types.ObjectId;
@@ -152,8 +151,8 @@ export interface MediaFile {
   path: string;
 }
 export interface CreateConversationParams {
-  participantId: string;
-  type?: 'direct' | 'group';
+  participantId?: string;
+  type?: 'direct' | 'group' | 'property_discussion';
   propertyId?: string;
   userId: string;
 }
@@ -162,8 +161,20 @@ export interface GetUserConversationsParams {
   userId: string;
   page?: number;
   limit?: number;
-  filter?: 'all' | 'unread' | 'groups' | 'direct';
+  filter?: 'all' | 'unread' | 'groups' | 'direct' | 'archived';
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
+export interface EnrichedConversation extends Omit<IConversation, keyof Document> {
+  lastMessage: any;
+  unreadCount: number;
+  typingUsers: any[];
+  isOnline: boolean;
+  encryptionStatus: 'enabled' | 'disabled';
+  error?: string;
+}
+
+
 
 export interface SendMessageParams {
   conversationId: string;
@@ -172,9 +183,10 @@ export interface SendMessageParams {
   replyTo?: string;
   scheduleFor?: string;
   userId: string;
-  file?: MediaFile;
+  // file?: MediaFile;
   priority?: 'low' | 'medium'|'normal'| 'high' | 'urgent';
   mentions?: any[];
+
 }
 
 export interface GetMessagesParams {
@@ -182,7 +194,8 @@ export interface GetMessagesParams {
   userId: string;
   page?: number;
   limit?: number;
-  messageType?: string | null;
+  messageType?: 'text' | 'image' | 'video' | 'audio' | 'file';
+  content?: string ;
   dateRange?: { start: string; end: string }|null;
   searchQuery?: string | null;
 }
@@ -214,7 +227,8 @@ export interface SearchMessagesParams {
   userId: string;
   query: string;
   conversationId?: string |null;
-  messageType?: string |null;
+  messageType?: 'text' | 'image' | 'video' | 'audio' | 'file';
+  content:string
   dateRange?: { start: string; end: string }|null;
   page?: number;
   limit?: number;
@@ -252,4 +266,17 @@ export  interface CustomUser {
 export  interface CustomRequest extends Request {
   body: CustomRequestBody;
   user: CustomUser;
+}
+
+export interface SendMessageRequest extends Request {
+  body: SendMessageParams;
+  file?: MediaFile;
+  user: CustomUser;
+  
+}
+
+export interface ReactionRequest extends Request {
+  body: ReactToMessageParams;
+  user: CustomUser;
+  
 }
