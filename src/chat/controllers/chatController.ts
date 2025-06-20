@@ -8,7 +8,7 @@ import RateLimiter from "../../utils/RateLimits";
 // import { getRedisClient } from "../../lib/redisClient";
 import { CustomRequest } from "../types/chatTypes";
 import { Request,Response } from "express";
-import { SendMessageRequest,MediaFile,ReactionRequest } from "../types/chatTypes";
+import { SendMessageRequest,MediaFile,ReactionRequest,DeleteRequest } from "../types/chatTypes";
 class ChatController {
   private io: IOServer;
   private chatService: ChatService;
@@ -299,10 +299,10 @@ getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   /**
    * Supprime un message
    */
-  deleteMessage = asyncHandler(async (req, res) => {
-    const { messageId } = req.params;
-    const { deleteFor = 'me', reason } = req.body;
-    const userId = req.user.id;
+  deleteMessage = asyncHandler(async (req:DeleteRequest, res:Response) => {
+    const { messageId ,conversationId} = req.params;
+    const { deleteFor = 'me' } = req.body;
+    const userId = req.user.userId;
 
     // Validation
     const validDeleteOptions = ['me', 'everyone'];
@@ -312,9 +312,10 @@ getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
 
     const result = await this.chatService.deleteMessage({
       messageId,
-      deleteFor,
       userId,
-      reason
+      deleteType: 'soft',
+      deleteFor,
+      conversationId
     });
 
     res.status(200).json(
@@ -325,9 +326,9 @@ getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   /**
    * Restaure un message supprimé
    */
-  restoreMessage = asyncHandler(async (req, res) => {
+  restoreMessage = asyncHandler(async (req:CustomRequest, res:Response) => {
     const { messageId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     const message = await this.chatService.restoreMessage(messageId, userId);
 
@@ -339,61 +340,68 @@ getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   /**
    * Recherche dans les messages
    */
-  searchMessages = asyncHandler(async (req, res) => {
-    const userId = req.user.id;
-    const {
-      query,
-      conversationId,
-      messageType,
-      dateRange,
-      page = 1,
-      limit = 20
-    } = req.query;
 
-    if (!query || query.trim().length < 2) {
-      throw new ApiError(400, 'La requête de recherche doit contenir au moins 2 caractères');
+searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
+  const userId = req.user.userId;
+  const allowedTypes = ['text', 'image', 'video', 'audio', 'file'] as const;
+  type AllowedMessageType = typeof allowedTypes[number];
+  const rawMessageType = this.getStringFromQuery(req.query.messageType, '');
+  const messageType: AllowedMessageType | undefined = allowedTypes.includes(rawMessageType as AllowedMessageType)
+  ? (rawMessageType as AllowedMessageType)
+  : undefined;
+
+  const rawQuery = this.getStringFromQuery(req.query.query, '');
+  const rawConversationId = this.getStringFromQuery(req.query.conversationId, '');
+  // const rawMessageType = this.getStringFromQuery(req.query.messageType, '');
+  const rawDateRange = this.getStringFromQuery(req.query.dateRange, '');
+  const rawPage = this.getStringFromQuery(req.query.page, '1');
+  const rawLimit = this.getStringFromQuery(req.query.limit, '20');
+
+  if (!rawQuery || rawQuery.length < 2) {
+    throw new ApiError(400, 'La requête de recherche doit contenir au moins 2 caractères');
+  }
+
+  let parsedDateRange = null;
+  if (rawDateRange) {
+    try {
+      parsedDateRange = JSON.parse(rawDateRange);
+    } catch (error) {
+      throw new ApiError(400, 'Format de plage de dates invalide');
     }
+  }
 
-    let parsedDateRange = null;
-    if (dateRange) {
-      try {
-        parsedDateRange = JSON.parse(dateRange);
-      } catch (error) {
-        throw new ApiError(400, 'Format de plage de dates invalide');
-      }
-    }
-
-    const messages = await this.chatService.searchMessages({
-      userId,
-      query: query.trim(),
-      conversationId,
-      messageType,
-      dateRange: parsedDateRange,
-      page: parseInt(page),
-      limit: parseInt(limit)
-    });
-
-    res.status(200).json(
-      new ApiResponse(200, {
-        messages,
-        query: query.trim(),
-        pagination: {
-          currentPage: parseInt(page),
-          limit: parseInt(limit)
-        }
-      }, 'Recherche effectuée avec succès')
-    );
+  const messages = await this.chatService.searchMessages({
+    userId,
+    query: rawQuery,
+    content: rawQuery,
+    conversationId: rawConversationId || null,
+    messageType,
+    dateRange: parsedDateRange,
+    page: parseInt(rawPage),
+    limit: parseInt(rawLimit),
   });
+
+  res.status(200).json(
+    new ApiResponse(200, {
+      messages,
+      query: rawQuery,
+      pagination: {
+        currentPage: parseInt(rawPage),
+        limit: parseInt(rawLimit)
+      }
+    }, 'Recherche effectuée avec succès')
+  );
+});
 
   /**
    * Marque une conversation comme lue
    */
-  markConversationAsRead = asyncHandler(async (req, res) => {
+  markConversationAsRead = asyncHandler(async (req:CustomRequest, res:Response) => {
     const { conversationId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     await this.verifyConversationAccess(conversationId, userId);
-    await this.chatService.markConversationAsRead(conversationId, userId);
+    await this.chatService.markMessagesAsRead(conversationId, userId);
 
     res.status(200).json(
       new ApiResponse(200, {}, 'Conversation marquée comme lue')
@@ -403,10 +411,13 @@ getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   /**
    * Gère le statut de frappe
    */
-  handleTyping = asyncHandler(async (req, res) => {
+  handleTyping = asyncHandler(async (req:CustomRequest, res:Response) => {
+     if (!req.user) {
+    throw new ApiError(401, 'Utilisateur non authentifié');
+  }
     const { conversationId } = req.body;
-    const { isTyping = true } = req.body;
-    const userId = req.user.id;
+        const { isTyping = true } = req.body;
+    const userId = req.user.userId;
 
     await this.verifyConversationAccess(conversationId, userId);
     await this.chatService.handleTypingStatus(conversationId, userId, isTyping);

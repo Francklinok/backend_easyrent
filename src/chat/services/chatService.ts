@@ -26,14 +26,16 @@ import sharp from 'sharp';
 import { Server as IOServer } from 'socket.io';
 import { createLogger } from "../../utils/logger/logger";
 import { Queue } from "bullmq";
-const  logger = createLogger('chatService')
 import { redisForBullMQ} from "../../lib/redisClient";
-
+import { SecurityAuditService } from "../../security/services/securityAuditServices";
+import { AuditEventSeverity,SecurityEventType } from "../../security/type/auditType";
+const   logger = createLogger("chatservice")
 class ChatService extends EventEmitter {
   private io: IOServer;
   private notificationService: NotificationService;
   private cacheService: typeof appCacheAndPresenceService;
   private messageQueue:Queue;
+  private auditService:SecurityAuditService;
   // private  messageDeliveryQueue:Queue;
 
   constructor(io: IOServer) {
@@ -49,6 +51,8 @@ class ChatService extends EventEmitter {
     // });
     // Configuration des événements d'erreur
     this.setupErrorHandling();
+    this.auditService = SecurityAuditService.getInstance();
+
   }
  
   private setupErrorHandling(): void {
@@ -1103,13 +1107,17 @@ class ChatService extends EventEmitter {
   /**
    * Suppression d'un message
    */
-  async deleteMessage({
-    messageId,
-    userId,
-    deleteType = 'soft',
-    conversationId
-  }: DeleteMessageParams): Promise<boolean> {
+  async deleteMessage(params: DeleteMessageParams): Promise<boolean> {
+    const {
+        messageId,
+        userId,
+        deleteType = 'soft',
+        deleteFor = "me",
+        conversationId
+      } = params
+
     try {
+      
       // Validation des permissions
       await this.validateUserPermissions(conversationId, userId);
 
@@ -1131,39 +1139,137 @@ class ChatService extends EventEmitter {
       }
 
       if (deleteType === 'soft') {
-        // Suppression douce - marquer comme supprimé
-        message.isDeleted = true;
         message.deletedAt = new Date();
         message.deletedBy = new Types.ObjectId(userId);
+
+        if (deleteFor === 'me') {
+          if (!message.deletedFor.some(id => id.toString() === userId)) {
+            message.deletedFor.push(new Types.ObjectId(userId));
+          }
+        } else if (deleteFor === 'everyone') {
+          message.isDeleted = true;
+        }
+
         await message.save();
       } else {
-        // Suppression définitive
+        // deleteType === 'hard'
         await Message.findByIdAndDelete(messageId);
       }
 
+      // if (deleteType === 'soft') {
+      //   // Suppression douce - marquer comme supprimé
+      //   message.isDeleted = true;
+      //   message.deletedAt = new Date();
+      //   message.deletedBy = new Types.ObjectId(userId);
+      //  if (deleteFor === 'me') {
+      //     message.deletedFor = 'me';
+      //   } else {
+      //     message.deletedFor = 'everyone';
+      //   }
+
+      //   await message.save();
+      // } else {
+      //   // Suppression définitive
+      //   await Message.findByIdAndDelete(messageId);
+      // }
+
    
-      this.emitMessageDeletion(messageId,'everyone',userId, conversation)
-        await this.createDeleteAuditLog(
+      this.emitMessageDeletion(messageId,deleteFor,userId, conversation)
+      await this.createDeleteAuditLog(
             message,
             userId,
-            'everyone',    
+            deleteFor,
              null
           ); 
              // Invalidation du cache
       await this.invalidateRelatedCaches(conversationId, userId);
-
-      // Émission de l'événement
-      // this.io.to(conversationId).emit('messageDeleted', {
-      //   messageId,
-      //   deletedBy: userId,
-      //   deleteType
-      // });
       return true;
     } catch (error) {
       this.emit('error', { operation: 'deleteMessage', error, messageId, userId });
       throw error;
     }
   }
+
+  async restoreMessage(messageId: string, userId: string, ipAddress: string = 'unknown',userAgent: string = 'unknown'): Promise<boolean> {
+  try {
+    // Vérifier l'existence du message
+    const message = await Message.findById(messageId);
+    if (!message) {
+      logger.warn(`Message ${messageId} introuvable pour restauration.`);
+      throw new Error('Message non trouvé');
+    }
+
+    // Vérifier que l'utilisateur fait partie de la conversation
+    const conversation = await Conversation.findById(message.conversationId);
+    if (!conversation) {
+      logger.warn(`Conversation ${message.conversationId} introuvable pour restauration.`);
+      throw new Error('Conversation introuvable');
+    }
+
+    const isParticipant = conversation.participants.some(
+      (participantId:Types.ObjectId) => participantId.toString() === userId
+    );
+    if (!isParticipant) {
+      logger.warn(`L'utilisateur ${userId} ne fait pas partie de la conversation.`);
+      throw new Error("Vous n'avez pas accès à cette conversation");
+    }
+
+    // Vérifier si l'utilisateur est dans la liste des suppressions
+    const wasDeletedForUser = message.deletedFor.some(
+      (id) => id.toString() === userId
+    );
+    if (!wasDeletedForUser) {
+      logger.info(`Message ${messageId} déjà visible pour l'utilisateur ${userId}`);
+      return true; // rien à faire
+    }
+
+    // Supprimer l'utilisateur de la liste
+    message.deletedFor = message.deletedFor.filter(
+      (id) => id.toString() !== userId
+    );
+    await message.save();
+
+    // Optionnel : audit log
+    await this.auditService.logEvent({
+      eventType: SecurityEventType.RESTORE_MESSAGE,
+      userId,
+      targetResource: `message:${message._id}`,
+      ipAddress,
+      userAgent,
+      severity: AuditEventSeverity.INFO,
+      details: {
+        conversationId: message.conversationId.toString(),
+        restoredBy: userId,
+      }
+    });
+
+    // Invalider cache conversation/messages
+    await this.invalidateRelatedCaches?.(message.conversationId.toString(), userId);
+
+    // Émettre un événement via socket
+    // this.io?.to(message.conversationId.toString()).emit('messageRestored', {
+    //   messageId: (message._id as Types.ObjectId).toString(),
+    //   userId,
+    // });
+    this.emitToParticipants(conversation, 'messageRestored', {
+      messageId,
+      restoredBy: userId
+    });
+
+
+  logger.info(`Message ${messageId} restauré avec succès pour l'utilisateur ${userId}`);
+    return true;
+  } catch (error) {
+    logger.error(`Erreur restauration message ${messageId} par ${userId}`, error);
+    this.emit?.('error', {
+      operation: 'restoreMessage',
+      error,
+      messageId,
+      userId,
+    });
+    return false;
+  }
+}
 
   /**
    * Recherche de messages avec indexation full-text
@@ -1233,49 +1339,6 @@ class ChatService extends EventEmitter {
   }
 
   /**
-   * Marquage des messages comme lus
-   */
-  async markMessagesAsRead(conversationId: string, userId: string, messageIds?: string[]): Promise<void> {
-    try {
-      // Validation des permissions
-      await this.validateUserPermissions(conversationId, userId);
-
-      let query: any = {
-        conversationId: new Types.ObjectId(conversationId),
-        senderId: { $ne: new Types.ObjectId(userId) },
-        'status.read': { $not: { $elemMatch: { userId: new Types.ObjectId(userId) } } }
-      };
-
-      if (messageIds && messageIds.length > 0) {
-        query._id = { $in: messageIds.map(id => new Types.ObjectId(id)) };
-      }
-
-      await Message.updateMany(query, {
-        $push: {
-          'status.read': {
-            userId: new Types.ObjectId(userId),
-            readAt: new Date()
-          }
-        }
-      });
-
-      // Invalidation du cache des messages non lus
-      await this.cacheService.delete(`unread_count:${conversationId}:${userId}`);
-
-      // Émission de l'événement
-      this.io.to(conversationId).emit('messagesRead', {
-        userId,
-        conversationId,
-        readAt: new Date()
-      });
-
-    } catch (error) {
-      this.emit('error', { operation: 'markMessagesAsRead', error, conversationId, userId });
-      throw error;
-    }
-  }
-
-  /**
    * Gestion des indicateurs de frappe
    */
   async setTypingStatus(conversationId: string, userId: string, isTyping: boolean): Promise<void> {
@@ -1295,21 +1358,47 @@ class ChatService extends EventEmitter {
       } else {
         typingUsers = typingUsers.filter(id => id !== userId);
       }
+        const conversation = await Conversation.findById(conversationId);
+          if (!conversation) {
+            console.warn(`Conversation ${conversationId} non trouvée pour émission typingStatus`);
+            return;
+          }
 
       await this.cacheService.set(cacheKey, typingUsers, 30); // 30 secondes TTL
 
       // Émission aux autres participants
-      this.io.to(conversationId).emit('typingStatus', {
-        conversationId,
-        userId,
-        isTyping,
-        typingUsers: typingUsers.filter(id => id !== userId) // Exclure l'utilisateur actuel
+       this.emitToParticipants(conversation, 'typingStatus', {
+      userId,
+      isTyping,
+      typingUsers: typingUsers.filter(id => id !== userId), // Exclure l'utilisateur actuel
       });
+     
+      // this.io.to(conversationId).emit('typingStatus', {
+      //   conversationId,
+      //   userId,
+      //   isTyping,
+      //   typingUsers: typingUsers.filter(id => id !== userId) // Exclure l'utilisateur actuel
+      // });
 
     } catch (error) {
       console.error('Erreur gestion typing status:', error);
     }
   }
+  //handletyping
+  async handleTypingStatus(conversationId: string, userId: string, isTyping: boolean): Promise<void> {
+    // Appeler directement ta méthode setTypingStatus qui gère le cache + émission
+    await this.setTypingStatus(conversationId, userId, isTyping);
+
+    // Optionnel : émettre un événement supplémentaire si besoin
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) throw new Error('Conversation non trouvée');
+
+    this.emitToParticipants(conversation, 'typingStatusUpdated', {
+      userId,
+      isTyping
+    });
+}
+
   // Méthodes utilitaires privées
   private async getLastMessage(conversationId: Types.ObjectId): Promise<IMessage | null> {
     return await Message.findOne({ 
@@ -1338,11 +1427,65 @@ class ChatService extends EventEmitter {
     return count;
   }
 
+  /**
+   * Marquage des messages comme lus
+   */
+  async markMessagesAsRead(conversationId: string, userId: string, messageIds?: string[]): Promise<void> {
+    try {
+      // Validation des permissions
+      await this.validateUserPermissions(conversationId, userId);
+
+      let query: any = {
+        conversationId: new Types.ObjectId(conversationId),
+        senderId: { $ne: new Types.ObjectId(userId) },
+        'status.read': { $not: { $elemMatch: { userId: new Types.ObjectId(userId) } } }
+      };
+
+      if (messageIds && messageIds.length > 0) {
+        query._id = { $in: messageIds.map(id => new Types.ObjectId(id)) };
+      }
+
+      const result =  await Message.updateMany(query, {
+        $push: {
+          'status.read': {
+            userId: new Types.ObjectId(userId),
+            readAt: new Date()
+          }
+        }
+      });
+      logger.info(`Lecture marquée sur ${result.modifiedCount} messages pour l'utilisateur ${userId}`);
+
+      // Invalidation du cache des messages non lus
+      await this.cacheService.delete(`unread_count:${conversationId}:${userId}`);
+      await this.auditService.logEvent({
+            eventType: SecurityEventType.API_ACCESS,
+            userId,
+            targetResource: `conversation:${conversationId}`,
+            severity: AuditEventSeverity.INFO,
+            details: {
+              action: 'markAsRead',
+              modifiedMessages: result.modifiedCount
+            }
+          });
+      // Émission de l'événement
+      const conversation = await Conversation.findById(conversationId);
+
+      this.emitToParticipants(conversation, 'conversationMarkedAsRead', {
+        userId
+      });
+
+    } catch (error) {
+      this.emit('error', { operation: 'markMessagesAsRead', error, conversationId, userId });
+      throw error;
+    }
+  }
+
   private async getTypingUsers(conversationId: Types.ObjectId, userId: string): Promise<string[]> {
     const cacheKey = `typing:${conversationId}`;
     const typingUsers = await this.cacheService.get<string[]>(cacheKey) || [];
     return typingUsers.filter(id => id !== userId);
   }
+
 
   private getConversationOnlineStatus(participants: any[]): boolean {
     return participants.some((p: any) => p.isOnline);
@@ -1415,6 +1558,23 @@ class ChatService extends EventEmitter {
       });
     });
   }
+
+  private emitToParticipants(
+    conversation: IConversation | null,
+    event: string,
+    payload: Record<string, any>
+  ): void {
+    if (!conversation) return;
+
+    conversation.participants.forEach(participantId => {
+      this.io.to(participantId.toString()).emit(event, {
+        ...payload,
+        conversationId: conversation._id,
+        timestamp: new Date()
+      });
+    });
+  }
+
 
   private async userHasDeletePermission(
     userId: string,

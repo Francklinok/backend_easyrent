@@ -257,6 +257,8 @@ export interface CustomRequestBody {
   participantId?: string;
   type?: string;
   propertyId?: string;
+  conversationId?: string;
+  isTyping?: boolean;
 }
 
 export  interface CustomUser {
@@ -277,6 +279,11 @@ export interface SendMessageRequest extends Request {
 
 export interface ReactionRequest extends Request {
   body: ReactToMessageParams;
+  user: CustomUser;
+  
+}
+export interface DeleteRequest extends Request {
+  body: DeleteMessageParams ;
   user: CustomUser;
   
 }
