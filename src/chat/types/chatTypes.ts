@@ -127,6 +127,21 @@ export interface IConversation extends Document {
   updatedAt?: Date;
 }
 
+// export type MessageType =
+//   | 'text'
+//   | 'image'
+//   | 'video'
+//   | 'audio'
+//   | 'document'
+//   | 'location'
+//   | 'contact'
+//   | 'property'
+//   | 'voice_note'
+//   | 'ar_preview'
+//   | 'virtual_tour';
+
+export type MessageType = IMessage['messageType'];
+
 export type NotificationPayload = {
   userId: string;
   type: "push" | "email" | "both"; // Remove "message", "reminder", "call"

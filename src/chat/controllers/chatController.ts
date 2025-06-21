@@ -8,6 +8,7 @@ import RateLimiter from "../../utils/RateLimits";
 // import { getRedisClient } from "../../lib/redisClient";
 import { CustomRequest } from "../types/chatTypes";
 import { Request,Response } from "express";
+import { MessageType } from "../types/chatTypes";
 import { SendMessageRequest,MediaFile,ReactionRequest,DeleteRequest } from "../types/chatTypes";
 class ChatController {
   private io: IOServer;
@@ -416,7 +417,8 @@ searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
     throw new ApiError(401, 'Utilisateur non authentifié');
   }
     const { conversationId } = req.body;
-        const { isTyping = true } = req.body;
+    if(!conversationId)return 
+    const { isTyping = true } = req.body;
     const userId = req.user.userId;
 
     await this.verifyConversationAccess(conversationId, userId);
@@ -430,12 +432,12 @@ searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   /**
    * Archive une conversation
    */
-  archiveConversation = asyncHandler(async (req, res) => {
+  archiveConversation = asyncHandler(async (req:CustomRequest, res:Response) => {
     const { conversationId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     await this.verifyConversationAccess(conversationId, userId);
-    const conversation = await this.chatService.archiveConversation(conversationId, userId);
+    const conversation = await this.chatService.archivedConversation(conversationId, userId);
 
     res.status(200).json(
       new ApiResponse(200, conversation, 'Conversation archivée avec succès')
@@ -445,23 +447,23 @@ searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   /**
    * Épingle un message
    */
-  pinMessage = asyncHandler(async (req, res) => {
-    const { messageId } = req.params;
-    const userId = req.user.id;
+  // pinMessage = asyncHandler(async (req:CustomRequest, res:Response) => {
+  //   const { messageId } = req.params;
+  //   const userId = req.user.userId;
 
-    const result = await this.chatService.pinMessage(messageId, userId);
+  //   const result = await this.chatService.pinMessage(messageId, userId);
 
-    res.status(200).json(
-      new ApiResponse(200, result, 'Message épinglé avec succès')
-    );
-  });
+  //   res.status(200).json(
+  //     new ApiResponse(200, result, 'Message épinglé avec succès')
+  //   );
+  // });
 
   /**
    * Obtient les statistiques de conversation
    */
-  getConversationStats = asyncHandler(async (req, res) => {
+  getConversationStats = asyncHandler(async (req:CustomRequest, res:Response) => {
     const { conversationId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     await this.verifyConversationAccess(conversationId, userId);
     const stats = await this.chatService.getConversationStats(conversationId);
@@ -473,7 +475,7 @@ searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
 
   // Méthodes utilitaires privées
 
-  async validateMessageByType(messageType, content, file) {
+  async validateMessageByType(messageType:MessageType, content:string, file:MediaFile) {
     switch (messageType) {
       case 'text':
         if (!content || content.trim().length === 0) {
@@ -559,14 +561,14 @@ searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
     }
   }
 
-  async verifyConversationAccess(conversationId, userId) {
-    const conversation = await this.chatService.getConversationById(conversationId);
+  async verifyConversationAccess(conversationId:string, userId:string) {
+    const  conversation = Conversation.findById(conversationId)
     if (!conversation) {
       throw new ApiError(404, 'Conversation non trouvée');
     }
     
     const hasAccess = conversation.participants.some(
-      participant => participant.toString() === userId
+      (participant:any) => participant.toString() === userId
     );
     
     if (!hasAccess) {
