@@ -20,6 +20,7 @@ import { errorHandler } from './auth/utils/errorHandler';
 import { UserPresenceService } from './users/services/userPresence';
 import { trackUserActivity } from './users/middleware/trackUserActivity';
 import { createLogger } from './utils/logger/logger';
+import chatRouter from './chat/routers/chatRouter';
 
 const logger = createLogger("app")
 // import { propertyErrorHandler } from './property/middlewares/propertyErrorHandler';
@@ -118,6 +119,7 @@ app.get('/', (req, res) => {
 app.use('/api/v1/auth', auThrouter);
 //property  routes
 app.use('/api/properties', propertyRouter);
+// chat routes
 
 // Middlewares de gestion d'erreurs - doivent être en dernier
 // app.use(propertyErrorHandler);

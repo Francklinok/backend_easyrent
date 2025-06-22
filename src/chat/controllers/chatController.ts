@@ -10,17 +10,22 @@ import { CustomRequest } from "../types/chatTypes";
 import { Request,Response } from "express";
 import { MessageType } from "../types/chatTypes";
 import { SendMessageRequest,MediaFile,ReactionRequest,DeleteRequest } from "../types/chatTypes";
+import { mediaValidationConfig } from "../constant/messageTypeValidationConfig";
+import { appCacheAndPresenceService } from "../../services/appCacheAndPresence";
 class ChatController {
   private io: IOServer;
   private chatService: ChatService;
   private rateLimiter: RateLimiter;
-  private redisClient;
+  // private appCacheAndPresenceService:appCacheAndPresenceService
 
   constructor(io: IOServer) {
     this.io = io;
     this.chatService = new ChatService(io);
-    this.redisClient = getRedisClient(); 
-    this.rateLimiter = new RateLimiter(this.redisClient);
+    const redisClient = appCacheAndPresenceService.getRedisClient(); 
+      if (!redisClient) {
+        throw new Error("Redis client is not initialized");
+      }
+    this.rateLimiter = new RateLimiter(redisClient);
 
     this.setupServiceEventListeners();
   }
@@ -74,64 +79,65 @@ class ChatController {
    */
   
   getStringFromQuery = (value: any, defaultValue: string): string => {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') return value[0];
-  return defaultValue;
-  };
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') return value[0];
+    return defaultValue;
+    };
+
   getUserConversations = asyncHandler(async (req: CustomRequest, res: Response) => {
-      const userId = req.user.userId;
-      
-      // Safely extract query parameters
-      const pageStr = this.getStringFromQuery(req.query.page, '1');
-      const limitStr = this.getStringFromQuery(req.query.limit, '20');
-      const filter = this.getStringFromQuery(req.query.filter, 'all');
-      const sortBy = this.getStringFromQuery(req.query.sortBy, 'updatedAt');
-      const sortOrder = this.getStringFromQuery(req.query.sortOrder, 'desc');
+    const userId = req.user.userId;
+    
+    // Safely extract query parameters
+    const pageStr = this.getStringFromQuery(req.query.page, '1');
+    const limitStr = this.getStringFromQuery(req.query.limit, '20');
+    const filter = this.getStringFromQuery(req.query.filter, 'all');
+    const sortBy = this.getStringFromQuery(req.query.sortBy, 'updatedAt');
+    const sortOrder = this.getStringFromQuery(req.query.sortOrder, 'desc');
 
-      // Validation des paramètres
-      const validFilters = ['all', 'unread', 'groups', 'direct', 'archived'] as const;
-      const validSortOrders = ['asc', 'desc'] as const;
-      
-      // Type-safe filter validation
-      if (!validFilters.includes(filter as any)) {
-        throw new ApiError(400, 'Filtre invalide');
-      }
-      
-      if (!validSortOrders.includes(sortOrder as any)) {
-        throw new ApiError(400, 'Ordre de tri invalide');
-      }
+    // Validation des paramètres
+    const validFilters = ['all', 'unread', 'groups', 'direct', 'archived'] as const;
+    const validSortOrders = ['asc', 'desc'] as const;
+    
+    // Type-safe filter validation
+    if (!validFilters.includes(filter as any)) {
+      throw new ApiError(400, 'Filtre invalide');
+    }
+    
+    if (!validSortOrders.includes(sortOrder as any)) {
+      throw new ApiError(400, 'Ordre de tri invalide');
+    }
 
-      // Parse query parameters safely
-      const pageNum = parseInt(pageStr, 10);
-      const limitNum = parseInt(limitStr, 10);
-      
-      if (isNaN(pageNum) || pageNum < 1) {
-        throw new ApiError(400, 'Page invalide');
-      }
-      
-      if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
-        throw new ApiError(400, 'Limite invalide');
-      }
+    // Parse query parameters safely
+    const pageNum = parseInt(pageStr, 10);
+    const limitNum = parseInt(limitStr, 10);
+    
+    if (isNaN(pageNum) || pageNum < 1) {
+      throw new ApiError(400, 'Page invalide');
+    }
+    
+    if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+      throw new ApiError(400, 'Limite invalide');
+    }
 
-      const conversations = await this.chatService.getUserConversations({
-        userId,
-        page: pageNum,
-        limit: limitNum,
-        filter: filter as 'all' | 'unread' | 'groups' | 'direct' | 'archived',
-        sortBy: sortBy,
-        sortOrder: sortOrder as 'asc' | 'desc'
-      });
+    const conversations = await this.chatService.getUserConversations({
+      userId,
+      page: pageNum,
+      limit: limitNum,
+      filter: filter as 'all' | 'unread' | 'groups' | 'direct' | 'archived',
+      sortBy: sortBy,
+      sortOrder: sortOrder as 'asc' | 'desc'
+    });
 
-      res.status(200).json(
-        new ApiResponse(200, {
-          conversations,
-          pagination: {
-            currentPage: pageNum,
-            limit: limitNum,
-            total: conversations.length
-          }
-        }, 'Conversations récupérées avec succès')
-      );
+    res.status(200).json(
+      new ApiResponse(200, {
+        conversations,
+        pagination: {
+          currentPage: pageNum,
+          limit: limitNum,
+          total: conversations.length
+        }
+      }, 'Conversations récupérées avec succès')
+    );
   });
     /**
      * Envoie un message
@@ -189,13 +195,19 @@ class ChatController {
       replyTo,
       scheduleFor,
       priority = 'normal',
-      mentions = []
+      mentions = [],
+      
+
     } = req.body;
 
     const userId = req.user.userId;
+    const mediaFile = req.file as MediaFile | undefined;
+
 
     // Validation spécifique au type de message
-    await this.validateMessageByType(messageType, content, req.file);
+    // await this.validateMessageByType(messageType, content, req.file);
+      await this.validateMessageByType(messageType, content, mediaFile);
+
 
     const message = await this.chatService.sendMessage(
       {
@@ -222,7 +234,9 @@ class ChatController {
 getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   const { conversationId } = req.params;
   const userId = req.user.userId;
-  const allowedMessageTypes = ['text', 'image', 'video', 'audio', 'file'] as const;
+
+  const allowedMessageTypes = ['text', 'image', 'video', 'audio', 'document','location',
+    'contact','property','voice_note','ar_preview','virtual_tour'] as const;
 
   const pageStr = this.getStringFromQuery(req.query.page, '1');
   const limitStr = this.getStringFromQuery(req.query.limit, '50');
@@ -252,12 +266,13 @@ getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
 
   const messages = await this.chatService.getMessages({
     conversationId,
-    userId,
     page,
     limit,
     messageType,
     dateRange: parsedDateRange,
-    searchQuery
+    searchQuery,
+    userId,
+
   });
 
   res.status(200).json(
@@ -344,7 +359,8 @@ getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
 
 searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   const userId = req.user.userId;
-  const allowedTypes = ['text', 'image', 'video', 'audio', 'file'] as const;
+    const allowedTypes = ['text', 'image', 'video', 'audio', 'document','location',
+    'contact','property','voice_note','ar_preview','virtual_tour'] as const;
   type AllowedMessageType = typeof allowedTypes[number];
   const rawMessageType = this.getStringFromQuery(req.query.messageType, '');
   const messageType: AllowedMessageType | undefined = allowedTypes.includes(rawMessageType as AllowedMessageType)
@@ -475,91 +491,127 @@ searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
 
   // Méthodes utilitaires privées
 
-  async validateMessageByType(messageType:MessageType, content:string, file:MediaFile) {
-    switch (messageType) {
-      case 'text':
-        if (!content || content.trim().length === 0) {
-          throw new ApiError(400, 'Le contenu est requis pour les messages texte');
-        }
-        if (content.length > 10000) {
-          throw new ApiError(400, 'Le message est trop long (max 10000 caractères)');
-        }
-        break;
-      
-      case 'image':
-        if (!file) {
-          throw new ApiError(400, 'Fichier requis pour les messages image');
-        }
-        if (!file.mimetype.startsWith('image/')) {
-          throw new ApiError(400, 'Le fichier doit être une image');
-        }
-        if (file.size > 10 * 1024 * 1024) { // 10MB
-          throw new ApiError(400, 'L\'image est trop volumineuse (max 10MB)');
-        }
-        break;
-      
-      case 'video':
-        if (!file) {
-          throw new ApiError(400, 'Fichier requis pour les messages vidéo');
-        }
-        if (!file.mimetype.startsWith('video/')) {
-          throw new ApiError(400, 'Le fichier doit être une vidéo');
-        }
-        if (file.size > 100 * 1024 * 1024) { // 100MB
-          throw new ApiError(400, 'La vidéo est trop volumineuse (max 100MB)');
-        }
-        break;
-      
-      case 'audio':
-        if (!file) {
-          throw new ApiError(400, 'Fichier requis pour les messages audio');
-        }
-        if (!file.mimetype.startsWith('audio/')) {
-          throw new ApiError(400, 'Le fichier doit être un audio');
-        }
-        if (file.size > 25 * 1024 * 1024) { // 25MB
-          throw new ApiError(400, 'L\'audio est trop volumineux (max 25MB)');
-        }
-        break;
-      
-      case 'document':
-        if (!file) {
-          throw new ApiError(400, 'Fichier requis pour les messages document');
-        }
-        const allowedDocTypes = [
-          'application/pdf',
-          'application/msword',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'text/plain',
-          'application/vnd.ms-excel',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        ];
-        if (!allowedDocTypes.includes(file.mimetype)) {
-          throw new ApiError(400, 'Type de document non supporté');
-        }
-        if (file.size > 50 * 1024 * 1024) { // 50MB
-          throw new ApiError(400, 'Le document est trop volumineux (max 50MB)');
-        }
-        break;
-      
-      case 'location':
-        if (!content) {
-          throw new ApiError(400, 'Les données de localisation sont requises');
-        }
-        try {
-          const locationData = JSON.parse(content);
-          if (!locationData.latitude || !locationData.longitude) {
-            throw new ApiError(400, 'Latitude et longitude requises');
-          }
-        } catch (error) {
-          throw new ApiError(400, 'Format de localisation invalide');
-        }
-        break;
-      
-      default:
-        throw new ApiError(400, 'Type de message non supporté');
+async validateMessageByType(messageType: MessageType, content: string, file?: MediaFile) {
+  const rule = mediaValidationConfig[messageType];
+
+  if (!rule) {
+    throw new ApiError(400, 'Type de message non supporté');
+  }
+
+  if (rule.requiredContent) {
+    if (!content) {
+      throw new ApiError(400, 'Le contenu est requis');
+    }
+    try {
+      rule.contentValidator?.(content);
+    } catch (err:any) {
+      throw new ApiError(400, err.message);
     }
   }
+
+  if (rule.requiredFile) {
+    if (!file) {
+      throw new ApiError(400, 'Fichier requis');
+    }
+
+    if (rule.mimetypePrefix && !file.mimetype.startsWith(rule.mimetypePrefix)) {
+      throw new ApiError(400, `Le fichier doit être de type ${rule.mimetypePrefix}`);
+    }
+
+    if (rule.allowedMimetypes && !rule.allowedMimetypes.includes(file.mimetype)) {
+      throw new ApiError(400, 'Type de fichier non supporté');
+    }
+
+    if (file.size > rule.maxSizeMB * 1024 * 1024) {
+      throw new ApiError(400, `Fichier trop volumineux (max ${rule.maxSizeMB}MB)`);
+    }
+  }
+}
+  // async validateMessageByType(messageType:MessageType, content:string, file:MediaFile) {
+  //   switch (messageType) {
+  //     case 'text':
+  //       if (!content || content.trim().length === 0) {
+  //         throw new ApiError(400, 'Le contenu est requis pour les messages texte');
+  //       }
+  //       if (content.length > 10000) {
+  //         throw new ApiError(400, 'Le message est trop long (max 10000 caractères)');
+  //       }
+  //       break;
+      
+  //     case 'image':
+  //       if (!file) {
+  //         throw new ApiError(400, 'Fichier requis pour les messages image');
+  //       }
+  //       if (!file.mimetype.startsWith('image/')) {
+  //         throw new ApiError(400, 'Le fichier doit être une image');
+  //       }
+  //       if (file.size > 10 * 1024 * 1024) { // 10MB
+  //         throw new ApiError(400, 'L\'image est trop volumineuse (max 10MB)');
+  //       }
+  //       break;
+      
+  //     case 'video':
+  //       if (!file) {
+  //         throw new ApiError(400, 'Fichier requis pour les messages vidéo');
+  //       }
+  //       if (!file.mimetype.startsWith('video/')) {
+  //         throw new ApiError(400, 'Le fichier doit être une vidéo');
+  //       }
+  //       if (file.size > 100 * 1024 * 1024) { // 100MB
+  //         throw new ApiError(400, 'La vidéo est trop volumineuse (max 100MB)');
+  //       }
+  //       break;
+      
+  //     case 'audio':
+  //       if (!file) {
+  //         throw new ApiError(400, 'Fichier requis pour les messages audio');
+  //       }
+  //       if (!file.mimetype.startsWith('audio/')) {
+  //         throw new ApiError(400, 'Le fichier doit être un audio');
+  //       }
+  //       if (file.size > 25 * 1024 * 1024) { // 25MB
+  //         throw new ApiError(400, 'L\'audio est trop volumineux (max 25MB)');
+  //       }
+  //       break;
+      
+  //     case 'document':
+  //       if (!file) {
+  //         throw new ApiError(400, 'Fichier requis pour les messages document');
+  //       }
+  //       const allowedDocTypes = [
+  //         'application/pdf',
+  //         'application/msword',
+  //         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  //         'text/plain',
+  //         'application/vnd.ms-excel',
+  //         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  //       ];
+  //       if (!allowedDocTypes.includes(file.mimetype)) {
+  //         throw new ApiError(400, 'Type de document non supporté');
+  //       }
+  //       if (file.size > 50 * 1024 * 1024) { // 50MB
+  //         throw new ApiError(400, 'Le document est trop volumineux (max 50MB)');
+  //       }
+  //       break;
+      
+  //     case 'location':
+  //       if (!content) {
+  //         throw new ApiError(400, 'Les données de localisation sont requises');
+  //       }
+  //       try {
+  //         const locationData = JSON.parse(content);
+  //         if (!locationData.latitude || !locationData.longitude) {
+  //           throw new ApiError(400, 'Latitude et longitude requises');
+  //         }
+  //       } catch (error) {
+  //         throw new ApiError(400, 'Format de localisation invalide');
+  //       }
+  //       break;
+      
+  //     default:
+  //       throw new ApiError(400, 'Type de message non supporté');
+  //   }
+  // }
 
   async verifyConversationAccess(conversationId:string, userId:string) {
     const  conversation = Conversation.findById(conversationId)

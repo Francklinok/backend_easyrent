@@ -101,6 +101,10 @@ export class UserPresenceService {
       logger.debug(`Memory cache key expired: ${key}`);
     });
   }
+  
+    getRedisClient(): Redis | null {
+      return this.redisClient;
+    }
 
   /**
    * Met à jour le statut de présence d'un utilisateur.

@@ -1,13 +1,13 @@
 import http from 'http';
-import config from './config/index';
+import config from './config';
 import port from './src/utils/normalize/normalizePort';
 import onError from './src/utils/normalize/onError';
 import { createLogger } from './src/utils/logger/logger';
 import { UserPresenceService } from './src/users/services/userPresence';
 import { PresenceWebSocketHandler } from './src/utils/socket/webSocket';
 import app from './src/app'
-
-
+import chatRouter from './src/chat/routers/chatRouter';
+import { Server as IOServer } from 'socket.io';
 
 const logger = createLogger('server');
 // === Log pour confirmer le chargement initial ===
@@ -19,6 +19,13 @@ let server: http.Server;
 try {
       // Création du serveur HTTP
       server = http.createServer(app);
+      const io = new IOServer(server, {
+          cors: {
+            origin: config.cors.origin || '*',
+            methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+            credentials: true,
+          }
+        });
 
       // Log si la création est OK
       console.log('✅ Serveur HTTP créé');
@@ -76,6 +83,9 @@ try {
         onError(error);
         process.exit(1);
       });
+      
+
+      app.use('/api/chat', chatRouter(io))
 
 } catch (e) {
   console.error('🔥 Erreur fatale au lancement du serveur :', e);

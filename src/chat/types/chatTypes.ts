@@ -1,6 +1,7 @@
 
 import { Document, Types  } from "mongoose";
 import { Request } from "express";
+
 export interface IMessage extends Document {
   msgId: Types.ObjectId;
   senderId: Types.ObjectId;
@@ -194,10 +195,11 @@ export interface EnrichedConversation extends Omit<IConversation, keyof Document
 export interface SendMessageParams {
   conversationId: string;
   content: string;
-  messageType?: 'text' | 'image' | 'video' | 'audio' | 'file';
   replyTo?: string;
+  messageType: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'contact' | 'property' | 'voice_note' | 'ar_preview' | 'virtual_tour';
   scheduleFor?: string;
   userId: string;
+  file?: MediaFile;
   // file?: MediaFile;
   priority?: 'low' | 'medium'|'normal'| 'high' | 'urgent';
   mentions?: any[];
@@ -209,7 +211,7 @@ export interface GetMessagesParams {
   userId: string;
   page?: number;
   limit?: number;
-  messageType?: 'text' | 'image' | 'video' | 'audio' | 'file';
+  messageType?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'contact' | 'property' | 'voice_note' | 'ar_preview' | 'virtual_tour';
   content?: string ;
   dateRange?: { start: string; end: string }|null;
   searchQuery?: string | null;
@@ -242,7 +244,7 @@ export interface SearchMessagesParams {
   userId: string;
   query: string;
   conversationId?: string |null;
-  messageType?: 'text' | 'image' | 'video' | 'audio' | 'file';
+  messageType?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'contact' | 'property' | 'voice_note' | 'ar_preview' | 'virtual_tour';
   content:string
   dateRange?: { start: string; end: string }|null;
   page?: number;
@@ -287,7 +289,8 @@ export  interface CustomRequest extends Request {
 
 export interface SendMessageRequest extends Request {
   body: SendMessageParams;
-  file?: MediaFile;
+  messageType:MessageType;
+  file?: Express.Multer.File,
   user: CustomUser;
   
 }
