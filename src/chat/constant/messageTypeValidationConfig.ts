@@ -1,11 +1,5 @@
-export interface MediaValidationRule {
-  mimetypePrefix?: string;
-  allowedMimetypes?: string[];
-  maxSizeMB: number;
-  requiredFile?: boolean;
-  requiredContent?: boolean;
-  contentValidator?: (content: string) => void;
-}
+
+import { MediaValidationRule } from "../types/chatTypes";
 
 export const mediaValidationConfig: Record<string, MediaValidationRule> = {
   text: {

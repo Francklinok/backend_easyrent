@@ -305,3 +305,11 @@ export interface DeleteRequest extends Request {
   user: CustomUser;
   
 }
+export interface MediaValidationRule {
+  mimetypePrefix?: string;
+  allowedMimetypes?: string[];
+  maxSizeMB: number;
+  requiredFile?: boolean;
+  requiredContent?: boolean;
+  contentValidator?: (content: string) => void;
+}

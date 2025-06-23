@@ -7,13 +7,23 @@ import speakeasy from 'speakeasy';
 import config from '../../../config';
 import { UserService } from './userService';
 import { createLogger } from '../../utils/logger/logger';
-import { UserPresenceService } from './userPresence';
-import { AuthOptions,TwoFactorSetup ,SecurityInfo,ActiveSession,TokenPayload,AuthTokens,LoginDetails,UserInfo,TwoFactorValidationResult, IUser} from '../types/userTypes';
-import  bcrypt from  "bcrypt"
-import { Config } from '../../../config/type';
+// import { UserPresenceService } from './userPresence';
+import { AuthOptions,
+  TwoFactorSetup ,
+  SecurityInfo,
+  ActiveSession,
+  TokenPayload,
+  AuthTokens,
+  LoginDetails,
+  UserInfo,
+  TwoFactorValidationResult,
+   IUser} from '../types/userTypes';
+// import  bcrypt from  "bcrypt"
 import { RefreshToken } from '../types/userTypes';
 import User from '../models/userModel';
 import { Types } from 'mongoose';
+import appCacheAndPresenceService from '../../services/redisInstance';
+// import { appCacheAndPresenceService } from '../../services/appCacheAndPresence';
 // Création d'une instance du logger
 const logger = createLogger("AuthService");
 
@@ -22,11 +32,11 @@ const logger = createLogger("AuthService");
  */
 export class AuthService {
   private userService: UserService;
-  private presenceService: UserPresenceService;
+  // private presenceService: UserPresenceService;
 
   constructor(userService?: UserService) {
     this.userService = userService || new UserService();
-    this.presenceService = new UserPresenceService();
+    // this.presenceService = new UserPresenceService();
   }
 
   /**
@@ -236,7 +246,8 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
       }
     }
 
-    await this.presenceService.setUserOffline(userId);
+    // await this.presenceService.setUserOffline(userId);
+    await appCacheAndPresenceService.setUserOffline(userId)
     logger.info('User logged out', { userId, sessionId });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -251,7 +262,9 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
   async logoutAllDevices(userId: string, sessionId:string): Promise<void> {
     try {
       await this.invalidateAllUserTokens(userId,sessionId);
-      await this.presenceService.setUserOffline(userId);
+        await appCacheAndPresenceService.setUserOffline(userId)
+
+      // await this.presenceService.setUserOffline(userId);
       
       logger.info('User logged out from all devices', { userId });
     } catch (error) {

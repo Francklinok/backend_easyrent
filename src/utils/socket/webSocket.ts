@@ -4,9 +4,9 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { PresenceStatus } from '../../users/types/presenceType';
 import { createLogger } from '../logger/logger';
-import { UserPresenceService } from '../../users/services/userPresence';
 import config from '../../../config';
-
+import appCacheAndPresenceService from '../../services/redisInstance';
+// import UserPresenceService from '../../services/appCacheAndPresence';
 const logger = createLogger('PresenceWebSocket');
 
 /**
@@ -57,7 +57,7 @@ interface WebSocketOptions {
  */
 export class PresenceWebSocketHandler {
   private io: SocketIOServer;
-  private presenceService: UserPresenceService;
+  // private presenceService: UserPresenceService |AppCacheAndPresenceService
   private connectedUsers: Map<string, Map<string, SocketConnectionInfo>> = new Map(); // userId -> Map<socketId, info>
   private socketToUser: Map<string, string> = new Map(); // socketId -> userId
   private startTime: Date = new Date();
@@ -77,7 +77,7 @@ export class PresenceWebSocketHandler {
    */
   constructor(
     server: HttpServer, 
-    presenceService?: UserPresenceService,
+    // presenceService?: UserPresenceService ,
     options: WebSocketOptions = {}
   ) {
     // Configuration par défaut
@@ -107,7 +107,7 @@ export class PresenceWebSocketHandler {
       }
     });
     
-    this.presenceService = presenceService || new UserPresenceService();
+    // this.presenceService = appCacheAndPresenceService || new appCacheAndPresenceService();
     this.setupSocketHandlers();
     this.startMaintenanceTasks();
     
@@ -413,7 +413,7 @@ export class PresenceWebSocketHandler {
     try {
       const connectionInfo = this.connectedUsers.get(userId)?.get(socket.id);
       
-      await this.presenceService.updatePresence(userId, status, {
+      await appCacheAndPresenceService.updatePresence(userId, status, {
         deviceId: connectionInfo?.deviceId,
         userAgent: connectionInfo?.userAgent,
         ip: connectionInfo?.ip || socket.handshake.address
@@ -467,7 +467,7 @@ export class PresenceWebSocketHandler {
    */
   private async sendOnlineUsersList(socket: Socket): Promise<void> {
     try {
-      const onlineUsers = await this.presenceService.getOnlineUsers();
+      const onlineUsers = await appCacheAndPresenceService.getOnlineUsers();
       
       const usersList = Array.from(onlineUsers.values()).map(user => ({
         userId: user.userId,
@@ -515,7 +515,7 @@ export class PresenceWebSocketHandler {
         // Si c'était la dernière connexion, marquer comme hors ligne
         if (userConnections.size === 0) {
           this.connectedUsers.delete(userId);
-          await this.presenceService.setUserOffline(userId);
+          await appCacheAndPresenceService.setUserOffline(userId);
           this.broadcastUserStatus(userId, PresenceStatus.OFFLINE);
         }
       }
@@ -653,7 +653,7 @@ export class PresenceWebSocketHandler {
       
       // Nettoyer les données
       this.connectedUsers.delete(userId);
-      await this.presenceService.setUserOffline(userId);
+      await appCacheAndPresenceService.setUserOffline(userId);
       this.broadcastUserStatus(userId, PresenceStatus.OFFLINE);
 
       logger.info('User forcibly disconnected', { userId, reason });

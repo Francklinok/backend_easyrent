@@ -17,7 +17,7 @@ import auThrouter from './auth/routers/authrouters';
 import propertyRouter from './routers/propertyRouters/propertyrouters';
 // import router from '../auth/routers/authrouters';
 import { errorHandler } from './auth/utils/errorHandler';
-import { UserPresenceService } from './users/services/userPresence';
+// import { UserPresenceService } from './users/services/userPresence';
 import { trackUserActivity } from './users/middleware/trackUserActivity';
 import { createLogger } from './utils/logger/logger';
 import chatRouter from './chat/routers/chatRouter';

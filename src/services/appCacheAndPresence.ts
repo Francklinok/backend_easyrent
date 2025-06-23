@@ -7,7 +7,7 @@ import { UserPresence, PresenceStatus } from '../users/types/presenceType';
 
 const logger = createLogger('AppCacheAndPresenceService');
 
-export class UserPresenceService {
+class UserPresenceService {
   private redisClient: Redis | null = null;
   private memoryCache: NodeCache;
   private redisConnected: boolean = false;
@@ -85,7 +85,6 @@ export class UserPresenceService {
     this.redisConnected = false;
   }
 }
-
   /**
    * Initialise le cache mémoire NodeCache.
    */
@@ -758,6 +757,4 @@ export class UserPresenceService {
     return this.redisConnected;
   }
 }
-
-export class AppCacheAndPresenceService extends UserPresenceService {}
-export const appCacheAndPresenceService = new AppCacheAndPresenceService();
+export  default  UserPresenceService;

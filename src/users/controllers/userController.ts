@@ -10,7 +10,7 @@ import { ExtendedUpdateUserDto } from '../types/userTypes';
 
 const logger = createLogger('UserController');
 const userService = new UserService();
-const securityAuditService = new SecurityAuditService();
+const securityAuditService = SecurityAuditService.getInstance();
 const notificationService = new NotificationService();
 
 /**

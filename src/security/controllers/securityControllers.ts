@@ -1,10 +1,7 @@
 import { Request, Response } from 'express';
 import { 
-  SecurityEventSearchCriteria, 
   SecuritySearchOptions, 
   AuditEventData,
-  AuditEventSeverity,
-  SecurityAuditEvent
 } from '../type/auditType';
 import { SecurityAuditService } from '../services/securityAuditServices';
 /**

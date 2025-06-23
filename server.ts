@@ -3,7 +3,6 @@ import config from './config';
 import port from './src/utils/normalize/normalizePort';
 import onError from './src/utils/normalize/onError';
 import { createLogger } from './src/utils/logger/logger';
-import { UserPresenceService } from './src/users/services/userPresence';
 import { PresenceWebSocketHandler } from './src/utils/socket/webSocket';
 import app from './src/app'
 import chatRouter from './src/chat/routers/chatRouter';
@@ -31,8 +30,7 @@ try {
       console.log('✅ Serveur HTTP créé');
 
       // Initialisation des services WebSocket et présence
-      const presenceService = new UserPresenceService();
-      const wsHandler = new PresenceWebSocketHandler(server, presenceService);
+      const wsHandler = new PresenceWebSocketHandler(server);
 
       // Fonction appelée au démarrage réussi
       const onListening = (): void => {

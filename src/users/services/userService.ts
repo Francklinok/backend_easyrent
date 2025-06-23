@@ -10,13 +10,14 @@ import { VerificationStatus } from '../types/userTypes';
 import { UserRole } from '../types/userTypes';
 import { UserFilterOptions, UserSearchOptions } from '../types/userTypes';
 import { NotificationService } from "../../services/notificationServices";
-import { SecurityAuditService } from '../../security/services/securityAuditServices';
+// import { SecurityAuditService } from '../../security/services/securityAuditServices';
 import { createLogger } from '../../utils/logger/logger';
 import { AppError } from '../../auth/utils/AppError';
 import { FilterQuery } from 'mongoose';
 import { SecurityDetails } from '../types/userTypes';
 import { DeleteUserOptions, DeleteUserResult } from '../types/userTypes';
 import { MongoUpdateUserDto } from '../types/userTypes';
+import { config } from 'dotenv';
 
 
 const logger = createLogger('UserService');
@@ -28,7 +29,7 @@ export class UserService {
 
   constructor() {
     this.notificationService = new NotificationService();
-    // this.securityAuditService = new SecurityAuditService();
+    // this.securityAuditService = SecurityAuditService.getInstance()
   }
 
   /**

@@ -11,7 +11,7 @@ import { Request,Response } from "express";
 import { MessageType } from "../types/chatTypes";
 import { SendMessageRequest,MediaFile,ReactionRequest,DeleteRequest } from "../types/chatTypes";
 import { mediaValidationConfig } from "../constant/messageTypeValidationConfig";
-import { appCacheAndPresenceService } from "../../services/appCacheAndPresence";
+import appCacheAndPresenceService from "../../services/redisInstance";
 class ChatController {
   private io: IOServer;
   private chatService: ChatService;

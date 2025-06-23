@@ -1,11 +1,7 @@
-import { UserPresenceService } from "../services/userPresence";
+// import { UserPresenceService } from "../services/userPresence";
 import { PresenceStatus } from "../types/presenceType";
 import { Request, Response, NextFunction } from 'express';
-
-
-// Exemple d'intégration avec AuthService
-// Pour mettre à jour AuthService.ts, ajoutez cette méthode:
-
+import UserPresenceService from "../../services/appCacheAndPresence";
 /**
  * Middleware pour suivre l'activité des utilisateurs
  * À ajouter dans une classe middleware ou dans le authMiddleware.ts
