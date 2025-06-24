@@ -12,20 +12,21 @@ import { MessageType } from "../types/chatTypes";
 import { SendMessageRequest,MediaFile,ReactionRequest,DeleteRequest } from "../types/chatTypes";
 import { mediaValidationConfig } from "../constant/messageTypeValidationConfig";
 import appCacheAndPresenceService from "../../services/redisInstance";
+
 class ChatController {
-  private io: IOServer;
+  // private io: IOServer;
   private chatService: ChatService;
-  private rateLimiter: RateLimiter;
+  // private rateLimiter: RateLimiter;
   // private appCacheAndPresenceService:appCacheAndPresenceService
 
   constructor(io: IOServer) {
-    this.io = io;
+    // this.io = io;
     this.chatService = new ChatService(io);
-    const redisClient = appCacheAndPresenceService.getRedisClient(); 
-      if (!redisClient) {
-        throw new Error("Redis client is not initialized");
-      }
-    this.rateLimiter = new RateLimiter(redisClient);
+    // const redisClient = appCacheAndPresenceService.getRedisClient(); 
+      // if (!redisClient) {
+      //   throw new Error("Redis client is not initialized");
+      // }
+    // this.rateLimiter = new RateLimiter(redisClient);
 
     this.setupServiceEventListeners();
   }
@@ -142,46 +143,6 @@ class ChatController {
     /**
      * Envoie un message
      */
-    // sendMessage = asyncHandler(async (req:SendMessageRequest, res:Response) => {
-    //   const errors = validationResult(req);
-    //   if (!errors.isEmpty()) {
-    //     throw new ApiError(400, 'Données de validation invalides', errors.array());
-    //   }
-
-    //   // Appliquer la limitation de débit
-    //   await this.rateLimiter.checkLimit(req.user.userId, 'sendMessage', 60, 100); // 100 messages par minute
-
-    //   const { 
-    //     conversationId, 
-    //     content, 
-    //     messageType = 'text', 
-    //     replyTo, 
-    //     scheduleFor,
-    //     priority = 'normal',
-    //     mentions = []
-    //   } = req.body;
-      
-    //   const userId = req.user.userId;
-
-    //   // Validation spécifique au type de message
-    //   await this.validateMessageByType(messageType, content, req.file);
-
-    //   const message = await this.chatService.sendMessage({
-    //     conversationId,
-    //     content,
-    //     messageType,
-    //     replyTo,
-    //     scheduleFor,
-    //     userId,
-    //     file: req.file as MediaFile | undefined,
-    //     priority,
-    //     mentions
-    //   });
-
-    //   res.status(201).json(
-    //     new ApiResponse(201, message, 'Message envoyé avec succès')
-    //   );
-    // });
   sendMessage = asyncHandler(async (req: SendMessageRequest, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -527,92 +488,7 @@ async validateMessageByType(messageType: MessageType, content: string, file?: Me
     }
   }
 }
-  // async validateMessageByType(messageType:MessageType, content:string, file:MediaFile) {
-  //   switch (messageType) {
-  //     case 'text':
-  //       if (!content || content.trim().length === 0) {
-  //         throw new ApiError(400, 'Le contenu est requis pour les messages texte');
-  //       }
-  //       if (content.length > 10000) {
-  //         throw new ApiError(400, 'Le message est trop long (max 10000 caractères)');
-  //       }
-  //       break;
-      
-  //     case 'image':
-  //       if (!file) {
-  //         throw new ApiError(400, 'Fichier requis pour les messages image');
-  //       }
-  //       if (!file.mimetype.startsWith('image/')) {
-  //         throw new ApiError(400, 'Le fichier doit être une image');
-  //       }
-  //       if (file.size > 10 * 1024 * 1024) { // 10MB
-  //         throw new ApiError(400, 'L\'image est trop volumineuse (max 10MB)');
-  //       }
-  //       break;
-      
-  //     case 'video':
-  //       if (!file) {
-  //         throw new ApiError(400, 'Fichier requis pour les messages vidéo');
-  //       }
-  //       if (!file.mimetype.startsWith('video/')) {
-  //         throw new ApiError(400, 'Le fichier doit être une vidéo');
-  //       }
-  //       if (file.size > 100 * 1024 * 1024) { // 100MB
-  //         throw new ApiError(400, 'La vidéo est trop volumineuse (max 100MB)');
-  //       }
-  //       break;
-      
-  //     case 'audio':
-  //       if (!file) {
-  //         throw new ApiError(400, 'Fichier requis pour les messages audio');
-  //       }
-  //       if (!file.mimetype.startsWith('audio/')) {
-  //         throw new ApiError(400, 'Le fichier doit être un audio');
-  //       }
-  //       if (file.size > 25 * 1024 * 1024) { // 25MB
-  //         throw new ApiError(400, 'L\'audio est trop volumineux (max 25MB)');
-  //       }
-  //       break;
-      
-  //     case 'document':
-  //       if (!file) {
-  //         throw new ApiError(400, 'Fichier requis pour les messages document');
-  //       }
-  //       const allowedDocTypes = [
-  //         'application/pdf',
-  //         'application/msword',
-  //         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  //         'text/plain',
-  //         'application/vnd.ms-excel',
-  //         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  //       ];
-  //       if (!allowedDocTypes.includes(file.mimetype)) {
-  //         throw new ApiError(400, 'Type de document non supporté');
-  //       }
-  //       if (file.size > 50 * 1024 * 1024) { // 50MB
-  //         throw new ApiError(400, 'Le document est trop volumineux (max 50MB)');
-  //       }
-  //       break;
-      
-  //     case 'location':
-  //       if (!content) {
-  //         throw new ApiError(400, 'Les données de localisation sont requises');
-  //       }
-  //       try {
-  //         const locationData = JSON.parse(content);
-  //         if (!locationData.latitude || !locationData.longitude) {
-  //           throw new ApiError(400, 'Latitude et longitude requises');
-  //         }
-  //       } catch (error) {
-  //         throw new ApiError(400, 'Format de localisation invalide');
-  //       }
-  //       break;
-      
-  //     default:
-  //       throw new ApiError(400, 'Type de message non supporté');
-  //   }
-  // }
-
+  
   async verifyConversationAccess(conversationId:string, userId:string) {
     const  conversation = Conversation.findById(conversationId)
     if (!conversation) {

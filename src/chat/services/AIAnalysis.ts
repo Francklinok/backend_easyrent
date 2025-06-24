@@ -1,3 +1,5 @@
+
+
 class AIAnalysisService {
   static async analyzeMessage(content: string, messageType: string, userId: string): Promise<any> {
     try {
@@ -224,3 +226,4 @@ class AIAnalysisService {
     return suggestions;
   }
 }
+export  default AIAnalysisService

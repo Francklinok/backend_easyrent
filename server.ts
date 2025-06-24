@@ -40,6 +40,7 @@ try {
         logger.info(`🌐 URL locale: http://${'localhost'}:${port}`);
       };
 
+      
       // Démarrage du serveur
       server.listen(port, ()=> console.log("start server"));
       server.on('error', (error) => {

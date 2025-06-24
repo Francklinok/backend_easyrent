@@ -11,6 +11,10 @@ class UserPresenceService {
   private redisClient: Redis | null = null;
   private memoryCache: NodeCache;
   private redisConnected: boolean = false;
+  private connectionAttempts: number = 0;
+  private maxConnectionAttempts: number = 5;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private isReconnecting: boolean = false;
 
   // Configurations spécifiques à la présence
   private readonly PRESENCE_REDIS_PREFIX = 'user:presence:';
@@ -24,71 +28,7 @@ class UserPresenceService {
 
   constructor() {
     this.initRedisClient();
-    this.initMemoryCache();
-    this.memoryCache = new NodeCache();
-
-  }
-  /**
-   * Initialise la connexion Redis avec ioredis.
-   * Gère les reconnexions et le statut de connexion.
-  //  */
-
-  private initRedisClient(): void {
-  if (config.redis?.url) {
-    this.redisClient = new Redis(config.redis.url, {
-      connectTimeout: 10000,
-      lazyConnect: true,
-      enableReadyCheck: false,
-      maxRetriesPerRequest: 3,
-      keepAlive: 30000,
-      family: 4,
-      enableOfflineQueue: false,
-      retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-      },
-    });
-
-    this.redisClient.on('connect', () => {
-      logger.info('Redis client connected successfully');
-      this.redisConnected = true;
-    });
-
-    this.redisClient.on('ready', () => {
-      logger.info('Redis client ready');
-      this.redisConnected = true;
-    });
-
-    this.redisClient.on('error', (err) => {
-      logger.error('Redis client error', { error: err.message, stack: err.stack });
-      this.redisConnected = false;
-    });
-
-    this.redisClient.on('close', () => {
-      logger.warn('Redis client connection closed');
-      this.redisConnected = false;
-    });
-
-    this.redisClient.on('reconnecting', () => {
-      logger.info('Redis client reconnecting...');
-    });
-
-    // Connect asynchronously to avoid blocking the constructor
-    this.redisClient.connect().catch((error) => {
-      logger.error('Failed to connect to Redis during initial connection', {
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      this.redisConnected = false;
-    });
-  } else {
-    logger.warn('Redis URL not configured, using memory cache only for cache operations.');
-    this.redisConnected = false;
-  }
-}
-  /**
-   * Initialise le cache mémoire NodeCache.
-   */
-  private initMemoryCache(): void {
+    // this.initMemoryCache();
     this.memoryCache = new NodeCache({
       stdTTL: this.DEFAULT_CACHE_TTL, // TTL par défaut pour le cache mémoire
       checkperiod: 60,
@@ -99,11 +39,275 @@ class UserPresenceService {
     this.memoryCache.on('expired', (key: string, value: any) => {
       logger.debug(`Memory cache key expired: ${key}`);
     });
+    // this.memoryCache = new NodeCache();
+
   }
+  /**
+   * Initialise la connexion Redis avec ioredis.
+   * Gère les reconnexions et le statut de connexion.
+  //  */
+
   
     getRedisClient(): Redis | null {
       return this.redisClient;
     }
+ /**
+   * Initialise la connexion Redis avec ioredis.
+   */
+  private initRedisClient(): void {
+    if (!config.redis?.url) {
+      logger.warn('Redis URL not configured, using memory cache only for cache operations.');
+      this.redisConnected = false;
+      return;
+    }
+
+    // Prevent multiple initialization
+    if (this.redisClient) {
+      logger.warn('Redis client already initialized');
+      return;
+    }
+
+    try {
+      this.redisClient = new Redis(config.redis.url, {
+        connectTimeout: 15000,
+        lazyConnect: true, // Don't connect immediately
+        enableReadyCheck: true,
+
+        // retryDelayOnFailover: 1000,
+        maxRetriesPerRequest: 10,
+        enableOfflineQueue: true,
+
+        keepAlive: 30000,
+        family: 4,
+
+        retryStrategy: (times: number) => {
+          if (times > this.maxConnectionAttempts) {
+            logger.error(`Redis connection failed after ${this.maxConnectionAttempts} attempts`);
+            this.scheduleReconnection();
+            return null; // Stop retrying
+          }
+          const delay = Math.min(times * 200, 3000);
+          logger.info(`Redis retry attempt ${times} in ${delay}ms`);
+          return delay;
+        },
+        reconnectOnError: (err) => {
+          const targetError = ['READONLY', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND'];
+          // const targetError = 'READONLY';
+          // return err.message.includes(targetError);
+          return targetError.some(target => err.message.includes(target))
+        },
+        tls: config.redis.url.startsWith('rediss://') ? {
+          rejectUnauthorized: false
+        } : undefined,
+        //additional stability  settings
+         commandTimeout: 5000,
+        // socket: {
+        //   keepAlive: true,
+        //   keepAliveInitialDelay: 0
+        // }
+      });
+
+      this.setupRedisEventHandlers();
+      this.connectToRedis();
+
+    } catch (error) {
+      logger.error('Error initializing Redis client', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      this.redisConnected = false;
+      this.scheduleReconnection();
+    }
+  }
+
+  /**
+   * Configure les gestionnaires d'événements Redis
+   */
+  private setupRedisEventHandlers(): void {
+    if (!this.redisClient) return;
+
+    this.redisClient.on('connect', () => {
+      logger.info('Redis client connected successfully');
+      this.redisConnected = true;
+      this.connectionAttempts = 0;
+       this.isReconnecting = false;
+      this.clearReconnectionTimeout();
+    });
+
+    this.redisClient.on('ready', () => {
+      logger.info('Redis client ready');
+      this.redisConnected = true;
+      this.connectionAttempts = 0;
+    });
+
+    this.redisClient.on('error', (err) => {
+      logger.error('Redis client error', { 
+        error: err.message,
+        type: err.name,
+        code: (err as any).code
+      });
+      this.redisConnected = false;
+    });
+
+    this.redisClient.on('close', () => {
+      logger.warn('Redis client connection closed');
+      this.redisConnected = false;
+      if(!this.isReconnecting){
+        this.scheduleReconnection()
+      }
+    });
+
+    this.redisClient.on('reconnecting', (delay: number) => {
+      this.connectionAttempts++;
+      this.isReconnecting = true;
+      logger.info(`Redis client reconnecting... (attempt ${this.connectionAttempts}, delay: ${delay}ms)`);
+    });
+
+    this.redisClient.on('end', () => {
+      logger.warn('Redis client connection ended');
+      this.redisConnected = false;
+      this.scheduleReconnection();
+    });
+  }
+  private isTemporaryError(err: Error): boolean {
+    const temporaryErrors = ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH'];
+    return temporaryErrors.some(errorType => 
+      err.message.includes(errorType) || (err as any).code === errorType
+    );
+  }
+   /**
+   * Programme une reconnexion différée
+   */
+  private scheduleReconnection(): void {
+    if (this.reconnectTimeout || this.isReconnecting) {
+      return;
+    }
+
+    const delay = Math.min(this.connectionAttempts * 2000, 30000); // Max 30 seconds
+    logger.info(`Scheduling Redis reconnection in ${delay}ms`);
+    
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      this.attemptReconnection();
+    }, delay);
+  }
+
+  /**
+   * Tente une reconnexion manuelle
+   */
+  private async attemptReconnection(): Promise<void> {
+    if (this.isReconnecting || this.redisConnected) {
+      return;
+    }
+
+    if (this.connectionAttempts >= this.maxConnectionAttempts) {
+      logger.error('Max reconnection attempts reached, giving up');
+      return;
+    }
+
+    this.isReconnecting = true;
+    logger.info('Attempting manual Redis reconnection...');
+
+    try {
+      // Cleanup existing client
+      if (this.redisClient) {
+        this.redisClient.removeAllListeners();
+        await this.redisClient.disconnect();
+      }
+
+      // Create new client
+      this.redisClient = null;
+      this.initRedisClient();
+
+    } catch (error) {
+      logger.error('Manual reconnection failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      this.isReconnecting = false;
+      this.scheduleReconnection();
+    }
+  }
+  
+  /**
+   * Nettoie le timeout de reconnexion
+   */
+  private clearReconnectionTimeout(): void {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+
+  /**
+   * Connecte à Redis de manière asynchrone
+   */
+  private async connectToRedis(): Promise<void> {
+    if (!this.redisClient) return;
+
+    try {
+      await this.redisClient.connect();
+      logger.info('Redis connection established successfully');
+    } catch (error) {
+      logger.error('Failed to connect to Redis during initial connection', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        attempts: this.connectionAttempts
+      });
+      this.redisConnected = false;
+    }
+  }
+
+  
+  /**
+   * Exécute une opération Redis avec retry automatique
+   */
+  private async executeRedisOperation<T>(
+    operation: () => Promise<T>,
+    fallback?: () => T,
+    operationName: string = 'Redis operation'
+  ): Promise<T | null> {
+    if (!this.isRedisConnected() || !this.redisClient) {
+      if (fallback) {
+        logger.debug(`${operationName}: Redis not available, using fallback`);
+        return fallback();
+      }
+      return null;
+    }
+
+    try {
+      return await operation();
+    } catch (error) {
+      logger.error(`${operationName} failed`, {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      
+      // If it's a connection error, mark as disconnected
+      if (this.isConnectionError(error)) {
+        this.redisConnected = false;
+        this.scheduleReconnection();
+      }
+      
+      if (fallback) {
+        logger.debug(`Using fallback for ${operationName}`);
+        return fallback();
+      }
+      
+      return null;
+    }
+  }
+ /**
+   * Vérifie si l'erreur est liée à la connexion
+   */
+  private isConnectionError(error: any): boolean {
+    const connectionErrors = [
+      'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH',
+      'Connection is closed', 'Connection timeout'
+    ];
+    
+    return connectionErrors.some(errorType => 
+      error.message?.includes(errorType) || error.code === errorType
+    );
+  }
+
+
 
   /**
    * Met à jour le statut de présence d'un utilisateur.
@@ -112,7 +316,53 @@ class UserPresenceService {
    * @param status - Nouveau statut (optionnel, par défaut ONLINE)
    * @param deviceInfo - Informations sur l'appareil
    */
-  async updatePresence(
+  // async updatePresence(
+  //   userId: string,
+  //   status: PresenceStatus = PresenceStatus.ONLINE,
+  //   deviceInfo?: { ip?: string; userAgent?: string; deviceId?: string }
+  // ): Promise<void> {
+  //   if (!userId) {
+  //     logger.warn('Cannot update presence for undefined userId');
+  //     return;
+  //   }
+
+  //   const presenceKey = `${this.PRESENCE_REDIS_PREFIX}${userId}`;
+  //   const now = new Date();
+
+  //   const presenceData: UserPresence = {
+  //     userId,
+  //     status,
+  //     lastActive: now, // Stockage comme Date object
+  //     deviceInfo
+  //   };
+  //   const serializedData = JSON.stringify({
+  //     ...presenceData,
+  //     lastActive: presenceData.lastActive.toISOString()
+  //   });
+
+  //   try {
+  //     if (this.isRedisConnected() && this.redisClient) {
+  //       await this.redisClient.setex(
+  //         presenceKey,
+  //         this.PRESENCE_TTL,
+  //         serializedData
+  //       );
+  //       logger.debug('User presence updated in Redis', { userId, status });
+  //     } else {
+  //       // En cas de déconnexion Redis, stocker aussi dans le cache mémoire pour un fallback très court terme
+  //       this.memoryCache.set(presenceKey,serializedData, this.PRESENCE_TTL);
+  //       logger.warn('Redis disconnected, user presence updated in memory cache (non-persistent)', { userId, status });
+  //     }
+  //   } catch (error) {
+  //     logger.error('Error updating user presence in Redis', {
+  //       userId,
+  //       error: error instanceof Error ? error.message : 'Unknown error'
+  //     });
+  //     // Fallback vers le cache mémoire en cas d'erreur Redis pendant l'opération
+  //     this.memoryCache.set(presenceKey, serializedData, this.PRESENCE_TTL);
+  //   }
+  // }
+async updatePresence(
     userId: string,
     status: PresenceStatus = PresenceStatus.ONLINE,
     deviceInfo?: { ip?: string; userAgent?: string; deviceId?: string }
@@ -128,42 +378,27 @@ class UserPresenceService {
     const presenceData: UserPresence = {
       userId,
       status,
-      lastActive: now, // Stockage comme Date object
+      lastActive: now,
       deviceInfo
     };
+    
+    const serializedData = JSON.stringify({
+      ...presenceData,
+      lastActive: presenceData.lastActive.toISOString()
+    });
 
-    try {
-      if (this.redisConnected && this.redisClient) {
-        await this.redisClient.setex(
-          presenceKey,
-          this.PRESENCE_TTL,
-          JSON.stringify({
-            ...presenceData,
-            lastActive: presenceData.lastActive.toISOString() // Sérialiser en ISO string pour Redis
-          })
-        );
+    await this.executeRedisOperation(
+      async () => {
+        await this.redisClient!.setex(presenceKey, this.PRESENCE_TTL, serializedData);
         logger.debug('User presence updated in Redis', { userId, status });
-      } else {
-        // En cas de déconnexion Redis, stocker aussi dans le cache mémoire pour un fallback très court terme
-        this.memoryCache.set(presenceKey, JSON.stringify({
-          ...presenceData,
-          lastActive: presenceData.lastActive.toISOString()
-        }), this.PRESENCE_TTL);
-        logger.warn('Redis disconnected, user presence updated in memory cache (non-persistent)', { userId, status });
-      }
-    } catch (error) {
-      logger.error('Error updating user presence in Redis', {
-        userId,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      // Fallback vers le cache mémoire en cas d'erreur Redis pendant l'opération
-      this.memoryCache.set(presenceKey, JSON.stringify({
-        ...presenceData,
-        lastActive: presenceData.lastActive.toISOString()
-      }), this.PRESENCE_TTL);
-    }
+      },
+      () => {
+        this.memoryCache.set(presenceKey, serializedData, this.PRESENCE_TTL);
+        logger.warn('Redis unavailable, user presence updated in memory cache', { userId, status });
+      },
+      'updatePresence'
+    );
   }
-
   /**
    * Récupère les informations de présence d'un utilisateur.
    * Vérifie d'abord Redis, puis le cache mémoire.
@@ -180,7 +415,7 @@ class UserPresenceService {
     let presenceData: string | null = null;
 
     try {
-      if (this.redisConnected && this.redisClient) {
+      if (this.isRedisConnected() && this.redisClient) {
         presenceData = await this.redisClient.get(presenceKey);
         if (presenceData) {
           logger.debug('User presence retrieved from Redis', { userId });
@@ -213,8 +448,7 @@ class UserPresenceService {
       };
 
       // Mettre à jour automatiquement le statut en fonction du temps d'inactivité
-      const updatedPresence = this.calculateCurrentStatus(presence);
-      return updatedPresence;
+      return this.calculateCurrentStatus(presence);;
     } catch (parseError) {
       logger.error('Error parsing user presence data', {
         userId,
@@ -298,7 +532,7 @@ class UserPresenceService {
         const presenceKeys = userIds.map(id => `${this.PRESENCE_REDIS_PREFIX}${id}`);
         let values: (string | null)[] = [];
 
-        if (this.redisConnected && this.redisClient) {
+        if (this.isRedisConnected() && this.redisClient) {
           values = await this.redisClient.mget(...presenceKeys);
           logger.debug(`Retrieved ${values.length} user presences from Redis (mget)`);
         } else {
@@ -333,7 +567,7 @@ class UserPresenceService {
       } else {
         // Récupérer tous les utilisateurs
         let keys: string[] = [];
-        if (this.redisConnected && this.redisClient) {
+        if (this.isRedisConnected() && this.redisClient) {
           keys = await this.redisClient.keys(`${this.PRESENCE_REDIS_PREFIX}*`);
           logger.debug(`Found ${keys.length} presence keys in Redis`);
         } else {
@@ -343,7 +577,7 @@ class UserPresenceService {
 
         if (keys.length > 0) {
           let values: (string | null)[] = [];
-          if (this.redisConnected && this.redisClient) {
+          if (this.isRedisConnected() && this.redisClient) {
             values = await this.redisClient.mget(...keys);
           } else {
             values = keys.map(key => this.memoryCache.get(key) as string | null);
@@ -429,14 +663,15 @@ class UserPresenceService {
     const serializedValue = JSON.stringify(value);
 
     try {
-      if (this.redisConnected && this.redisClient) {
+      if (this.isRedisConnected() && this.redisClient) {
         await this.redisClient.setex(prefixedKey, ttl, serializedValue);
         logger.debug(`Cache set in Redis: ${key}`);
+        return  true
       } else {
         this.memoryCache.set(prefixedKey, serializedValue, ttl);
         logger.warn(`Redis disconnected, cache set in memory: ${key}`);
+        return   false
       }
-      return true;
     } catch (error) {
       logger.error(`Error setting cache for ${key}`, { error: error instanceof Error ? error.message : 'Unknown error' });
       // Fallback au cache mémoire en cas d'échec Redis
@@ -455,7 +690,7 @@ class UserPresenceService {
     let value: string | null = null;
 
     try {
-      if (this.redisConnected && this.redisClient) {
+      if (this.isRedisConnected() && this.redisClient) {
         value = await this.redisClient.get(prefixedKey);
         if (value) {
           logger.debug(`Cache retrieved from Redis: ${key}`);
@@ -482,18 +717,20 @@ class UserPresenceService {
    */
   async delete(key: string): Promise<boolean> {
     const prefixedKey = this.getCacheKey(key);
+    let success = false
     try {
       if (this.redisConnected && this.redisClient) {
         await this.redisClient.del(prefixedKey);
+        success = true
         logger.debug(`Cache deleted from Redis: ${key}`);
       }
-      this.memoryCache.del(prefixedKey);
-      logger.debug(`Cache deleted from memory: ${key}`);
-      return true;
+     
     } catch (error) {
       logger.error(`Error deleting cache for ${key}`, { error: error instanceof Error ? error.message : 'Unknown error' });
-      return false;
     }
+     this.memoryCache.del(prefixedKey);
+      logger.debug(`Cache deleted from memory: ${key}`);
+      return success;
   }
 
   /**
@@ -582,14 +819,15 @@ class UserPresenceService {
   async exists(key: string): Promise<boolean> {
     const prefixedKey = this.getCacheKey(key);
     try {
-      if (this.redisConnected && this.redisClient) {
+      if (this.isRedisConnected() && this.redisClient) {
         const exists = await this.redisClient.exists(prefixedKey);
         return exists === 1;
       }
       return this.memoryCache.has(prefixedKey);
     } catch (error) {
       logger.error(`Error checking existence for ${key}`, { error: error instanceof Error ? error.message : 'Unknown error' });
-      return false;
+      return this.memoryCache.has(prefixedKey);
+
     }
   }
 
@@ -715,16 +953,22 @@ class UserPresenceService {
    */
   async close(): Promise<void> {
     try {
-      if (this.redisClient && this.redisConnected) {
+      this.clearReconnectionTimeout();
+      
+      if (this.redisClient) {
+        this.redisClient.removeAllListeners();
         await this.redisClient.quit();
         logger.info('Redis client connection closed');
       }
+      
       if (this.memoryCache) {
         this.memoryCache.close();
         logger.info('Memory cache closed');
       }
     } catch (error) {
-      logger.error('Error closing cache connections', { error: error instanceof Error ? error.message : 'Unknown error' });
+      logger.error('Error closing cache connections', { 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
     }
   }
 
@@ -736,7 +980,7 @@ class UserPresenceService {
     let success = false;
 
     try {
-      if (this.redisConnected && this.redisClient) {
+      if (this.isRedisConnected() && this.redisClient) {
         await this.redisClient.del(prefixedKey);
         success = true;
         logger.debug(`Cache deleted from Redis: ${key}`);
@@ -750,11 +994,42 @@ class UserPresenceService {
     this.memoryCache.del(prefixedKey);
     return success;
   }
+  
   /**
    * Vérifie le statut de connexion Redis.
    */
-  isRedisConnected(): boolean {
-    return this.redisConnected;
+   isRedisConnected(): boolean {
+    return this.redisConnected && 
+           this.redisClient?.status === 'ready' && 
+           !this.isReconnecting;
   }
+  
+  /**
+   * Obtient des statistiques de connexion Redis
+   */
+  getRedisStats(): {
+    connected: boolean;
+    status: string;
+    connectionAttempts: number;
+    isReconnecting: boolean;
+  } {
+    return {
+      connected: this.redisConnected,
+      status: this.redisClient?.status || 'not_initialized',
+      connectionAttempts: this.connectionAttempts,
+      isReconnecting: this.isReconnecting
+    };
+  }
+  
+  /**
+   * Force une reconnexion Redis
+   */
+  async forceReconnect(): Promise<boolean> {
+    logger.info('Forcing Redis reconnection...');
+    this.connectionAttempts = 0;
+    await this.attemptReconnection();
+    return this.isRedisConnected();
+  }
+
 }
 export  default  UserPresenceService;

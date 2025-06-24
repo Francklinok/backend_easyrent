@@ -26,6 +26,9 @@ export interface Config {
   };
   redis?: {
     url?: string;
+    maxRetries:number;
+    retryDelay:number;
+    commandTimeout:number;
   };
   storage: {
     provider: 'local' | 's3' | 'azure';
@@ -114,10 +117,7 @@ export interface Config {
     medium: { width: number; height: number; quality: number };
     large: { width: number; height: number; quality: number };
   };
-  // cache_ttl:{
-  //   conversation:number;
-  //   user_conversation:number;
-  // }
+
 
   }
 

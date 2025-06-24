@@ -13,7 +13,7 @@ const ConversationSchema = new mongoose.Schema<IConversation>({
         enum: ['direct', 'group', 'property_discussion'], 
         default: 'direct' 
     },
-    
+    admins: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     // Métadonnées de groupe
     groupInfo: {
         name: String,
@@ -41,7 +41,7 @@ const ConversationSchema = new mongoose.Schema<IConversation>({
         voiceTranscription: { type: Boolean, default: true }
     },
     // Archivage et épinglage
-    isArchived: [{
+    isArchivedBy: [{
         userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         archivedAt: { type: Date, default: Date.now }
     }],

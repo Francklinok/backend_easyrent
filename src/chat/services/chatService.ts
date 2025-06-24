@@ -1,8 +1,7 @@
 
 import { EventEmitter } from "stream";
-import { Server } from "http";
 import { NotificationService } from "../../services/notificationServices";
-import { appCacheAndPresenceService } from "../../services/appCacheAndPresence"; 
+import  appCacheAndPresenceService from "../../services/redisInstance"
 import { IMessage,
   IConversation,
   CreateConversationParams,
@@ -30,7 +29,12 @@ import { redisForBullMQ} from "../../lib/redisClient";
 import { SecurityAuditService } from "../../security/services/securityAuditServices";
 import { AuditEventSeverity,SecurityEventType } from "../../security/type/auditType";
 import { ApiError } from "../utils/apiError";
+import Conversation from "../model/conversationModel";
+import AIAnalysisService from "./AIAnalysis";
+
+
 const   logger = createLogger("chatservice")
+
 class ChatService extends EventEmitter {
   private io: IOServer;
   private notificationService: NotificationService;
@@ -38,7 +42,7 @@ class ChatService extends EventEmitter {
   private messageQueue:Queue;
   private auditService:SecurityAuditService;
   // private  messageDeliveryQueue:Queue;
-
+  
   constructor(io: IOServer) {
     super();
     this.io = io;
@@ -418,7 +422,7 @@ class ChatService extends EventEmitter {
     }
 
     // Vérifications supplémentaires (utilisateur banni, conversation archivée, etc.)
-    if (conversation.isArchived && !await this.userCanWriteToArchivedConversation(userId, conversationId)) {
+    if (conversation.isArchivedBy && !await this.userCanWriteToArchivedConversation(userId, conversationId)) {
       throw new Error('Impossible d\'écrire dans une conversation archivée');
     }
   }
@@ -428,17 +432,22 @@ class ChatService extends EventEmitter {
  */
 
 async  archivedConversation(userId:string,  conversationId:string,ipAddress:string = 'unknown',userAgent:string = "unknown"  ){
-  const  conversation = Conversation.findById(conversationId);
+  const  conversation = await Conversation.findById(conversationId);
+  
   if(!conversation){
    throw new ApiError(404, "Conversation not found")
    return
   }
-if (conversation.archivedBy.some((entry:any) => entry.userId.toString() === userId.toString())) {
+  if (!conversation.isArchivedBy) {
+  conversation.isArchivedBy = [];
+}
+
+if (conversation.isArchivedBy.some((entry:any) => entry.userId.toString() === userId.toString())) {
   return { message: "Already archived" };
 }
 
-  conversation.archived.push({
-    userId:userId,
+  conversation.isArchivedBy.push({
+    userId: new Types.ObjectId(userId),
     archivedAt:new  Date()
   })
   await conversation.save();
@@ -485,8 +494,8 @@ if (conversation.archivedBy.some((entry:any) => entry.userId.toString() === user
   private async userCanWriteToArchivedConversation(userId: string, conversationId: string): Promise<boolean> {
     const  conversation = await Conversation.findById(conversationId)
     if(!conversation) return false
-    if(!conversation.isArchived) return true;
-    const isAdmin  =  Conversation.admins?.includes(userId)
+    if(!conversation.isArchivedBy) return true;
+    const isAdmin = conversation.admins.some((adminId:any) => adminId.toString() === userId);
     if(isAdmin) return  true
     return false;
   }
@@ -1683,8 +1692,6 @@ if (conversation.archivedBy.some((entry:any) => entry.userId.toString() === user
         .filter(({ count }) => count === maxCount)
         .map(({ hour }) => hour);
     }
-    
-
 }
 
 export default ChatService;

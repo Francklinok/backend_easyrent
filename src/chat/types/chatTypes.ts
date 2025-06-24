@@ -1,6 +1,8 @@
 
 import { Document, Types  } from "mongoose";
 import { Request } from "express";
+import mongoose from 'mongoose';
+type ObjectId = mongoose.Types.ObjectId;
 
 export interface IMessage extends Document {
   msgId: Types.ObjectId;
@@ -82,6 +84,7 @@ export interface IMessage extends Document {
 export interface IConversation extends Document {
   _id: Types.ObjectId
   participants: Types.ObjectId[];
+  admins: ObjectId[];
   type: 'direct' | 'group' | 'property_discussion';
   groupInfo?: {
     name?: string;
@@ -105,7 +108,7 @@ export interface IConversation extends Document {
     translation?: boolean;
     voiceTranscription?: boolean;
   };
-  isArchived?: { userId: Types.ObjectId; archivedAt: Date }[];
+  isArchivedBy?: { userId: Types.ObjectId; archivedAt: Date }[];
   isPinned?: { userId: Types.ObjectId; pinnedAt: Date }[];
   typingUsers?: { userId: Types.ObjectId; lastTyping: Date }[];
   pinnedMessages?: Types.ObjectId[];

@@ -38,6 +38,13 @@ function getEmailStrategy(): 'smtp-first' | 'sendgrid-first' {
   }
   return val;
 }
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value.trim(); // supprime les espaces involontaires
+}
 
 export const getTokenExpirationInSeconds = (duration: string): number => {
   const timeUnits: Record<string, number> = {
@@ -84,8 +91,11 @@ const baseConfig: Config = {
       useUnifiedTopology: true,
     },
   },
-  redis: {
-    url: process.env.REDIS_URL,
+   redis: {
+    url: requireEnv('REDIS_URL'),
+    maxRetries: parseInt(process.env.REDIS_MAX_RETRIES || '10', 10),
+    retryDelay: parseInt(process.env.REDIS_RETRY_DELAY || '1000', 10),
+    commandTimeout: parseInt(process.env.REDIS_COMMAND_TIMEOUT || '5000', 10),
   },
   storage: {
     provider: (process.env.STORAGE_PROVIDER as 'local' | 's3' | 'azure') || 'local',
@@ -178,12 +188,7 @@ const baseConfig: Config = {
       medium: { width: 800, height: 600, quality: 80 },
       large: { width: 1920, height: 1080, quality: 90 },
     },
-    // cache_ttl:{
-    //   conversation:process.env.CACHE_TTL_CONVERSATION? parseInt(process.env.CACHE_TTL_CONVERSATION, 10) : 3600,
-    //   user_conversation:process.env.CACHE_TTL_USER_CONVERSATIONS
-    //   ? parseInt(process.env.CACHE_TTL_USER_CONVERSATIONS, 10)
-    //   : 3600, 
-    // 
+   
   
   };
 
