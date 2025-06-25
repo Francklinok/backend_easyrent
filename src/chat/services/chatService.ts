@@ -422,9 +422,13 @@ class ChatService extends EventEmitter {
     }
 
     // Vérifications supplémentaires (utilisateur banni, conversation archivée, etc.)
-    if (conversation.isArchivedBy && !await this.userCanWriteToArchivedConversation(userId, conversationId)) {
-      throw new Error('Impossible d\'écrire dans une conversation archivée');
-    }
+    // if (conversation.isArchivedBy && !await this.userCanWriteToArchivedConversation(userId, conversationId)) {
+    //   throw new Error('Impossible d\'écrire dans une conversation archivée');
+    // }
+    if (conversation.isArchivedBy && conversation.isArchivedBy.length > 0 && !await this.userCanWriteToArchivedConversation(userId, conversationId)) {
+  throw new Error('Impossible d\'écrire dans une conversation archivée');
+}
+
   }
 /**
  * 

@@ -111,6 +111,7 @@ export interface Config {
   encryption: {
     algorithm: string;
     ivLength: number;
+    secretKey:Buffer;
   };
   imageVariants: {
     thumbnail: { width: number; height: number; quality: number };

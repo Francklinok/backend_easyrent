@@ -122,5 +122,7 @@ const MessageSchema = new Schema<IMessage>({
     timestamps: true
 });
 
+MessageSchema.index({ content: 'text' });
+
 const Message = mongoose.model<IMessageDocument>('Message', MessageSchema);
 export default Message;

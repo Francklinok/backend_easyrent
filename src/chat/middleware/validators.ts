@@ -80,7 +80,9 @@ export const validate = {
   emoji: (): ValidationChain =>
     body('emoji')
       .optional()
-      .matches(EMOJI_REGEX)
+      .isString()
+      .isLength({ min: 1, max: 10 })
+      // .matches(EMOJI_REGEX)
       .withMessage('Format d\'emoji invalide'),
 
   // Validation de la recherche
@@ -290,7 +292,7 @@ const chatValidationRules = {
 
   // Envoi de message
   sendMessage: [
-    validate.mongoId('conversationId'),
+    validate.mongoIdBody('conversationId'),
     validate.messageContent(),
     validate.messageType(),
     validate.priority(),
@@ -324,10 +326,10 @@ const chatValidationRules = {
   reactToMessage: [
     validate.mongoId('messageId'),
     validate.mongoId('conversationId'),
-    validate.reactionType(),
+    // validate.reactionType(),
     validate.emoji(),
     validate.customReaction(),
-    body().custom((value, { req }) => {
+    body().custom((_, { req }) => {
       const { emoji, customReaction } = req.body;
       if (!emoji && !customReaction) {
         throw new Error('Emoji ou réaction personnalisée requis');

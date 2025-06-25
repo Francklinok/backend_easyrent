@@ -9,6 +9,7 @@
     "outDir": "./dist",
     "resolveJsonModule": true,
     "moduleResolution": "node",
+    "sourceMap": true
 
   },
   "include": ["**/*.ts", "src"]

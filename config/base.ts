@@ -182,12 +182,14 @@ const baseConfig: Config = {
     encryption: {
       algorithm: 'aes-256-gcm',
       ivLength: 16,
+      secretKey: Buffer.from(process.env.ENCRYPTION_KEY || '', 'hex')
     },
     imageVariants: {
       thumbnail: { width: 150, height: 150, quality: 60 },
       medium: { width: 800, height: 600, quality: 80 },
       large: { width: 1920, height: 1080, quality: 90 },
     },
+   
    
   
   };

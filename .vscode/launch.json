@@ -2,19 +2,52 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug with ts-node",
+      "name": "Debug current file (ts-node)",
       "type": "node",
       "request": "launch",
-      "runtimeArgs": [
-        "-r",
-        "ts-node/register"
-      ],
-      "args": [
-        "${file}"
-      ],
+      "args": ["${file}"],
+      "runtimeArgs": ["-r", "ts-node/register"],
       "cwd": "${workspaceFolder}",
-      "skipFiles": ["<node_internals>/**"],
-      "console": "integratedTerminal"
+      "protocol": "inspector",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**",
+        "**/src/utils/upload.ts"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Debug Chat Controller",
+      "type": "node",
+      "request": "launch",
+      "args": ["${workspaceFolder}/src/chat/controllers/chatController.ts"],
+      "runtimeArgs": ["-r", "ts-node/register"],
+      "cwd": "${workspaceFolder}",
+      "protocol": "inspector",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**",
+        "**/src/utils/upload.ts"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Debug Full Backend",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["-r", "ts-node/register"],
+      "args": ["${workspaceFolder}/server.ts"],
+      "cwd": "${workspaceFolder}",
+      "protocol": "inspector",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**",
+        "**/src/utils/upload.ts"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
     }
   ]
 }

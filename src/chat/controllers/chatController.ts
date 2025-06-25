@@ -12,6 +12,7 @@ import { MessageType } from "../types/chatTypes";
 import { SendMessageRequest,MediaFile,ReactionRequest,DeleteRequest } from "../types/chatTypes";
 import { mediaValidationConfig } from "../constant/messageTypeValidationConfig";
 import appCacheAndPresenceService from "../../services/redisInstance";
+import Conversation from "../model/conversationModel";
 
 class ChatController {
   // private io: IOServer;
@@ -43,7 +44,7 @@ class ChatController {
   /**
    * Crée ou récupère une conversation
    */
-  createOrGetConversation = asyncHandler(async (req:CustomRequest, res:Response) => {
+   createOrGetConversation = asyncHandler(async (req:CustomRequest, res:Response) => {
     // Validation des erreurs
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -79,7 +80,7 @@ class ChatController {
    * Récupère les conversations de l'utilisateur
    */
   
-  getStringFromQuery = (value: any, defaultValue: string): string => {
+  public getStringFromQuery = (value: any, defaultValue: string): string => {
     if (typeof value === 'string') return value;
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') return value[0];
     return defaultValue;
@@ -320,7 +321,7 @@ getMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
 
 searchMessages = asyncHandler(async (req: CustomRequest, res: Response) => {
   const userId = req.user.userId;
-    const allowedTypes = ['text', 'image', 'video', 'audio', 'document','location',
+  const allowedTypes = ['text', 'image', 'video', 'audio', 'document','location',
     'contact','property','voice_note','ar_preview','virtual_tour'] as const;
   type AllowedMessageType = typeof allowedTypes[number];
   const rawMessageType = this.getStringFromQuery(req.query.messageType, '');
@@ -490,7 +491,7 @@ async validateMessageByType(messageType: MessageType, content: string, file?: Me
 }
   
   async verifyConversationAccess(conversationId:string, userId:string) {
-    const  conversation = Conversation.findById(conversationId)
+    const  conversation = await Conversation.findById(conversationId)
     if (!conversation) {
       throw new ApiError(404, 'Conversation non trouvée');
     }

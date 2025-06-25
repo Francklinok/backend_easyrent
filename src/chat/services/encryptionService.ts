@@ -1,19 +1,22 @@
-import  config from "../../../config"
+import crypto, { CipherGCM, DecipherGCM } from 'crypto';
+import config from '../../../config';
 
 class EncryptionService {
-  private static readonly crypto = require('crypto');
-  private static readonly secretKey = process.env.ENCRYPTION_KEY || 'default-secret-key-change-in-production';
-
   static async encrypt(content: string): Promise<string> {
     try {
-      const iv = this.crypto.randomBytes(config.encryption.ivLength);
-      const cipher = this.crypto.createCipher(config.encryption.algorithm, this.secretKey);
-      
+      const iv = crypto.randomBytes(config.encryption.ivLength);
+      // Cast en CipherGCM pour accéder à getAuthTag
+      const cipher = crypto.createCipheriv(
+        config.encryption.algorithm,
+        config.encryption.secretKey,
+        iv
+      ) as CipherGCM;
+
       let encrypted = cipher.update(content, 'utf8', 'hex');
       encrypted += cipher.final('hex');
-      
-      const authTag = cipher.getAuthTag?.()?.toString('hex') || '';
-      
+
+      const authTag = cipher.getAuthTag().toString('hex');
+
       return `${iv.toString('hex')}:${authTag}:${encrypted}`;
     } catch (error) {
       console.error('Erreur de chiffrement:', error);
@@ -31,15 +34,19 @@ class EncryptionService {
       const [ivHex, authTagHex, encrypted] = parts;
       const iv = Buffer.from(ivHex, 'hex');
       const authTag = Buffer.from(authTagHex, 'hex');
-      
-      const decipher = this.crypto.createDecipher(config.encryption.algorithm, this.secretKey);
-      if (decipher.setAuthTag) {
-        decipher.setAuthTag(authTag);
-      }
-      
+
+      // Cast en DecipherGCM pour accéder à setAuthTag
+      const decipher = crypto.createDecipheriv(
+        config.encryption.algorithm,
+        config.encryption.secretKey,
+        iv
+      ) as DecipherGCM;
+
+      decipher.setAuthTag(authTag);
+
       let decrypted = decipher.update(encrypted, 'hex', 'utf8');
       decrypted += decipher.final('utf8');
-      
+
       return decrypted;
     } catch (error) {
       console.error('Erreur de déchiffrement:', error);
@@ -48,4 +55,4 @@ class EncryptionService {
   }
 }
 
-export default  EncryptionService
+export default EncryptionService;
