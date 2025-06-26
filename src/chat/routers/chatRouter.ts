@@ -20,18 +20,18 @@ export default (io:IOServer) => {
   );
   chatRouter.patch('/conversations/:conversationId/read', chatController.markConversationAsRead.bind(chatController));
   chatRouter.post('/conversations/typing',chatValidationRules.handleTyping, chatController.handleTyping.bind(chatController));
-
-
-
-
-
-
-  chatRouter.get('/messages/search', chatValidationRules.searchMessages, chatController.searchMessages.bind(chatController));
+  chatRouter.get('/messages/search', chatValidationRules.searchMessages, chatController.searchMessages.bind(chatController)); 
   chatRouter.patch('/conversations/:conversationId/archive',chatValidationRules.archiveConversation, chatController.archiveConversation.bind(chatController));
+  chatRouter.patch(
+  '/conversations/:conversationId/unarchive',
+  chatController.unarchiveConversation.bind(chatController)
+);
   chatRouter.get('/conversations/:conversationId/stats',chatValidationRules.getConversationStats, chatController.getConversationStats.bind(chatController));
-  chatRouter.delete('/messages/:messageId',chatValidationRules.deleteMessage, chatController.deleteMessage.bind(chatController));
-  chatRouter.post('/messages/:messageId/restore',chatValidationRules.restoreMessage, chatController.restoreMessage.bind(chatController));
-
-
+  chatRouter.patch(
+  '/conversations/:conversationId/messages/:messageId/delete',
+  chatValidationRules.deleteMessage,
+  chatController.deleteMessage.bind(chatController)
+);
+  chatRouter.patch('/messages/:messageId/restore',chatValidationRules.restoreMessage, chatController.restoreMessage.bind(chatController));
   return chatRouter;
 };

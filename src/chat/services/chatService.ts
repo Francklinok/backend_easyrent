@@ -435,26 +435,69 @@ class ChatService extends EventEmitter {
  * Archived  conversation 
  */
 
-async  archivedConversation(userId:string,  conversationId:string,ipAddress:string = 'unknown',userAgent:string = "unknown"  ){
-  const  conversation = await Conversation.findById(conversationId);
+// async  archivedConversation(userId:string,  conversationId:string,ipAddress:string = 'unknown',userAgent:string = "unknown"  ){
+//   const  conversation = await Conversation.findById(conversationId);
   
-  if(!conversation){
-   throw new ApiError(404, "Conversation not found")
-   return
-  }
-  if (!conversation.isArchivedBy) {
-  conversation.isArchivedBy = [];
-}
+//   if(!conversation){
+//    throw new ApiError(404, "Conversation not found")
+//    return
+//   }
+//   if (!conversation.isArchivedBy) {
+//   conversation.isArchivedBy = [];
+// }
 
-if (conversation.isArchivedBy.some((entry:any) => entry.userId.toString() === userId.toString())) {
-  return { message: "Already archived" };
-}
+// if (conversation.isArchivedBy.some((entry:any) => entry.userId.toString() === userId.toString())) {
+//   return { message: "Already archived" };
+// }
+
+//   conversation.isArchivedBy.push({
+//     userId: new Types.ObjectId(userId),
+//     archivedAt:new  Date()
+//   })
+//   await conversation.save();
+//   await this.auditService.logEvent({
+//     eventType: SecurityEventType.CONVERSATION_ARCHIVED,
+//     userId,
+//     ipAddress,
+//     userAgent,
+//     severity: AuditEventSeverity.INFO,
+//     details: {
+//     conversationId:conversationId.toString(),
+//     }
+//   });
+//   return conversation;
+// }
+async archivedConversation(
+  userId: string,
+  conversationId: string,
+  ipAddress: string = 'unknown',
+  userAgent: string = 'unknown'
+) {
+  const conversation = await Conversation.findById(conversationId);
+
+  if (!conversation) {
+    throw new ApiError(404, 'Conversation not found');
+  }
+
+  if (!Array.isArray(conversation.isArchivedBy)) {
+    conversation.isArchivedBy = [];
+  }
+
+  const alreadyArchived = conversation.isArchivedBy.some(
+    (entry: { userId: Types.ObjectId }) => entry.userId.toString() === userId.toString()
+  );
+
+  if (alreadyArchived) {
+    return { message: 'Already archived' };
+  }
 
   conversation.isArchivedBy.push({
     userId: new Types.ObjectId(userId),
-    archivedAt:new  Date()
-  })
+    archivedAt: new Date()
+  });
+
   await conversation.save();
+
   await this.auditService.logEvent({
     eventType: SecurityEventType.CONVERSATION_ARCHIVED,
     userId,
@@ -462,11 +505,49 @@ if (conversation.isArchivedBy.some((entry:any) => entry.userId.toString() === us
     userAgent,
     severity: AuditEventSeverity.INFO,
     details: {
-    conversationId:conversationId.toString(),
+      conversationId: conversationId.toString(),
     }
   });
 
+  return conversation;
 }
+//
+async unarchiveConversation(
+  userId: string,
+  conversationId: string,
+  ipAddress: string = 'unknown',
+  userAgent: string = 'unknown'
+) {
+  const conversation = await Conversation.findById(conversationId);
+  if (!conversation) {
+    throw new ApiError(404, 'Conversation not found');
+  }
+
+  if (!Array.isArray(conversation.isArchivedBy)) {
+    conversation.isArchivedBy = [];
+  }
+
+  // Supprime l'utilisateur du tableau isArchivedBy
+  conversation.isArchivedBy = conversation.isArchivedBy.filter(
+    (entry: any) => entry.userId.toString() !== userId.toString()
+  );
+
+  await conversation.save();
+
+  await this.auditService.logEvent({
+    eventType: SecurityEventType.CONVERSATION_UNARCHIVED,
+    userId,
+    ipAddress,
+    userAgent,
+    severity: AuditEventSeverity.INFO,
+    details: {
+      conversationId: conversationId.toString(),
+    }
+  });
+
+  return conversation;
+}
+
   /**
    * Retourne des statistiques de conversation : nb messages, nb participants, etc.
    */
