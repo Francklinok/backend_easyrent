@@ -1,5 +1,6 @@
 import { body, param, ValidationChain, validationResult } from 'express-validator';
 import { Request, Response, NextFunction } from 'express';
+import { query } from 'express-validator';
 
 // ============ CONSTANTES DE VALIDATION ============
 const PASSWORD_MIN_LENGTH = 8;
@@ -120,8 +121,14 @@ export const validate = {
         }
         return true;
       }),
-      
+    tokenFromQuery: (): ValidationChain =>
+      query('token')
+      .notEmpty().withMessage('Token manquant')
+      .matches(TOKEN_REGEX).withMessage('Format de token invalide')
+      .isLength({ min: 16, max: 256 }).withMessage('Token invalide'),
 };
+      
+
 
 // ============ VALIDATIONS COMPOSÉES ============
  const validationRules = {
@@ -151,7 +158,7 @@ export const validate = {
 
   // Vérification email
   verifyEmail: [
-    validate.token(),
+    validate.tokenFromQuery(),
     handleValidationErrors
   ],
 

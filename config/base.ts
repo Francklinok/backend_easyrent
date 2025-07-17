@@ -69,8 +69,11 @@ const baseConfig: Config = {
     name: 'easyrent',
     port: parseInt(process.env.PORT || '3000', 10),
     env: process.env.NODE_ENV || 'development',
-    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+    frontendUrl: process.env.FRONTEND_URL || 'http://192.168.1.66:3000',
     host: process.env.HOST || "localhost",
+  },
+  network:{
+     host: '192.168.1.66'
   },
   auth: {
     jwtSecret: getRequiredEnvString('JWT_SECRET'),
@@ -160,7 +163,10 @@ const baseConfig: Config = {
     format: process.env.LOG_FORMAT || 'combined',
   },
   cors: {
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: (process.env.CORS_ORIGIN || 'http://localhost:3000,http://192.168.1.66:3000')
+    .split(',')
+    .map(o => o.trim()),
+    // origin: process.env.CORS_ORIGIN || '*',
     methods: ['GET', 'POST', 'HEAD', 'PUT', 'PATCH', 'DELETE'],
   },
   rateLimit: {

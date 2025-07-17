@@ -5,20 +5,24 @@ import config from "../../../config";
  * @returns Port normalisé ou false si invalide
  */
 
-const normalizePort = (val:string | number): number | string | boolean =>{
-    const port = typeof val ==='string'? parseInt(val,10):val;
-    
-    if(isNaN(port)){
-      return val;
-    }
-    
-    if(port  >= 0){
-      return   port
-    }
-    
-    return  false
-    }
+/**
+ * Normalise le port en valeur numérique
+ * @param val Valeur du port à normaliser
+ * @returns Port normalisé (number) ou undefined si invalide
+ */
+function normalizePort(val: string | number): number {
+  const port = typeof val === 'string' ? parseInt(val, 10) : val;
 
-  const port = normalizePort(config.app.port || process.env.PORT || '3000' );
-  export default port
+  if (isNaN(port) || port < 0) {
+    throw new Error('Port invalide');
+  }
+
+  return port;
+}
+
+export default normalizePort;
+
+
+
+
 

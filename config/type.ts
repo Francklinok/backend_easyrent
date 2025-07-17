@@ -6,6 +6,9 @@ export interface Config {
     frontendUrl: string;
     host:string,
   };
+  network:{
+   host:string,
+  };
   auth: {
     jwtSecret: string;
     jwtRefreshSecret: string;
@@ -89,7 +92,7 @@ export interface Config {
     file?: string;
   };
     cors: {
-    origin:string,
+    origin: string | string[];
     methods:string[]
   }; 
   rateLimit?: {

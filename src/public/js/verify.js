@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!token) {
     messageEl.textContent = "Token non fourni.";
   } else {
-    fetch(`http://localhost:3000/api/v1/auth/verify-email?token=${token}`)
+    fetch(`http://192.168.1.66:3000/api/v1/auth/verify-email?token=${token}`)
       .then(res => res.json())
       .then(data => {
         if (data.success) {

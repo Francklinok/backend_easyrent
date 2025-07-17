@@ -1,8 +1,3 @@
-/**
- * @file app.js - Configuration principale du serveur Express
- * @description Point d'entrée pour l'API EasyRent, gère la configuration du serveur et les middlewares
- */
-
 import express from 'express';
 import mongoose from 'mongoose';
 import morgan from 'morgan';
@@ -41,14 +36,20 @@ const app = express();
 
 app.use(helmet());
 app.use(cors({
-  origin: config.cors.origin|| '*',
-  methods: config.cors.methods,
+  origin: (origin, callback) => {
+    if (!origin || config.cors.origin.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS non autorisé'), false);
+  },
   credentials: true,
+  methods: config.cors.methods,
   optionsSuccessStatus: 204
 }));
+
+
 app.use(compression());
 
-app.use(express.json());
 
 // Configuration du rate limiter pour prévenir les attaques par force brute
 const limiter = rateLimit({
