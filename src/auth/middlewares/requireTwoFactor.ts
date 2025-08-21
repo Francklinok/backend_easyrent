@@ -1,27 +1,16 @@
-import { Request, Response, NextFunction } from 'express';
-import { AuthService } from '../../users/services/authService';
+import { Response, NextFunction } from 'express';
 import { createLogger } from '../../utils/logger/logger';
 import { UserService } from '../../users/services/userService';
+import { AuthenticatedRequest } from '../../users/types/userTypes';
+
 
 const logger = createLogger('AuthMiddleware');
 const userService = new UserService();
 
-// Étendre le type pour inclure les propriétés 2FA
-declare global {
-  namespace Express {
-    interface Request {
-      user?: { 
-        userId: string; 
-        twoFactorAuthenticated?: boolean;
-      };
-    }
-  }
-}
-
 /**
  * Middleware pour l'authentification à deux facteurs
  */
-const requireTwoFactor = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+const requireTwoFactor = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     if (!req.user) {
       res.status(401).json({

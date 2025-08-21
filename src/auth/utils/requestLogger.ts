@@ -1,7 +1,7 @@
 
 
 import { Request, Response, NextFunction } from 'express';
-import createLogger from '../../utils/logger/logger';
+import { createLogger } from '../../utils/logger/logger';
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = createLogger('RequestLogger');

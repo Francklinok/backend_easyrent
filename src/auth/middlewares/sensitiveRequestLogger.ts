@@ -8,7 +8,10 @@ import { IUser } from '../../users/types/userTypes'; // adapte le chemin si beso
 declare global {
   namespace Express {
     interface Request {
-      user?: IUser;
+      user?: {
+        _id:string;
+      };
+      
       requestId?: string; // ✅ Ajoute cette ligne
     }
   }

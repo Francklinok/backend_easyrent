@@ -105,13 +105,12 @@ const UserSchema = new Schema<IUser>(
       default: false,
       index: true
     },
-    // emailVerified: {
-    //   type: Boolean,
-    //   default: false
-    // },
+    
     verificationToken: String,
     emailVerificationToken: String,
     emailVerificationTokenExpires: Date,
+    emailVerificationCode: String,
+    emailVerificationCodeExpires: Date,
     
     // Réinitialisation du mot de passe
     passwordResetToken: String,

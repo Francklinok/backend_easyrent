@@ -1,5 +1,5 @@
 import mongoose, { Schema } from 'mongoose';
-import { SecurityAuditEvent } from '../type/type';
+import { SecurityAuditEvent } from '../security/type/auditType';
 
 /**
  * Schéma mongoose pour les événements d'audit de sécurité

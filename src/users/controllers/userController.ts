@@ -17,6 +17,43 @@ const notificationService = new NotificationService();
  * Contrôleur pour les opérations liées aux utilisateurs
  */
 export class UserController {
+    // ----------------------------
+  // Méthode frontend : utilisateur connecté
+  // ----------------------------
+  async getCurrentUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const currentUserId = (req.user as { userId: string }).userId;
+
+      const user = await userService.getUserById(currentUserId);
+
+      if (!user) {
+        res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+        return;
+      }
+
+      // Champs exposés au frontend
+      const userData = {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        photo: user.profilePicture,
+        role: user.role,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        preferences: user.preferences
+      };
+
+      res.status(200).json({
+        success: true,
+        message: 'Informations utilisateur récupérées avec succès',
+        data: userData
+      });
+    } catch (error) {
+      next(error);
+    }}
   /**
    * Obtenir la liste des utilisateurs avec pagination et filtres
    */

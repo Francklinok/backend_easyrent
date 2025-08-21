@@ -116,11 +116,13 @@ app.get('/', (req, res) => {
   });
 });
 
-// // Routes API
+// Routes API
 app.use('/api/v1/auth', auThrouter);
 //property  routes
 app.use('/api/properties', propertyRouter);
 // chat routes
+
+
 
 // Middlewares de gestion d'erreurs - doivent être en dernier
 // app.use(propertyErrorHandler);

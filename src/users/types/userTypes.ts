@@ -36,6 +36,8 @@ export interface AuthenticatedRequest extends Request {
     userId: string;
     email: string;
     role: string;
+    twoFactorAuthenticated?:boolean;
+
   };
   sessionId?: string;
 }
@@ -273,6 +275,8 @@ export interface IUser extends Document {
   
   // Email Verification
   emailVerified?: boolean;
+  emailVerificationCode?:string|null;
+  emailVerificationCodeExpires?:Date|null;
   isEmailVerified?: boolean;
   verificationToken?: string;
   emailVerificationToken?: string | null;

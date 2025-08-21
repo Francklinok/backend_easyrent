@@ -48,6 +48,43 @@ const logger = createLogger('AuthController');
   }
 
   /**
+   * Upload profile picture during registration
+   */
+  async uploadProfilePicture(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { profilePicture } = req.body;
+      
+      if (!profilePicture) {
+        res.status(400).json({
+          success: false,
+          message: 'Photo de profil requise'
+        });
+        return;
+      }
+
+      // Basic validation for image format
+      if (typeof profilePicture !== 'string' || profilePicture.trim() === '') {
+        res.status(400).json({
+          success: false,
+          message: 'Format de photo de profil invalide'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Photo de profil validée avec succès',
+        data: { profilePicture }
+      });
+    } catch (error: any) {
+      logger.error('Erreur lors de l\'upload de la photo de profil', {
+        error: error.message
+      });
+      next(error);
+    }
+  }
+
+  /**
    * Inscription d'un nouvel utilisateur
    */
   async register(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -59,7 +96,7 @@ const logger = createLogger('AuthController');
   });
 
   try {
-    const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, ...userData }: IUser = req.body;
+    const { firstName, lastName, username, email, password, phoneNumber, dateOfBirth, address, profilePicture, ...userData }: IUser = req.body;
     
     // Validation des données requises
     if (!email || !password || !username) {
@@ -130,7 +167,7 @@ const logger = createLogger('AuthController');
 
     console.log(password, firstName)
 
-    // ✅ CORRECTION : Créer l'utilisateur SANS envoyer l'email automatiquement
+    // Créer l'utilisateur 
     const user: IUser = await this.userService.createUser({
       firstName,
       lastName,
@@ -140,6 +177,7 @@ const logger = createLogger('AuthController');
       phoneNumber,
       dateOfBirth,
       address,
+      profilePicture,
       ...userData
     }, false); // ← IMPORTANT : false pour éviter le double envoi
 
@@ -153,23 +191,36 @@ const logger = createLogger('AuthController');
     }
 
     const userId = user._id || user.id;
+
+    logger.info("the  user  id  is  ",userId )
     
     // ✅ Générer le token de vérification
     const verificationToken = await this.authService.generateVerificationToken(userId.toString());
+    if(verificationToken){
+      logger.info('📨 token generate :', {
+            email: user.email.substring(0, 5) + '***',
+            firstName: user.firstName,
+            token: verificationToken.substring(0, 10) + '...',
+            tokenLength: verificationToken.length
+          });
+    }else{
+      logger.warn("verification code  has  not  been   generated")
+    }
     
-    logger.info('📨 Envoi de l\'e-mail avec token :', {
-      email: user.email.substring(0, 5) + '***',
-      firstName: user.firstName,
-      token: verificationToken.substring(0, 10) + '...',
-      tokenLength: verificationToken.length
-    });
+   
 
-    // ✅ Envoyer l'email de vérification UNE SEULE FOIS
+    // ✅ Envoyer l'email avec le code de vérification
     const emailSent = await this.notificationService.sendVerificationEmail(
       user.email,
       user.firstName || '',
       verificationToken
     );
+    if(emailSent){
+      logger.info("email  has  successfully sent")
+    }else{
+      logger.warn("email  has not  been sent ")
+
+    }
 
     // Journalisation de sécurité
     try {
@@ -203,7 +254,7 @@ const logger = createLogger('AuthController');
 
     res.status(201).json({
       success: true,
-      message: 'Inscription réussie. Veuillez vérifier votre email pour activer votre compte',
+      message: 'Inscription réussie. Un code de vérification a été envoyé à votre email',
       data: {
         userId: userId.toString(),
         email: user.email,
@@ -350,7 +401,97 @@ const logger = createLogger('AuthController');
   }
 
 /**
- * Vérification de compte utilisateur
+ * Vérification avec code à 6 chiffres
+ */
+async verifyEmailCode(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const startTime = Date.now();
+
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      logger.warn('Tentative de vérification sans email ou code', { 
+        hasEmail: !!email, 
+        hasCode: !!code,
+        ip: req.ip 
+      });
+      res.status(400).json({
+        success: false,
+        message: 'Email et code de vérification requis'
+      });
+      return;
+    }
+
+    // Validation du format du code (6 chiffres)
+    if (!/^\d{6}$/.test(code)) {
+      res.status(400).json({
+        success: false,
+        message: 'Le code doit contenir exactement 6 chiffres'
+      });
+      return;
+    }
+
+    logger.info('Tentative de vérification avec code', {
+      email: email.substring(0, 5) + '***',
+      code: code.substring(0, 3) + '***',
+      ip: req.ip
+    });
+
+    // Vérifier le code
+    const result = await this.userService.verifyUserWithCode(email, code);
+
+    if (!result.success) {
+      logger.warn('Échec de vérification avec code', {
+        reason: result.message,
+        email: email.substring(0, 5) + '***',
+        ip: req.ip
+      });
+      res.status(400).json({
+        success: false,
+        message: result.message || 'Code invalide ou expiré'
+      });
+      return;
+    }
+
+    // Journalisation de sécurité
+    await this.securityAuditService.logEvent({
+      eventType: 'EMAIL_VERIFIED',
+      userId: result.userId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      details: { verificationMethod: 'email_code' }
+    });
+
+    const executionTime = Date.now() - startTime;
+    logger.info('Email vérifié avec succès via code', {
+      userId: result.userId,
+      email: email.substring(0, 5) + '***',
+      executionTime: `${executionTime}ms`
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Email vérifié avec succès',
+      data: {
+        userId: result.userId,
+        isVerified: true
+      }
+    });
+
+  } catch (error: any) {
+    const executionTime = Date.now() - startTime;
+    logger.error('Erreur lors de la vérification avec code', {
+      error: error.message,
+      stack: error.stack,
+      executionTime: `${executionTime}ms`,
+      ip: req.ip
+    });
+    next(error);
+  }
+}
+
+/**
+ * Vérification de compte utilisateur (ancienne méthode avec token)
  */
 async verifyAccount(req: Request, res: Response, next: NextFunction): Promise<void> {
   const startTime = Date.now();
@@ -1923,7 +2064,6 @@ const userId = (req.user as any)._id || (req.user as any).id;
       
       if (!isPasswordValid) {
         logger.warn('Suppression de compte échouée - mot de passe incorrect', { userId });
-        
         res.status(401).json({
           success: false,
           message: 'Mot de passe incorrect'

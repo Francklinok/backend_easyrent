@@ -171,6 +171,75 @@ export class NotificationService {
       return false;
     }
   }
+
+  // private initializeSMTP(): boolean {
+  //    if (!config.email.enabled || !config.email.host || !config.email.user || !config.email.password) {
+  //         logger.warn('SMTP not configured - missing required settings', {
+  //           enabled: config.email.enabled,
+  //           hasHost: !!config.email.host,
+  //           hasUser: !!config.email.user,
+  //           hasPassword: !!config.email.password
+  //         });
+          
+  //         // For development, create a test transporter that logs emails instead of sending
+  //         if (config.app.env === 'development') {
+  //           this.transporter = nodemailer.createTransporter({
+  //             streamTransport: true,
+  //             newline: 'unix',
+  //             buffer: true
+  //           });
+  //           logger.info('Development mode: Using stream transporter for email testing');
+  //           return true;
+  //         }
+          
+  //         return false;
+  //       }
+  //   try {
+  //     this.transporter = nodemailer.createTransport({
+  //       host: config.email.host,
+  //       port: config.email.port,
+  //       secure: config.email.secure,
+  //       auth: {
+  //         user: config.email.user,
+  //         pass: config.email.password
+  //       },
+  //       // Options pour améliorer la fiabilité
+  //       pool: config.email.pool || true,
+  //       maxConnections: config.email.maxConnections || 5,
+  //       maxMessages: 100,
+  //       rateDelta: 20000,
+  //       rateLimit: 5,
+  //       // Options de timeout
+  //       connectionTimeout: config.email.timeout || 15000,
+  //       greetingTimeout: 10000,
+  //       socketTimeout: 30000,
+  //       // Options TLS
+  //       tls: {
+  //         rejectUnauthorized: config.app.env === 'production',
+  //         minVersion: 'TLSv1.2'
+  //       },
+  //       // Debug en développement
+  //       debug: config.app.env === 'development',
+  //       logger: config.app.env === 'development'
+  //     });
+
+  //     // Vérification de connexion asynchrone
+  //     this.verifyConnectionAsync();
+      
+  //     logger.info('SMTP initialisé avec succès', {
+  //       host: config.email.host,
+  //       port: config.email.port,
+  //       secure: config.email.secure
+  //     });
+      
+  //     return true;
+  //   } catch (error) {
+  //     logger.error('Erreur lors de l\'initialisation SMTP', {
+  //       error: error instanceof Error ? error.message : 'Erreur inconnue'
+  //     });
+  //     return false;
+  //   }
+  // }
   /**
    * Initialise Web Push
    */
@@ -443,6 +512,13 @@ export class NotificationService {
       logger.error('Invalid email address for SendGrid', { to: this.maskEmail(mailOptions.to) });
       return false;
     }
+    
+    // Check if API key is actually configured
+    if (!config.sendgrid.apiKey) {
+      logger.error('SendGrid API key not configured');
+      return false;
+    }
+    
     try {
       const msg = {
         to: mailOptions.to,
@@ -479,7 +555,9 @@ export class NotificationService {
         subject: mailOptions.subject,
         error: error.message || 'Erreur inconnue',
         code: error.code,
-        statusCode: error.response?.status
+        statusCode: error.response?.status,
+        errorBody: error.response?.body,
+        stack: error.stack
       });
 
       return false;
@@ -524,10 +602,19 @@ export class NotificationService {
         )
       ]) as any;
 
+      // In development mode with stream transporter, log the email content
+      if (config.app.env === 'development' && result.message) {
+        logger.info('Development email content:', {
+          to: this.maskEmail(mailOptions.to),
+          subject: mailOptions.subject,
+          content: result.message.toString().substring(0, 200) + '...'
+        });
+      }
+
       logger.info('Email envoyé avec SMTP', {
         to: this.maskEmail(mailOptions.to),
         subject: mailOptions.subject,
-        messageId: result.messageId
+        messageId: result.messageId || 'dev-mode'
       });
 
       return true;
@@ -696,15 +783,6 @@ private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
   // Vérifier qu'au moins un service est disponible
   if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
     logger.error('Aucun service email disponible', {
-      to: this.maskEmail(mailOptions.to),
-      subject: mailOptions.subject
-    });
-    return false;
-  }
-
-  // Check that at least one service is available
-  if (!this.isSendGridEnabled && !this.isSMTPEnabled) {
-    logger.error('No email service available', {
       to: this.maskEmail(mailOptions.to),
       subject: mailOptions.subject
     });
@@ -1037,23 +1115,37 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
 /**
  * send  email  verification
  */
-   async sendVerificationEmail(email: string, firstName: string, token: string): Promise<boolean> {
-    if (!token) {
-      logger.error('Verification token is missing', { email: this.maskEmail(email) });
+   async sendVerificationEmail(email: string, firstName: string, code: string): Promise<boolean> {
+    if (!code) {
+      logger.error('Verification code is missing', { email: this.maskEmail(email) });
       return false;
     }
 
-    const verificationUrl = `${config.app.frontendUrl}/verify-account?token=${token}`;
-    this.debugVerificationEmail(email, firstName, token);
+    // Debug email service status
+    logger.info('Email service status check', {
+      sendgridEnabled: this.isSendGridEnabled,
+      smtpEnabled: this.isSMTPEnabled,
+      emailStrategy: this.emailStrategy,
+      hasApiKey: !!config.sendgrid.apiKey,
+      hasSmtpConfig: !!(config.email.host && config.email.user && config.email.password)
+    });
+
+    logger.info('Sending verification code email', {
+      email: this.maskEmail(email),
+      firstName,
+      code: code.substring(0, 3) + '***'
+    });
 
     const mailOptions: EmailOptions = {
       to: email,
-      subject: 'Vérifiez votre compte - EasyRent',
-      html: this.getVerificationEmailTemplate(firstName, verificationUrl),
-      text: `Bonjour ${firstName}, veuillez vérifier votre compte en visitant : ${verificationUrl}`
+      subject: 'Code de vérification - EasyRent',
+      html: this.getVerificationCodeTemplate(firstName, code),
+      text: `Bonjour ${firstName}, votre code de vérification est : ${code}`
     };
 
-    return this.sendEmailSafely(mailOptions);
+    const result = await this.sendEmailSafely(mailOptions);
+    logger.info('Email send result', { success: result, to: this.maskEmail(email) });
+    return result;
   }
 
   async sendWelcomeEmail(email: string, firstName: string): Promise<boolean> {
@@ -1335,51 +1427,37 @@ private getAccountStatusNotificationTemplate(
   `;
 }
 
-  private getVerificationEmailTemplate(firstName: string, verificationUrl: string): string {
+  private getVerificationCodeTemplate(firstName: string, code: string): string {
     return `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Vérification de compte - EasyRent</title>
+        <title>Code de vérification - EasyRent</title>
       </head>
       <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
-          <h1 style="color: #007bff; text-align: center; margin-bottom: 30px;">Bienvenue sur EasyRent, ${firstName}!</h1>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center;">
+          <h1 style="color: #007bff; margin-bottom: 30px;">Bienvenue sur EasyRent, ${firstName}!</h1>
           
           <p style="font-size: 16px; margin-bottom: 20px;">
             Merci de vous être inscrit sur EasyRent. Pour finaliser votre inscription et activer votre compte, 
-            veuillez cliquer sur le bouton ci-dessous :
+            veuillez saisir le code de vérification ci-dessous :
           </p>
           
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${verificationUrl}" 
-               style="background-color: #007bff; color: white; padding: 15px 30px; text-decoration: none; 
-                      border-radius: 5px; display: inline-block; font-weight: bold; font-size: 16px;">
-              ✅ Vérifier mon compte
-            </a>
+          <div style="background-color: #007bff; color: white; padding: 20px; border-radius: 8px; margin: 30px 0;">
+            <h2 style="margin: 0; font-size: 32px; letter-spacing: 8px;">${code}</h2>
           </div>
           
           <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 20px 0;">
             <p style="margin: 0; color: #856404;">
-              <strong>⏰ Important :</strong> Ce lien est valide pendant 24 heures seulement.
+              <strong>⏰ Important :</strong> Ce code est valide pendant 15 minutes seulement.
             </p>
           </div>
           
           <p style="color: #666; font-size: 14px; margin-top: 30px;">
             Si vous n'avez pas créé de compte, vous pouvez ignorer cet email en toute sécurité.
           </p>
-          
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          
-          <div style="font-size: 12px; color: #999;">
-            <p><strong>Problème avec le bouton ?</strong></p>
-            <p>Copiez et collez ce lien dans votre navigateur :</p>
-            <p style="word-break: break-all; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">
-              ${verificationUrl}
-            </p>
-          </div>
         </div>
       </body>
       </html>

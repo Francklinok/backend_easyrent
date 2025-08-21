@@ -34,8 +34,8 @@ authRouter.post('/verifyAccount',
   authController.verifyAccount.bind(authController)
 )
 
-authRouter.get('/verify-email', 
-  validationRules.verifyEmail,
+authRouter.post('/verify-email', 
+  validationRules.twoFactor,
   authController.verifyEmail.bind(authController)
 );
 
@@ -66,7 +66,7 @@ authRouter.post(
   // apiLimiter,
   // authLimiter,
   sensitiveRequestLogger,
-  validationRules.password,
+  validationRules.forgotpassword,
   authController.forgotPassword.bind(authController)
 );
 

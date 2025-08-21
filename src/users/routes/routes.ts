@@ -8,6 +8,10 @@ const userController = new UserController();
 // Liste des utilisateurs
 router.get('/users', authenticate, userController.getUsers.bind(userController));
 
+//user connected
+
+router.get('/users/me', authenticate, userController.getCurrentUser.bind(userController));
+
 // Détails d'un utilisateur
 router.get('/users/:id', authenticate, userController.getUserById.bind(userController));
 

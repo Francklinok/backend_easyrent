@@ -1,8 +1,8 @@
 
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import { Request } from 'express';
-import crypto from 'crypto';
-import speakeasy from 'speakeasy';
+import * as crypto from 'crypto';
+import * as speakeasy from 'speakeasy';
 // import qrcode from 'qrcode';
 import config from '../../../config';
 import { UserService } from './userService';
@@ -905,33 +905,33 @@ logger.debug('expected token (TOTP) would be:', { generatedToken });
   }
 
   /**
-   * Génère un token de vérification d'email
+   * Génère un code de vérification d'email à 6 chiffres
   */
 async generateVerificationToken(userId: string): Promise<string> {
   try {
-    // Générer un token aléatoire sécurisé
-    const token = crypto.randomBytes(32).toString('hex');
+    // Générer un code à 6 chiffres
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
     
-    logger.info('🔍 DEBUG - Generated token:', {
+    logger.info('🔍 DEBUG - Generated verification code:', {
       userId,
-      token: token.substring(0, 10) + '...',
-      tokenLength: token.length
+      code: code.substring(0, 3) + '***',
+      codeLength: code.length
     });
     
-    // ✅ FIX: Stocker le token généré dans la base de données
-    const tokenExpiration = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 heures
+    // Stocker le code dans la base de données avec expiration de 15 minutes
+    const tokenExpiration = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
     
     await this.userService.updateUser(userId, {
-      emailVerificationToken: token,
+      emailVerificationToken: code,
       emailVerificationTokenExpires: tokenExpiration
     });
     
-    logger.info('Verification token generated and saved', { userId });
-    return token; // ✅ Retourner le token généré
+    logger.info('Verification code generated and saved', { userId });
+    return code;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error generating verification token', { error: errorMessage, userId });
-    throw new Error(`Verification token generation failed: ${errorMessage}`);
+    logger.error('Error generating verification code', { error: errorMessage, userId });
+    throw new Error(`Verification code generation failed: ${errorMessage}`);
   }
 }
 

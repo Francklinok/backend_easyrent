@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import mongoose from 'mongoose';
 import User from "../models/userModel";
 import { IUser } from "../types/userTypes";
@@ -1265,6 +1265,70 @@ async changePassword(id: string, currentPassword: string, newPassword: string): 
       return !!result;
     } catch (error) {
       logger.error('Error storing temp 2FA secret', { error, userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Stocke le code de vérification email
+   */
+  async storeVerificationCode(userId: string, code: string): Promise<boolean> {
+    try {
+      logger.info('Storing verification code', { userId });
+      
+      const result = await User.findByIdAndUpdate(userId, {
+        emailVerificationCode: code,
+        emailVerificationCodeExpires: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      });
+      
+      return !!result;
+    } catch (error) {
+      logger.error('Error storing verification code', { error, userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Vérifie l'email avec le code
+   */
+  async verifyUserWithCode(email: string, code: string): Promise<{
+    success: boolean;
+    message?: string;
+    userId?: string;
+  }> {
+    try {
+      logger.info('Verifying email with code', { email: email.substring(0, 5) + '***' });
+      
+      const user = await User.findOne({ 
+        email: email.toLowerCase(),
+        emailVerificationToken: code,
+        emailVerificationTokenExpires: { $gt: new Date() }
+      });
+
+      if (!user) {
+        logger.warn('Invalid or expired verification code', { email: email.substring(0, 5) + '***' });
+        return {
+          success: false,
+          message: 'Code invalide ou expiré'
+        };
+      }
+
+      user.isEmailVerified = true;
+      user.emailVerificationToken = undefined;
+      user.emailVerificationTokenExpires = undefined;
+      user.isActive = true;
+
+      await user.save();
+
+      logger.info('Email verified successfully with code', { userId: user.id });
+      await this.notificationService.sendWelcomeEmail(user.email, user.firstName);
+
+      return {
+        success: true,
+        userId: user.id
+      };
+    } catch (error) {
+      logger.error('Error verifying email with code', { error, email: email.substring(0, 5) + '***' });
       throw error;
     }
   }

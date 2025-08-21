@@ -121,11 +121,19 @@ export const validate = {
         }
         return true;
       }),
-    tokenFromQuery: (): ValidationChain =>
-      query('token')
+
+  tokenFromQuery: (): ValidationChain =>
+    query('token')
       .notEmpty().withMessage('Token manquant')
       .matches(TOKEN_REGEX).withMessage('Format de token invalide')
       .isLength({ min: 16, max: 256 }).withMessage('Token invalide'),
+
+  forgotPasswordValidation: (): ValidationChain =>
+    body('email')
+      .trim()
+      .toLowerCase()
+      .isEmail().withMessage('Format d\'email invalide')
+      .isLength({ max: 320 }).withMessage('Email trop long')
 };
       
 
@@ -186,6 +194,10 @@ export const validate = {
   verifyTwoFactor:[
     validate.twoFactorCode(),
     validate.token()
+  ],
+  forgotpassword:[
+    validate.forgotPasswordValidation(),
+    handleValidationErrors
   ]
 };
 

@@ -3,14 +3,17 @@
     "target": "es2023",
     "module": "commonjs",
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
     "outDir": "./dist",
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "sourceMap": true
-
+    "sourceMap": true,
+    "downlevelIteration": true,
+    "lib": ["es2023", "dom"]
   },
-  "include": ["**/*.ts", "src"]
+  "include": ["**/*.ts", "src"],
+  "exclude": ["dist", "node_modules"]
 }
