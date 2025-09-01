@@ -272,6 +272,8 @@ export interface IUser extends Document {
   loginHistory: LoginHistory[];
   loginAttempts: LoginHistory[];
   security?: SecurityDetails;
+  email_activate:boolean,
+  push_activate:boolean,
   
   // Email Verification
   emailVerified?: boolean;

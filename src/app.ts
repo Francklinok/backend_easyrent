@@ -16,6 +16,7 @@ import { errorHandler } from './auth/utils/errorHandler';
 import { trackUserActivity } from './users/middleware/trackUserActivity';
 import { createLogger } from './utils/logger/logger';
 import chatRouter from './chat/routers/chatRouter';
+import userRouter from './users/routes/routes';
 
 const logger = createLogger("app")
 // import { propertyErrorHandler } from './property/middlewares/propertyErrorHandler';
@@ -120,7 +121,8 @@ app.get('/', (req, res) => {
 app.use('/api/v1/auth', auThrouter);
 //property  routes
 app.use('/api/properties', propertyRouter);
-// chat routes
+// user routes
+app.use('/api', userRouter);
 
 
 

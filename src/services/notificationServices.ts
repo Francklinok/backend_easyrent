@@ -33,12 +33,12 @@ export class NotificationService {
     smtp: {
       requests: 0,
       resetTime: Date.now() + 60000,
-      limit: 60 // Conservative limit for SMTP
+      limit: 60 
     },
      firebase: {
       requests: 0,
       resetTime: Date.now() + 60000,
-      limit: 1000 // Firebase permet beaucoup plus
+      limit: 1000 
     },
     webpush: {
       requests: 0,
@@ -172,77 +172,6 @@ export class NotificationService {
     }
   }
 
-  // private initializeSMTP(): boolean {
-  //    if (!config.email.enabled || !config.email.host || !config.email.user || !config.email.password) {
-  //         logger.warn('SMTP not configured - missing required settings', {
-  //           enabled: config.email.enabled,
-  //           hasHost: !!config.email.host,
-  //           hasUser: !!config.email.user,
-  //           hasPassword: !!config.email.password
-  //         });
-          
-  //         // For development, create a test transporter that logs emails instead of sending
-  //         if (config.app.env === 'development') {
-  //           this.transporter = nodemailer.createTransporter({
-  //             streamTransport: true,
-  //             newline: 'unix',
-  //             buffer: true
-  //           });
-  //           logger.info('Development mode: Using stream transporter for email testing');
-  //           return true;
-  //         }
-          
-  //         return false;
-  //       }
-  //   try {
-  //     this.transporter = nodemailer.createTransport({
-  //       host: config.email.host,
-  //       port: config.email.port,
-  //       secure: config.email.secure,
-  //       auth: {
-  //         user: config.email.user,
-  //         pass: config.email.password
-  //       },
-  //       // Options pour améliorer la fiabilité
-  //       pool: config.email.pool || true,
-  //       maxConnections: config.email.maxConnections || 5,
-  //       maxMessages: 100,
-  //       rateDelta: 20000,
-  //       rateLimit: 5,
-  //       // Options de timeout
-  //       connectionTimeout: config.email.timeout || 15000,
-  //       greetingTimeout: 10000,
-  //       socketTimeout: 30000,
-  //       // Options TLS
-  //       tls: {
-  //         rejectUnauthorized: config.app.env === 'production',
-  //         minVersion: 'TLSv1.2'
-  //       },
-  //       // Debug en développement
-  //       debug: config.app.env === 'development',
-  //       logger: config.app.env === 'development'
-  //     });
-
-  //     // Vérification de connexion asynchrone
-  //     this.verifyConnectionAsync();
-      
-  //     logger.info('SMTP initialisé avec succès', {
-  //       host: config.email.host,
-  //       port: config.email.port,
-  //       secure: config.email.secure
-  //     });
-      
-  //     return true;
-  //   } catch (error) {
-  //     logger.error('Erreur lors de l\'initialisation SMTP', {
-  //       error: error instanceof Error ? error.message : 'Erreur inconnue'
-  //     });
-  //     return false;
-  //   }
-  // }
-  /**
-   * Initialise Web Push
-   */
   private initializeWebPush(): boolean {
     if (!config.webpush?.enabled || !config.webpush.vapidPublicKey || !config.webpush.vapidPrivateKey) {
       logger.warn('Web Push non configuré', {
@@ -640,8 +569,10 @@ export class NotificationService {
       webpushSubscriptions?: WebPushSubscription[];
       notification: PushNotificationOptions;
     };
+
     
     priority?: 'low' | 'medium'|'normal'| 'high' | 'urgent';
+   
 
   }): Promise<{ email: boolean; push: boolean }> {
     const results = { email: false, push: false };
@@ -777,7 +708,7 @@ export class NotificationService {
     return this.rateLimiter[service].requests < this.rateLimiter[service].limit;
   }
   /**
- * Improved email sending method that respects the configured strategy
+ *  email sending method that respects the configured strategy
  */
 private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
   // Vérifier qu'au moins un service est disponible

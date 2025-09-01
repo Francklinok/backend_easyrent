@@ -77,6 +77,7 @@ export interface Config {
       token_uri: string;
       auth_provider_x509_cert_url: string;
       client_x509_cert_url: string;
+      univers_domain?:string
     };
   };
   security: {

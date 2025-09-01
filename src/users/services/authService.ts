@@ -83,6 +83,19 @@ export class AuthService {
       });
       return null;
     }
+    
+    if (!user.isEmailVerified) {
+      logger.warn("Échec d'authentification - email non vérifié", {
+        userId: user._id?.toString(),
+        email: email.substring(0, 5) + '***'
+      });
+
+      // tu peux soit bloquer direct
+      return null;
+
+      // OU renvoyer un statut spécial (plus propre)
+      // throw new Error("EMAIL_NOT_VERIFIED");
+    }
 
     // Vérification du mot de passe
     logger.info('Tentative de vérification du mot de passe', {

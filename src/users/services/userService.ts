@@ -496,7 +496,30 @@ async debugUser(email: string): Promise<void> {
 //   }
 // }
 
+async configureNotification(userId:string,  Notification:{
+  email_activate?:boolean,
+  push_activate?:boolean
+}): Promise<User | null>{
 
+  const user = await  this.getUserById(userId)
+  if(!user){
+    logger.warn('user is not  found')
+    return   
+  }
+   // Mettre à jour uniquement les valeurs définies
+    if (user.email_activate !== undefined) {
+      user.email_activate = user.email_activate;
+    }
+    if (user.push_activate !== undefined) {
+      user.push_activate = user.push_activate;
+    }
+
+    // Sauvegarder les modifications en DB
+    await user.save(); // ou user.update() selon ton ORM
+    logger.info(`User ${userId} notification config updated`);
+    return user;
+
+}
   // Méthode pour mettre à jour spécifiquement les secrets 2FA
   async updateTwoFactorSecrets(userId: string, secrets: {
     tempTwoFactorSecret?: string;

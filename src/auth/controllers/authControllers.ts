@@ -8,6 +8,7 @@ import { createLogger } from '../../utils/logger/logger';
 import { IUser } from '../../users/types/userTypes';
 import  mongoose from  "mongoose"
 import User from '../../users/models/userModel';
+import requireTwoFactor from '../middlewares/requireTwoFactor';
 // Interface pour typer les utilisateurs
 
 declare module 'express-serve-static-core' {
@@ -201,7 +202,7 @@ const logger = createLogger('AuthController');
             email: user.email.substring(0, 5) + '***',
             firstName: user.firstName,
             token: verificationToken.substring(0, 10) + '...',
-            tokenLength: verificationToken.length
+            tokenLength: verificationToken.length,
           });
     }else{
       logger.warn("verification code  has  not  been   generated")
@@ -249,7 +250,10 @@ const logger = createLogger('AuthController');
       username: username.substring(0, 3) + '***',
       executionTime: `${executionTime}ms`,
       verificationTokenGenerated: !!verificationToken,
-      emailSent
+      emailSent,
+      token:verificationToken
+
+
     });
 
     res.status(201).json({
@@ -315,6 +319,7 @@ const logger = createLogger('AuthController');
         rememberMe,
         deviceInfo
       });
+      
 
       if (!tokens) {
         const executionTime = Date.now() - startTime;
@@ -337,6 +342,16 @@ const logger = createLogger('AuthController');
       if (!user) {
         throw new Error('Utilisateur non trouvé après authentification');
       }
+      if (!user.isEmailVerified) {
+           res.status(403).json({
+            success: false,
+            requiresEmailVerification: true,
+            message: "Veuillez vérifier votre email avant de vous connecter"
+          });
+          return ;
+        }
+
+      
 
       // Vérification 2FA si activé
       if (user.preferences?.twoFactorEnabled) {
@@ -374,6 +389,7 @@ const logger = createLogger('AuthController');
       res.status(200).json({
         success: true,
         message: 'Connexion réussie',
+        requireTwoFactor:user.preferences?.twoFactorEnabled || false,
         data: {
           ...tokens,
           user: {

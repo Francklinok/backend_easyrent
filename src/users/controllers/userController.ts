@@ -43,7 +43,9 @@ export class UserController {
         isActive: user.isActive,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
-        preferences: user.preferences
+        preferences: user.preferences,
+        isEmailVerified:user.emailVerified,
+        lasLogin:user.lastLogin
       };
 
       res.status(200).json({
@@ -116,6 +118,33 @@ export class UserController {
       next(error);
     }
   }
+
+// handle user  notification  configuration 
+async configureNotification(req: Request, res: Response) {
+    const userId = req.params.userId;
+    const { email_activate, push_activate } = req.body;
+
+    try {
+      const updatedUser = await userService.configureNotification(userId, {
+        email_activate,
+        push_activate,
+      });
+
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      return res.status(200).json({
+        message: "Notification settings updated",
+        user: updatedUser,
+      });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  }
+
+
   
   /**
    * Recherche avancée d'utilisateurs

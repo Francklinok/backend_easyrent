@@ -29,15 +29,20 @@ authRouter.post(
   
 );
 
+authRouter.post('/verify-email',
+    validationRules.twoFactor,
+
+  authController.verifyEmailCode.bind(authController)
+)
 
 authRouter.post('/verifyAccount',  
   authController.verifyAccount.bind(authController)
 )
 
-authRouter.post('/verify-email', 
-  validationRules.twoFactor,
-  authController.verifyEmail.bind(authController)
-);
+// authRouter.post('/verify-email', 
+//   validationRules.twoFactor,
+//   authController.verifyEmail.bind(authController)
+// );
 
 authRouter.post('/resend-verification', 
   authController.resendVerificationEmail.bind(authController));
