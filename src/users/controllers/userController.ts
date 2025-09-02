@@ -10,7 +10,7 @@ import { ExtendedUpdateUserDto } from '../types/userTypes';
 
 const logger = createLogger('UserController');
 const userService = new UserService();
-const securityAuditService = SecurityAuditService.getInstance();
+const securityAuditService = SecurityAuditService.getInstance();90504127
 const notificationService = new NotificationService();
 
 /**
@@ -131,7 +131,7 @@ async configureNotification(req: Request, res: Response) {
       });
 
       if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
+        return res.status(404).json({ message: "notification configuration  has  not  been  applyed" });
       }
 
       return res.status(200).json({
@@ -191,6 +191,7 @@ async configureNotification(req: Request, res: Response) {
       next(error);
     }
   }
+  
   
   /**
    * Mettre à jour un utilisateur

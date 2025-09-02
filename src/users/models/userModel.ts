@@ -183,14 +183,6 @@ const UserSchema = new Schema<IUser>(
       default: () => ({})
 
     },
-      email_activate: {
-        type:Boolean,
-        default:true
-      },
-      push_activate: {
-        type:Boolean,
-        default:true
-      },
     // Préférences et données utilisateur
     preferences: {
       type: UserPreferencesSchema,
@@ -224,8 +216,18 @@ const UserSchema = new Schema<IUser>(
     },
     
     // Notifications
-    notifications: [UserNotificationSchema]
+    notifications: [UserNotificationSchema],
+     email_activate: {
+      type:Boolean,
+      default:true
+    },
+    push_activate: {
+      type:Boolean,
+      default:true
+    },
+
   },
+  
   {
     timestamps: true,
     toJSON: {

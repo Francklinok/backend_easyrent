@@ -475,43 +475,22 @@ async debugUser(email: string): Promise<void> {
   }
 }
 
-/**
- * update security details
- */
-// async updateSecurityDetails(userId: string, securityData: Partial<SecurityDetails>): Promise<IUser | null> {
-//   try {
-//     const updateData: MongoUpdateUserDto = {}; // FIXED: Added missing semicolon and proper declaration
-
-//     Object.keys(securityData).forEach(key => {
-//       const value = (securityData as any)[key];
-//       if (value !== undefined) {
-//         updateData[`security.${key}`] = value;
-//       }
-//     });
-    
-//     return await this.updateUser(userId, updateData);
-//   } catch (error: any) {
-//     logger.error('Error updating security details', { userId, error: error.message });
-//     throw error;
-//   }
-// }
-
-async configureNotification(userId:string,  Notification:{
+async configureNotification(userId:string,  notification:{
   email_activate?:boolean,
   push_activate?:boolean
-}): Promise<User | null>{
+}):Promise<IUser | null>{
 
   const user = await  this.getUserById(userId)
-  if(!user){
+  if(!user?.email_activate || !user.push_activate){
     logger.warn('user is not  found')
-    return   
+    return null 
   }
    // Mettre à jour uniquement les valeurs définies
-    if (user.email_activate !== undefined) {
-      user.email_activate = user.email_activate;
+    if (notification.email_activate !== undefined) {
+      user.email_activate = notification.email_activate;
     }
-    if (user.push_activate !== undefined) {
-      user.push_activate = user.push_activate;
+    if (notification.push_activate !== undefined) {
+      user.push_activate = notification.push_activate;
     }
 
     // Sauvegarder les modifications en DB
@@ -599,17 +578,6 @@ async configureNotification(userId:string,  Notification:{
       return [];
     }
   }
-
-
-
-
-
-
-
-
-
-
-
 
   /**
    * Désactive un compte utilisateur
