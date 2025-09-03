@@ -35,7 +35,11 @@ export interface IPropertyDocument extends IProperty, Document {
   pricePerSquareMeter: number;
   isAvailableAt(date: Date): boolean;
 }
-
+export interface PropertyParams{
+    pagination:PaginationOptions,
+    status:PropertyStatus
+    ownerId:PropertyQueryFilters
+}
 export interface PropertyCreateDTO {
   title: string;
   description: string;
@@ -84,3 +88,8 @@ export interface PropertyPaginatedResponse {
   limit: number;
   totalPages: number;
 }
+
+// export interface PaginationWithStatus{
+//   page:PaginationOptions,
+//   status:PropertyStatus
+// }

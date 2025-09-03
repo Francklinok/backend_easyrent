@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 import User from "../../users/models/userModel";
 import { PropertyQueryFilters } from "../types/propertyType";
 import { PaginationOptions } from "../types/propertyType";
+import { PropertyParams } from "../types/propertyType";
 const   logger = createLogger("proprietyCreation")
 
 class PropertyServices{
@@ -43,7 +44,7 @@ class PropertyServices{
 
     }
 
-    async  deleteProperty(propertyId:string){
+    async deleteProperty(propertyId:string){
         const session = await  mongoose.startSession();
         session.startTransaction();
 
@@ -79,7 +80,7 @@ class PropertyServices{
         }
     }
 
-    async getProperty(propertyData:PropertyQueryFilters & PaginationOptions){
+    async getProperty(propertyQuery:PropertyQueryFilters & PaginationOptions){
         const session = await  mongoose.startSession()
         session.startTransaction()
         try{
@@ -95,7 +96,7 @@ class PropertyServices{
                 page = 1,
                 limit = 10,
                 sortBy = 'createdAt',
-                sortOrder = 'desc'} = propertyData;
+                sortOrder = 'desc'} = propertyQuery;
         //filter 
         const filters:Record<string,  any> = {isActive};
          if (area) filters.area = { $regex: new RegExp(area, 'i') };
@@ -132,15 +133,134 @@ class PropertyServices{
             page:Number(page),
             limit:Number(limit),
             totalPages:Math.ceil(total/Number(limit))
-
         }
-     
-
         }catch(error){
             logger.warn("error  while getting  the  property", error)
-        }
+        }     
+    }
+    async getPropertyByOwner(propertyQuery:PropertyParams){
+        const  session = await mongoose.startSession();
+        session.startTransaction()
+        try{
+            const {pagination,status, ownerId} = propertyQuery as PropertyParams
+            const  filter: Record<string,  any> = {ownerId, active:true}
+            if(status) filter.status = status;
+            const  skip = (Number(pagination.page)-1) * Number(pagination.limit)
+            
+            const  total = await Property.countDocuments(filter)
+            if(total ===0){
+                logger.warn("nothing  has  not  bee,n   found")
+                return 
+            }
+            const  property = await  Property.find(filter)
+            .sort({createdAt:-1})
+            .skip(skip)
+            .limit(Number(pagination.limit))
+            .lean()
+            if(!property){
+                await session.abortTransaction()
+                session.endSession()
+                logger.info("the property   is  not  available")
+            }
+            session.commitTransaction()
+            session.endSession()
 
+            return property
+
+        }catch(error){
+            session.abortTransaction()
+            session.endSession()
+            logger.warn("Error  fetching  property", error)
+        }
+    }
+    async finPropertyById(id:string){
+        const session = await mongoose.startSession();
+        session.startTransaction()
+        try{
+            const property = await  Property.findById(id)
+            .populate('ownerId', 'name email phone')
+            .lean();
+            if(!property){
+                session.abortTransaction()
+                session.endSession()
+                logger.warn('property has  not been  found')
+                return null
+            }
+            session.commitTransaction()
+            session.endSession()
+            return property
+        }catch(error){
+             session.abortTransaction()
+            session.endSession()
+            logger.warn("error  fetching  the  propety", error)
+
+        }
+    }
+    async getPropertyState(){
+        const session = await mongoose.startSession()
+        session.startTransaction()
+        try{
+        const [
+        totalProperties,
+        availableProperties,
+        rentedProperties,
+        averageRent,
+        averageSize,
+        propertiesByArea,
+        propertiesByStatus
+        ] = await Promise.all([
+        // Nombre total de propriétés actives
+        Property.countDocuments({ isActive: true }),
         
+        // Nombre de propriétés disponibles
+        Property.countDocuments({ isActive: true, status: PropertyStatus.AVAILABLE }),
+        
+        // Nombre de propriétés louées
+        Property.countDocuments({ isActive: true, status: PropertyStatus.RENTED }),
+        
+        // Loyer moyen
+        Property.aggregate([
+            { $match: { isActive: true } },
+            { $group: { _id: null, average: { $avg: '$monthlyRent' } } }
+        ]),
+        
+        // Taille moyenne
+        Property.aggregate([
+            { $match: { isActive: true } },
+            { $group: { _id: null, average: { $avg: '$surface' } } }
+        ]),
+        
+        // Propriétés par zone/quartier
+        Property.aggregate([
+            { $match: { isActive: true } },
+            { $group: { _id: '$area', count: { $sum: 1 } } },
+            { $sort: { count: -1 } }
+        ]),
+        
+        // Propriétés par statut
+        Property.aggregate([
+            { $match: { isActive: true } },
+            { $group: { _id: '$status', count: { $sum: 1 } } }
+        ])
+        ]);
+        
+        logger.info('Statistiques des propriétés récupérées');
+        session.commitTransaction()
+        session.endSession()
+        return {
+        totalProperties,
+        availableProperties,
+        rentedProperties,
+        averageRent: averageRent[0]?.average || 0,
+        averageSize: averageSize[0]?.average || 0,
+        propertiesByArea,
+        propertiesByStatus
+        }
+        }catch(error){
+            await session.abortTransaction();
+            session.endSession();
+            throw error;
+        }
     }
 }
 export  default  PropertyServices

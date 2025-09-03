@@ -1,9 +1,12 @@
 import { Request, Response,  NextFunction } from "express";
-import { PropertyCreateDTO } from "../types/propertyType";
+import { PropertyCreateDTO, PropertyParams } from "../types/propertyType";
 import { createLogger } from "../../utils/logger/logger";
 import PropertyServices from "../proprityServices/proprityServices";
 import { PropertyQueryFilters, PaginationOptions } from "../types/propertyType";
+import { PropertyStatus } from "../types/propertyType";
+import { PaginationWithStatus } from "../types/propertyType";
 const   logger  = createLogger("propertyservices")
+
 
 class PropertyController {
     private propertyServices:PropertyServices
@@ -12,7 +15,7 @@ class PropertyController {
         this.propertyServices = new PropertyServices()
     }
 
-    async createProperty(req:Request, res:Response, nest:NextFunction):Promise<void>{
+    async createProperty(req:Request, res:Response, next:NextFunction):Promise<void>{
         try{
             const propertyData:PropertyCreateDTO = req.body;
             const userId = req.user?.userId;
@@ -30,6 +33,7 @@ class PropertyController {
             message: 'Erreur lors de la création de la propriété',
             error: error instanceof Error ? error.message : 'Erreur inconnue'
             });
+            next()
         }
 
     }
@@ -56,6 +60,7 @@ async  deletedProperty(req:Request,  res:Response, next:NextFunction):Promise<vo
       message: 'Erreur lors de la suppression de la propriété',
       error: error instanceof Error ? error.message : 'Erreur inconnue',
     });
+    next()
     }
 }
 
@@ -83,6 +88,100 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void 
             message: 'Erreur lors de la récupération des propriétés',
             error: error instanceof Error ? error.message : 'Erreur inconnue',  
             })
+            next()
+        }
+     }
+     async getPropertyByOwner(req:Request, res:Response, next:NextFucntion){
+        const id = req.params 
+        const { page = 1, limit = 10, sortBy, sortOrder, status } = req.query as {
+            page?: string;
+            limit?: string;
+            sortBy?: string;
+            sortOrder?: 'asc' | 'desc';
+            status?: PropertyStatus;
+        };
+        const filters:PropertyParams = {
+                ownerId: { id }, // correspond à ton PropertyQueryFilters
+                pagination: {
+                page: Number(page),
+                limit: Number(limit),
+                sortBy,
+                sortOrder,
+                } as PaginationOptions,
+                status,
+                } as  PropertyParams
+        try{
+            const property = await this.propertyServices.getPropertyByOwner(filters)
+            if(!property){
+                res.status(404).json({
+                    success: false,
+                    message: 'property not found',
+                })  
+            }
+            res.status(201).json({
+                success:true,
+                message:property
+            })
+            
+        }catch(error){
+            logger.error("error fetching properties",  error);
+            res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la récupération des propriétés',
+                error: error instanceof Error ? error.message : 'Erreur inconnue',  
+                })
+            next()
+        }
+       
+     }
+     async getPropertyByID(req:Request,  res:Response, next:NextFunction){
+        const  {id} = req.params
+        try{
+            const property = await this.propertyServices.finPropertyById(id)
+            if(!property){
+            res.status(404).json({
+                success: false,
+                message: 'property not found',
+            })  
+            }
+            res.status(201).json({
+                success:true,
+                message:property
+            })
+        }catch(error){
+             logger.error("error fetching properties",  error);
+            res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la récupération des propriétés',
+                error: error instanceof Error ? error.message : 'Erreur inconnue',  
+                })
+            next()
+
+        }
+     }
+     
+     async  getPropertyState(req:Request, res:Response, next:NextFunction){
+        try{
+            const stats = await this.propertyServices.getPropertyState()
+            if(!stats){
+                logger.warn('data has not  been  found')
+                res.status(400).json({
+                    success:false
+                })
+                
+            }
+            logger.info('Statistiques des propriétés récupérées');
+
+            res.status(200).json({
+            success: true,
+            data: stats})
+        }catch(error){
+             logger.info('error  fetching property state ',error);
+            res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Erreur inconnue'
+
+        })
         }
      }
 }
