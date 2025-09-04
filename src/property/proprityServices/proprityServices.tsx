@@ -8,6 +8,8 @@ import User from "../../users/models/userModel";
 import { PropertyQueryFilters } from "../types/propertyType";
 import { PaginationOptions } from "../types/propertyType";
 import { PropertyParams } from "../types/propertyType";
+import { SimilarPropertyType } from "../types/propertyType";
+import permanentDeleteProperty from "../controllers/permanentDeleteProperty";
 const   logger = createLogger("proprietyCreation")
 
 class PropertyServices{
@@ -262,5 +264,83 @@ class PropertyServices{
             throw error;
         }
     }
+
+    async  getSImilarProperty(data:SimilarPropertyType){
+        const  session = await  mongoose.startSession()
+        session.startTransaction()
+        try{     
+            const {propertyId, pagination} = data
+            const property = await  Property.findById(propertyId)
+            if(!property){
+                logger.warn("no property  found")
+                return null
+            }
+            const similarProperty =  await Property.find({
+                _id:{$ne: propertyId},
+                isActive:true,
+                status:PropertyStatus.AVAILABLE,
+                area:property.area,
+                $or: [
+                { bedrooms: property.bedrooms }, // Même nombre de chambres
+                { monthlyRent: { $gte: property.monthlyRent * 0.8, $lte: property.monthlyRent * 1.2 } } // Prix similaire (±20%)
+            ]
+        })
+        .limit(Number(pagination.limit))
+        .lean()
+        if(!similarProperty){
+            session.abortTransaction()
+            session.endSession()
+            logger.warn("No similar  property  founded")
+        }
+        logger.info("similar  property  founded")
+        session.commitTransaction()
+        session.endSession()
+        return similarProperty
+
+        }catch(error){
+            session.abortTransaction()
+            session.endSession()
+            logger.warn("error  while getting  the  similar  property", error)
+        }
+
+       
+        }
+         async  permanentDeleteProperty(id:string){
+            const  session = await mongoose.startSession()
+            session.startTransaction()
+            try{
+                const property = await Property.findById(id)
+                if(!property){
+                    logger.warn("no property  found")
+                    return null
+                }
+                const deletProperty = await Property.findByIdAndDelete(id,{session})
+                if(!deletProperty){
+                    logger.warn("no property has  not  been  deleted")
+                    return null
+                }
+                await mongoose.model("User").findByIdAndUpdate(
+                    property.ownerId,
+                    {$inc: { propertyCount: -1 } },
+                    {session}
+                );
+                await  mongoose.model("Property").deleteMany(property.id, {session})
+                await session.commitTransaction();
+                session.endSession();
+                
+                logger.info(`Property  has  been  removed  permanently: ${id}`);
+                return null
+                
+
+
+            }catch(error){
+                session.abortTransaction()
+                session.endSession()
+                logger.warn("error  while deleting  the  property", error)
+            }
+
+
+    }
+
 }
 export  default  PropertyServices

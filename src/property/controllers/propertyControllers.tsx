@@ -5,6 +5,8 @@ import PropertyServices from "../proprityServices/proprityServices";
 import { PropertyQueryFilters, PaginationOptions } from "../types/propertyType";
 import { PropertyStatus } from "../types/propertyType";
 import { PaginationWithStatus } from "../types/propertyType";
+import { SimilarPropertyType } from "../types/propertyType";
+
 const   logger  = createLogger("propertyservices")
 
 
@@ -182,6 +184,64 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void 
             error: error instanceof Error ? error.message : 'Erreur inconnue'
 
         })
+        }
+     }
+     async getSimilarProperty(req:Request, res:Response, next:NextFunction){
+
+        const {id} = req.params
+        const {  limit = 10 } = req.query as {
+            limit?: string;
+        } 
+
+        const filter:SimilarPropertyType = {
+            propertyId = id,
+             pagination: {
+                limit: Number(limit),       
+                } as PaginationOptions     
+        } 
+        
+        try{
+            const  similarProperty = await  this.propertyServices.getSImilarProperty(filter)
+            if(!similarProperty){
+                res.status(404).json({
+                    success: false,
+                    message: 'property not found',
+                })
+            }
+            res.status(201).json({
+                success:true,
+                message:similarProperty
+            })
+        }catch(error){
+            res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la récupération des propriétés',
+                error: error instanceof Error ? error.message : 'Erreur inconnue',
+                })
+                next()
+        }
+     }
+     async  permanentDeletion(req:Request,  res:Response, next:NextFunction){
+        const {id} = req.params
+        try{
+            const deletProperty = await this.propertyServices.permanentDeleteProperty(id)
+            if(!deletProperty){
+                res.status(404).json({
+                    success: false,
+                    message: 'property not deleted',
+                })
+            }
+            res.status(201).json({
+                success:true,
+                message:"property deleted"
+            })
+        }catch(error){
+            res.status(500).json({
+                success: false,
+                message: 'error  deleting  property',
+                error: error instanceof Error ? error.message : 'unknow error',
+                })
+                next()
         }
      }
 }

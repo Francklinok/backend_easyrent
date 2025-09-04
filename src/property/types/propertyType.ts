@@ -89,7 +89,7 @@ export interface PropertyPaginatedResponse {
   totalPages: number;
 }
 
-// export interface PaginationWithStatus{
-//   page:PaginationOptions,
-//   status:PropertyStatus
-// }
+export interface SimilarPropertyType{
+  pagination:PaginationOptions,
+  propertyId:string
+}
