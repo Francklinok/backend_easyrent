@@ -93,3 +93,11 @@ export interface SimilarPropertyType{
   pagination:PaginationOptions,
   propertyId:string
 }
+export interface SearchPropertyParams{
+  pagination:PaginationOptions,
+  q:string
+}
+export interface UpdatePropertyParams{
+  propertyId:string, 
+   data: Partial<PropertyCreateDTO>;
+}

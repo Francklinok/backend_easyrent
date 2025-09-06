@@ -1,4 +1,4 @@
-import { IProperty, PropertyStatus } from "../types/propertyType";
+import { IProperty, PropertyStatus, SearchPropertyParams } from "../types/propertyType";
 import { NotificationService } from "../../services/notificationServices";
 import { createLogger } from "../../utils/logger/logger";
 import { PropertyCreateDTO } from "../types/propertyType";
@@ -9,7 +9,9 @@ import { PropertyQueryFilters } from "../types/propertyType";
 import { PaginationOptions } from "../types/propertyType";
 import { PropertyParams } from "../types/propertyType";
 import { SimilarPropertyType } from "../types/propertyType";
-import permanentDeleteProperty from "../controllers/permanentDeleteProperty";
+// import permanentDeleteProperty from "../controllers/permanentDeleteProperty";
+import { UpdatePropertyParams } from "../types/propertyType";
+
 const   logger = createLogger("proprietyCreation")
 
 class PropertyServices{
@@ -338,6 +340,138 @@ class PropertyServices{
                 session.endSession()
                 logger.warn("error  while deleting  the  property", error)
             }
+    }
+
+    async restoreProperty(propertyId:string){
+        const session = await  mongoose.startSession()
+        session.startTransaction()
+        try{
+        const  propert = await  Property.findById(propertyId)
+        if(!propert){
+            session.abortTransaction()
+            session.endSession()
+            logger.warn("no property  found")
+            return null
+        }
+        const  restorProperty = await Property.findByIdAndUpdate(
+            propertyId,
+            {
+                isActive:true,
+                status:PropertyStatus.AVAILABLE
+            },
+            {session}
+        )
+        if(!restorProperty){
+            session.abortTransaction()
+            session.endSession()
+            logger.warn("no property found to  restore")
+            
+
+        }
+        await  mongoose.model("User").findByIdAndUpdate(
+            propert.ownerId,
+            {$inc: { activePropertyCount: 1 } },
+            {session}
+        );
+        session.commitTransaction()
+        session.endSession()
+        logger.info("property restore")
+        }catch(error){
+
+            session.abortTransaction()
+            session.endSession()
+            logger.warn("error  restoring  the  property", error)
+        }
+    }
+
+    async searchProperty(propertyData:SearchPropertyParams){
+        const  session = await  mongoose.startSession()
+        session.startTransaction()
+        const {q, pagination} = propertyData as SearchPropertyParams
+        const page = pagination?.page ?? 1
+        const limit = pagination?.limit ?? 10
+
+        try{
+           if(!q ||q.trim() ===""){
+            session.abortTransaction(),
+            session.endSession()
+            logger.warn("property query  has not been  provided")
+            return null
+           }
+           //count total property
+           const  total = await Property.countDocuments({
+            $text:{$search:propertyData.q},
+            isActive:true,
+            status:PropertyStatus.AVAILABLE
+           })
+        
+           const skip = (page - 1) * limit
+           const property = await Property.find(
+            {
+                $text:{$search:q},
+                isActive:true,
+                status:PropertyStatus.AVAILABLE
+           },
+           {score:{$meta:"textScore"}}
+        )
+        .sort({ score: { $meta: 'textScore' } }) // Trier par pertinence
+        .skip(skip)
+        .limit(limit)
+        .populate('ownerId', 'name email phone')
+        .lean();
+        const  result = {
+            property,
+            total,
+            limit,
+            page,
+            totalPages:Math.ceil(total/limit)
+        }
+        session.commitTransaction()
+        session.endSession()
+        logger.info("property found")
+        return result
+
+        }catch(error){
+            session.abortTransaction()
+            session.endSession()
+            logger.warn("error while  searching  property", error)
+        }
+        
+    }
+    async updateProperty(updataData:UpdatePropertyParams){
+        const session = await  mongoose.startSession()
+        session.startTransaction()
+        const {propertyId,data} = updataData as UpdatePropertyParams
+        try{
+            const property  =  await Property.findById(propertyId)
+            if(!property){
+                session.abortTransaction()
+                session.endSession()
+                logger.warn("no  property found")
+                return null
+            }
+            const updateProperty = await Property.findOneAndUpdate(
+               {_id:propertyId},
+               { $set: data },
+                { 
+                    new: true, // Retourner le document mis à jour
+                    runValidators: true, // Exécuter les validateurs
+                    session 
+                }
+            ).lean()
+            session.commitTransaction()
+            session.endSession()
+            logger.info("property  succesfuly  update")
+
+            return updateProperty
+
+
+        }catch(error){
+            session.abortTransaction()
+            session.endSession()
+            logger.warn("error updating  property", error)
+
+        }
 
 
     }

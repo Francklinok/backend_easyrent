@@ -4,9 +4,10 @@ import { createLogger } from "../../utils/logger/logger";
 import PropertyServices from "../proprityServices/proprityServices";
 import { PropertyQueryFilters, PaginationOptions } from "../types/propertyType";
 import { PropertyStatus } from "../types/propertyType";
-import { PaginationWithStatus } from "../types/propertyType";
+// import { PaginationWithStatus } from "../types/propertyType";
 import { SimilarPropertyType } from "../types/propertyType";
-
+import { SearchPropertyParams } from "../types/propertyType";
+import { UpdatePropertyParams } from "../types/propertyType";
 const   logger  = createLogger("propertyservices")
 
 
@@ -66,7 +67,7 @@ async  deletedProperty(req:Request,  res:Response, next:NextFunction):Promise<vo
     }
 }
 
-async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void | null>{
+async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>{
     const filters = req.query as unknown as PropertyQueryFilters & PaginationOptions;
     try{
         const properies = await this.propertyServices.getProperty(filters)
@@ -76,7 +77,7 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void 
                 success: false,
                 message: 'property not found',
             });
-            return null
+            return 
         }
         res.status(200).json({
             success: true,
@@ -90,10 +91,10 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void 
             message: 'Erreur lors de la récupération des propriétés',
             error: error instanceof Error ? error.message : 'Erreur inconnue',  
             })
-            next()
+            next(error)
         }
      }
-     async getPropertyByOwner(req:Request, res:Response, next:NextFucntion){
+     async getPropertyByOwner(req:Request, res:Response, next:NextFunction){
         const id = req.params 
         const { page = 1, limit = 10, sortBy, sortOrder, status } = req.query as {
             page?: string;
@@ -194,7 +195,7 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void 
         } 
 
         const filter:SimilarPropertyType = {
-            propertyId = id,
+            propertyId : id,
              pagination: {
                 limit: Number(limit),       
                 } as PaginationOptions     
@@ -242,6 +243,87 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void 
                 error: error instanceof Error ? error.message : 'unknow error',
                 })
                 next()
+        }
+     }
+     async restoreProperty(req:Request, res:Response, next:NextFunction){
+        const  {id} = req.params 
+        try{
+            const  propertyRestore = await this.propertyServices.restoreProperty(id)
+            if(!propertyRestore){
+                res.status(404).json({
+                    success:false,
+                    message:"property not  found"
+
+                })
+                res.status(201).json({
+                    sucess:true,
+                    message:"property restored",
+                    data:propertyRestore
+                })
+            }
+
+        }catch(error){
+            res.status(501).json({
+                success:false,
+                message:"error restoring  property",
+                error: error instanceof Error ? error.message : 'unknow error',
+            })
+        }
+     }
+     async  searchProperty(req:Request, res:Response, next:NextFunction){
+        try{
+              const q = (req.query.q as string) || "";
+                const page = parseInt((req.query.page as string) || "1", 10);
+                const limit = parseInt((req.query.limit as string) || "10", 10);
+
+                const queryData: SearchPropertyParams = {
+                q,
+                pagination: { page, limit }
+                };
+            const searchProperty = await this.propertyServices.searchProperty(queryData)
+            if(!searchProperty){
+                res.status(404).json({
+                    success:false,
+                    message:"property not found"
+                })
+            }
+            res.status(201).json({
+                success:true,
+                message:"property  founded",
+                data:searchProperty
+            })
+        }catch(error){
+            res.status(501).json({
+                succes:false,
+                message:"error searching  property",
+                error: error instanceof Error ? error.message : 'unknow error',
+            })
+        }
+     }
+     async updateProperty(req:Request, res:Response, next:NextFunction){
+        const {id} = req.params
+        const data:PropertyCreateDTO = req.body
+
+        const propertyData:UpdatePropertyParams = {propertyId:id, data:data}
+        try{
+            const updateProperty = await this.propertyServices.updateProperty(propertyData)
+            if(!updateProperty){
+                res.status(404).json({
+                    success:false,
+                    message:"property not updated"
+                })
+            }
+            res.status(201).json({
+                success:true,
+                message:"property updated",
+                data:updateProperty
+            })
+        }catch(error){
+            res.status(501).json({
+                succes:false,
+                message:"error updating  property",
+                error: error instanceof Error ? error.message : 'unknow error',
+            })
         }
      }
 }

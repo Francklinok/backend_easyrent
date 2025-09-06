@@ -9,7 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import config from '../config';
 import auThrouter from './auth/routers/authrouters';
-import propertyRouter from './routers/propertyRouters/propertyrouters';
+import propertyRouter from './property/propertyRoute/propertyrouters';
 // import router from '../auth/routers/authrouters';
 import { errorHandler } from './auth/utils/errorHandler';
 // import { UserPresenceService } from './users/services/userPresence';
