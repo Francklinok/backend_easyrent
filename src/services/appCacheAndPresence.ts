@@ -46,7 +46,6 @@ class UserPresenceService {
    * Initialise la connexion Redis avec ioredis.
    * Gère les reconnexions et le statut de connexion.
   //  */
-
   
     getRedisClient(): Redis | null {
       return this.redisClient;
