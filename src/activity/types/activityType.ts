@@ -18,25 +18,53 @@ export interface ActivityType {
       fileUrl: string;
       uploadedAt: Date;
     }[];
-    isBookingAccepted?:boolean
+  isBookingAccepted?:boolean;
+  isPayment?:boolean;
+  amout:number,
+  payementDate:Date,
+  conversationId?: Types.ObjectId,
+  reason?:string,
+  refusDate?:Date,
+  acceptedDate?:Date,
+  activityId: Types.ObjectId,
+  createdAt: Date;
+
+
   };
 
 export interface VisiteData{
   propertyId: Types.ObjectId,
   clientId?: Types.ObjectId,
   message:string,
-  isVisited:boolean,
   visitDate:Date
 }
 
 export interface AtivityData{
-  propertyId: Types.ObjectId,
-  clientId?: Types.ObjectId,
-  isVisited:boolean,
   activityId: Types.ObjectId,
-  conversationId: Types.ObjectId,
-  visitDate:Date,
   reservationDate:Date
+  documentsUploaded: boolean;        
+  uploadedFiles?: {                  
+      fileName: string;
+      fileUrl: string;
+      uploadedAt: Date;
+    }[];
 }
 
+export interface AccepteReservation{
+  activityId: Types.ObjectId,
+  acceptedDate:Date,
+}
+export interface RefusReservation{
+  activityId: Types.ObjectId,
+  refusDate:Date,
+  reason:string
+}
+
+export  interface ActiviytyPayement{
+  activityId: Types.ObjectId,
+  isBookingAccepted:boolean,
+  amount:number,
+  isPayment?:boolean;
+  payementDate:Date,
+}
 

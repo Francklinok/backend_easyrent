@@ -23,7 +23,6 @@ const   logger = createLogger('models')
 
 const UserSchema = new Schema<IUser>(
   {
-    // Informations de base
     firstName: {
       type: String,
       required: [true, 'Le prénom est obligatoire'],
@@ -131,19 +130,6 @@ const UserSchema = new Schema<IUser>(
         message: 'Numéro de téléphone invalide'
       }
     },
-    // phone: String, // Alias pour phoneNumber
-    // address: AddressSchema,
-    // dateOfBirth: {
-    //   type: Date,
-    //   validate: {
-    //     validator: function(date: Date) {
-    //       return !date || date < new Date();
-    //     },
-    //     message: 'La date de naissance ne peut pas être dans le futur'
-    //   }
-    // },
-    
-    // Profil
     profilePicture: {
       type: String,
       default: 'https://cdn.monsite.com/images/avatar-blanc.png',
@@ -172,7 +158,7 @@ const UserSchema = new Schema<IUser>(
       default: 'offline',
       index: true
     },
-    
+
     // Sécurité et authentification
     refreshTokens: [RefreshTokenSchema],
     loginHistory: [LoginHistorySchema],

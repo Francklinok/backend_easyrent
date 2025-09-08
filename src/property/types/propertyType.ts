@@ -107,9 +107,11 @@ import { Document, Types } from 'mongoose';
 
 export enum PropertyStatus {
   AVAILABLE = 'disponible',
+  RESERVED = "reserver",
   RENTED = 'loué',
   MAINTENANCE = 'en maintenance',
-  REMOVED = 'retiré'
+  REMOVED = 'retiré',
+  SOLD = "sold"
 }
 
 // 🎯 Atouts (avantages / points forts du bien)
@@ -215,6 +217,7 @@ export interface IProperty {
   propertyType: PropertyType
   island:boolean,
   ishome:boolean,
+  acquiredBy?:Types.ObjectId | null;
   title: string;
   description: string;
   address: string;

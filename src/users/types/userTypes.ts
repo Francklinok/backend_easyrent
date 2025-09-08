@@ -248,7 +248,7 @@ export interface IUser extends Document {
   phone?: string | null;
   address?: Address;
   dateOfBirth?: Date;
-  
+
   // Timestamps
   createdAt: Date;
   updatedAt: Date;

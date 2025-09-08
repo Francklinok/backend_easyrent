@@ -37,6 +37,13 @@ const ActivitySchema = new Schema<IActivity>(
     documentsUploaded: { type: Boolean, default: false },
     isBookingAccepted: { type: Boolean, default: false },
     uploadedFiles: { type: [UploadedFileSchema], default: [] },
+    isPayment:{type:Boolean, default:false},
+    amout:{type:Number, default:0},
+    payementDate:{type:Date, default:Date.now},
+    refusDate:{type:Date, default:Date.now},
+    reason:{type:String, default:""}
+
+
     },
   { timestamps: true }
 );

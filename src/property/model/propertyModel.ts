@@ -17,6 +17,12 @@ const propertySchema = new Schema<IPropertyDocument>(
       required: [true, "L'identifiant du propriétaire est requis"],
       index: true,
     },
+    acquiredBy: { 
+      type: Schema.Types.ObjectId, 
+      ref: 'User',
+       default: null 
+      },
+
     actionType: {
       type: String,
       enum: ['rent', 'sell'],
