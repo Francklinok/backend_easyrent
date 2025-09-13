@@ -17,6 +17,7 @@ import { trackUserActivity } from './users/middleware/trackUserActivity';
 import { createLogger } from './utils/logger/logger';
 import chatRouter from './chat/routers/chatRouter';
 import userRouter from './users/routes/routes';
+import walletRouter from './wallet/routes/walletRoutes';
 
 const logger = createLogger("app")
 // import { propertyErrorHandler } from './property/middlewares/propertyErrorHandler';
@@ -123,6 +124,8 @@ app.use('/api/v1/auth', auThrouter);
 app.use('/api/properties', propertyRouter);
 // user routes
 app.use('/api', userRouter);
+// wallet routes
+app.use('/api/wallet', walletRouter);
 
 
 

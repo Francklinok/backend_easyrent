@@ -556,6 +556,110 @@ class ActivityServices {
       throw error;
     }
   }
+
+  async getUserActivities(userId: string, options: { page: number; limit: number }) {
+    try {
+      const { page, limit } = options;
+      const skip = (page - 1) * limit;
+
+      const activities = await Activity.find({ clientId: userId })
+        .populate('propertyId')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+
+      const total = await Activity.countDocuments({ clientId: userId });
+
+      return {
+        activities,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      };
+    } catch (error) {
+      logger.error("error getting user activities", error);
+      throw error;
+    }
+  }
+
+  async getActivityById(activityId: string) {
+    try {
+      const activity = await Activity.findById(activityId)
+        .populate('propertyId')
+        .populate('clientId');
+
+      return activity;
+    } catch (error) {
+      logger.error("error getting activity by id", error);
+      throw error;
+    }
+  }
+
+  async getOwnerActivities(ownerId: string, options: { page: number; limit: number }) {
+    try {
+      const { page, limit } = options;
+      const skip = (page - 1) * limit;
+
+      const properties = await Property.find({ ownerId }).select('_id');
+      const propertyIds = properties.map(p => p._id);
+
+      const activities = await Activity.find({ propertyId: { $in: propertyIds } })
+        .populate('propertyId')
+        .populate('clientId')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+
+      const total = await Activity.countDocuments({ propertyId: { $in: propertyIds } });
+
+      return {
+        activities,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      };
+    } catch (error) {
+      logger.error("error getting owner activities", error);
+      throw error;
+    }
+  }
+
+  async processPayment(activityId: string, paymentData: ActiviytyPayement) {
+    try {
+      const result = await this.payReservation({ activityId, ...paymentData });
+      return result;
+    } catch (error) {
+      logger.error("error processing payment", error);
+      throw error;
+    }
+  }
+
+  async acceptVisitRequest(activityId: string) {
+    try {
+      const result = await this.acceptVisit(activityId);
+      return result;
+    } catch (error) {
+      logger.error("error accepting visit", error);
+      throw error;
+    }
+  }
+
+  async refuseVisitRequest(activityId: string) {
+    try {
+      const result = await this.refusVisit(activityId);
+      return result;
+    } catch (error) {
+      logger.error("error refusing visit", error);
+      throw error;
+    }
+  }
+}
 }
 
 export default ActivityServices;
