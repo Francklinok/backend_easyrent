@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { WalletController } from '../controllers/walletController';
-import { authenticateToken } from '../../auth/middleware/authMiddleware';
+import authenticate from '../../auth/middlewares/authenticate';
 
 const router = Router();
 const walletController = new WalletController();
 
 // Toutes les routes nécessitent une authentification
-router.use(authenticateToken as any);
+router.use(authenticate);
 
 // Routes du portefeuille
 router.get('/', walletController.getWallet.bind(walletController));

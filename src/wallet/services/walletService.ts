@@ -1,44 +1,36 @@
-import { ObjectId } from 'mongodb';
-import { getDb } from '../../config/database';
-import { Wallet, Transaction, PaymentMethod, CreateTransactionRequest, CreatePaymentMethodRequest, TransferRequest } from '../types/walletTypes';
+import { Wallet, IWallet } from '../models/Wallet';
+import { Transaction, ITransaction } from '../models/Transaction';
+import { CreateTransactionRequest, TransferRequest } from '../types/walletTypes';
+import mongoose from 'mongoose';
 
 export class WalletService {
-  private db = getDb();
 
-  async createWallet(userId: string): Promise<Wallet> {
-    const wallet: Omit<Wallet, 'id'> = {
+  async createWallet(userId: string): Promise<IWallet> {
+    const wallet = new Wallet({
       userId,
       balance: 0,
       pendingBalance: 0,
       currency: 'EUR',
-      cryptoBalances: [],
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+      cryptoBalances: []
+    });
 
-    const result = await this.db.collection('wallets').insertOne(wallet);
-    return { ...wallet, id: result.insertedId.toString() };
+    return await wallet.save();
   }
 
-  async getWallet(userId: string): Promise<Wallet | null> {
-    const wallet = await this.db.collection('wallets').findOne({ userId });
-    if (!wallet) return null;
-    return { ...wallet, id: wallet._id.toString() };
+  async getWallet(userId: string): Promise<IWallet | null> {
+    return await Wallet.findOne({ userId });
   }
 
   async updateBalance(userId: string, amount: number, isPending = false): Promise<void> {
     const updateField = isPending ? 'pendingBalance' : 'balance';
-    await this.db.collection('wallets').updateOne(
+    await Wallet.updateOne(
       { userId },
-      { 
-        $inc: { [updateField]: amount },
-        $set: { updatedAt: new Date() }
-      }
+      { $inc: { [updateField]: amount } }
     );
   }
 
-  async createTransaction(userId: string, data: CreateTransactionRequest): Promise<Transaction> {
-    const transaction: Omit<Transaction, 'id'> = {
+  async createTransaction(userId: string, data: CreateTransactionRequest): Promise<ITransaction> {
+    const transaction = new Transaction({
       userId,
       type: data.type,
       amount: data.amount,
@@ -47,39 +39,29 @@ export class WalletService {
       status: 'pending',
       paymentMethodId: data.paymentMethodId,
       cryptoCurrency: data.cryptoCurrency,
-      recipientId: data.recipientId,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+      recipientId: data.recipientId
+    });
 
-    const result = await this.db.collection('transactions').insertOne(transaction);
-    return { ...transaction, id: result.insertedId.toString() };
+    return await transaction.save();
   }
 
-  async getTransactions(userId: string, limit = 50): Promise<Transaction[]> {
-    const transactions = await this.db.collection('transactions')
-      .find({ $or: [{ userId }, { recipientId: userId }] })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .toArray();
-
-    return transactions.map(t => ({ ...t, id: t._id.toString() }));
+  async getTransactions(userId: string, limit = 50): Promise<ITransaction[]> {
+    return await Transaction.find({ 
+      $or: [{ userId }, { recipientId: userId }] 
+    })
+    .sort({ createdAt: -1 })
+    .limit(limit);
   }
 
   async updateTransactionStatus(transactionId: string, status: 'completed' | 'failed' | 'cancelled'): Promise<void> {
-    await this.db.collection('transactions').updateOne(
-      { _id: new ObjectId(transactionId) },
-      { 
-        $set: { 
-          status,
-          updatedAt: new Date()
-        }
-      }
+    await Transaction.updateOne(
+      { _id: transactionId },
+      { $set: { status } }
     );
   }
 
-  async processPayment(userId: string, data: CreateTransactionRequest): Promise<Transaction> {
-    const session = this.db.client.startSession();
+  async processPayment(userId: string, data: CreateTransactionRequest): Promise<ITransaction> {
+    const session = await mongoose.startSession();
     
     try {
       await session.withTransaction(async () => {
@@ -105,11 +87,12 @@ export class WalletService {
       await session.endSession();
     }
 
-    return this.getTransactionById(userId, data.recipientId || userId);
+    const transaction = await this.createTransaction(userId, data);
+    return transaction;
   }
 
-  async transferMoney(userId: string, data: TransferRequest): Promise<Transaction> {
-    const session = this.db.client.startSession();
+  async transferMoney(userId: string, data: TransferRequest): Promise<ITransaction> {
+    const session = await mongoose.startSession();
     
     try {
       return await session.withTransaction(async () => {
@@ -152,13 +135,10 @@ export class WalletService {
     }
   }
 
-  async getTransactionById(userId: string, transactionId: string): Promise<Transaction | null> {
-    const transaction = await this.db.collection('transactions').findOne({
-      _id: new ObjectId(transactionId),
+  async getTransactionById(userId: string, transactionId: string): Promise<ITransaction | null> {
+    return await Transaction.findOne({
+      _id: transactionId,
       $or: [{ userId }, { recipientId: userId }]
     });
-
-    if (!transaction) return null;
-    return { ...transaction, id: transaction._id.toString() };
   }
 }

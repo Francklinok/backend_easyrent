@@ -10,7 +10,7 @@ export class WalletController {
 
   async getWallet(req: Request, res: Response) {
     try {
-      const userId = req.user?.userId as string;
+      const userId = (req as any).user?.userId;
       let wallet = await this.walletService.getWallet(userId);
       
       if (!wallet) {
@@ -37,7 +37,7 @@ export class WalletController {
 
   async getTransactions(req: Request, res: Response) {
     try {
-      const userId = req.user?.userId as string;
+      const userId = (req as any).user?.userId;
       const limit = parseInt(req.query.limit as string) || 50;
       
       const transactions = await this.walletService.getTransactions(userId, limit);
@@ -57,7 +57,7 @@ export class WalletController {
 
   async createTransaction(req: Request, res: Response) {
     try {
-      const userId = req.user?.userId as string;
+      const userId = (req as any).user?.userId;
       const transactionData = req.body;
       
       const transaction = await this.walletService.processPayment(userId, transactionData);
@@ -78,7 +78,7 @@ export class WalletController {
 
   async transferMoney(req: Request, res: Response) {
     try {
-      const userId = req.user?.userId as string;
+      const userId = (req as any).user?.userId;
       const transferData = req.body;
       
       const transaction = await this.walletService.transferMoney(userId, transferData);
@@ -99,7 +99,7 @@ export class WalletController {
 
   async addPaymentMethod(req: Request, res: Response) {
     try {
-      const userId = req.user?.userId as  string;
+      const userId = (req as any).user?.userId;
       const methodData = req.body;
       
       const paymentMethod = await this.paymentMethodService.createPaymentMethod(userId, methodData);
@@ -120,10 +120,10 @@ export class WalletController {
 
   async deletePaymentMethod(req: Request, res: Response) {
     try {
-      const id = req.user?.userId as  string;
+      const userId = (req as any).user?.userId;
       const { methodId } = req.params;
       
-      await this.paymentMethodService.deletePaymentMethod(id, methodId);
+      await this.paymentMethodService.deletePaymentMethod(userId, methodId);
       
       res.json({
         success: true,
@@ -140,10 +140,10 @@ export class WalletController {
 
   async setDefaultPaymentMethod(req: Request, res: Response) {
     try {
-      const id = req.user?.userId as  string;
+      const userId = (req as any).user?.userId;
       const { methodId } = req.params;
       
-      await this.paymentMethodService.setDefaultPaymentMethod(id, methodId);
+      await this.paymentMethodService.setDefaultPaymentMethod(userId, methodId);
       
       res.json({
         success: true,
@@ -160,7 +160,7 @@ export class WalletController {
 
   async getTransactionById(req: Request, res: Response) {
     try {
-      const userId = req.user?.userId as  string;
+      const userId = (req as any).user?.userId;
       const { transactionId } = req.params;
       
       const transaction = await this.walletService.getTransactionById(userId, transactionId);
@@ -187,7 +187,7 @@ export class WalletController {
 
   async buyCrypto(req: Request, res: Response) {
     try {
-      const userId = req.user?.userId as  string;
+      const userId = (req as any).user?.userId;
       const { currency, amount, totalCost } = req.body;
       
       await this.cryptoService.buyCrypto(userId, currency, amount, totalCost);
@@ -207,7 +207,7 @@ export class WalletController {
 
   async sellCrypto(req: Request, res: Response) {
     try {
-      const userId = req.user?.userId as string;
+      const userId = (req as any).user?.userId;
       const { currency, amount, totalValue } = req.body;
       
       await this.cryptoService.sellCrypto(userId, currency, amount, totalValue);

@@ -1,59 +1,48 @@
-import { ObjectId } from 'mongodb';
-import { getDb } from '../../config/database';
-import { PaymentMethod, CreatePaymentMethodRequest } from '../types/walletTypes';
+import { PaymentMethod, IPaymentMethod } from '../models/PaymentMethod';
+import { CreatePaymentMethodRequest } from '../types/walletTypes';
 
 export class PaymentMethodService {
-  private db = getDb();
 
-  async createPaymentMethod(userId: string, data: CreatePaymentMethodRequest): Promise<PaymentMethod> {
-    // Si c'est la première méthode ou marquée par défaut, désactiver les autres
+  async createPaymentMethod(userId: string, data: CreatePaymentMethodRequest): Promise<IPaymentMethod> {
     if (data.isDefault) {
-      await this.db.collection('paymentMethods').updateMany(
+      await PaymentMethod.updateMany(
         { userId },
         { $set: { isDefault: false } }
       );
     }
 
-    const paymentMethod: Omit<PaymentMethod, 'id'> = {
+    const paymentMethod = new PaymentMethod({
       userId,
       type: data.type,
       name: data.name,
       details: this.sanitizeDetails(data.details),
       isDefault: data.isDefault || false,
-      isActive: true,
-      createdAt: new Date()
-    };
+      isActive: true
+    });
 
-    const result = await this.db.collection('paymentMethods').insertOne(paymentMethod);
-    return { ...paymentMethod, id: result.insertedId.toString() };
+    return await paymentMethod.save();
   }
 
-  async getPaymentMethods(userId: string): Promise<PaymentMethod[]> {
-    const methods = await this.db.collection('paymentMethods')
-      .find({ userId, isActive: true })
-      .sort({ isDefault: -1, createdAt: -1 })
-      .toArray();
-
-    return methods.map(m => ({ ...m, id: m._id.toString() }));
+  async getPaymentMethods(userId: string): Promise<IPaymentMethod[]> {
+    return await PaymentMethod.find({ userId, isActive: true })
+      .sort({ isDefault: -1, createdAt: -1 });
   }
 
   async deletePaymentMethod(userId: string, methodId: string): Promise<void> {
-    await this.db.collection('paymentMethods').updateOne(
-      { _id: new ObjectId(methodId), userId },
+    await PaymentMethod.updateOne(
+      { _id: methodId, userId },
       { $set: { isActive: false } }
     );
   }
 
   async setDefaultPaymentMethod(userId: string, methodId: string): Promise<void> {
-    // Désactiver toutes les méthodes par défaut
-    await this.db.collection('paymentMethods').updateMany(
+    await PaymentMethod.updateMany(
       { userId },
       { $set: { isDefault: false } }
     );
 
-    // Activer la nouvelle méthode par défaut
-    await this.db.collection('paymentMethods').updateOne(
-      { _id: new ObjectId(methodId), userId },
+    await PaymentMethod.updateOne(
+      { _id: methodId, userId },
       { $set: { isDefault: true } }
     );
   }

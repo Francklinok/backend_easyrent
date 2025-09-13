@@ -1,4 +1,5 @@
 export * from './types/walletTypes';
+export * from './models';
 export * from './services/walletService';
 export * from './services/paymentMethodService';
 export * from './services/cryptoService';
