@@ -18,6 +18,8 @@ import { createLogger } from './utils/logger/logger';
 import chatRouter from './chat/routers/chatRouter';
 import userRouter from './users/routes/routes';
 import walletRouter from './wallet/routes/walletRoutes';
+import serviceRouter from './service-marketplace/routes/serviceRoutes';
+import { initializeGraphQLServer } from './graphql/server';
 
 const logger = createLogger("app")
 // import { propertyErrorHandler } from './property/middlewares/propertyErrorHandler';
@@ -126,6 +128,15 @@ app.use('/api/properties', propertyRouter);
 app.use('/api', userRouter);
 // wallet routes
 app.use('/api/wallet', walletRouter);
+// service marketplace routes
+app.use('/api/services', serviceRouter);
+
+// Initialize GraphQL Server
+initializeGraphQLServer(app).then(() => {
+  logger.info('✅ GraphQL Server ready at /graphql');
+}).catch(err => {
+  logger.error('❌ Failed to initialize GraphQL Server:', err);
+});
 
 
 

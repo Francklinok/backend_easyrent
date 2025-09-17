@@ -1,5 +1,5 @@
 import { IProperty, PropertyStatus, SearchPropertyParams } from "../types/propertyType";
-import { NotificationService } from "../../services/notificationServices";
+import { IntegratedNotificationService } from "../../notification/services/IntegratedNotificationService";
 import { createLogger } from "../../utils/logger/logger";
 import { PropertyCreateDTO } from "../types/propertyType";
 import Property from "../model/propertyModel";
@@ -15,9 +15,9 @@ import { UpdatePropertyParams } from "../types/propertyType";
 const   logger = createLogger("proprietyCreation")
 
 class PropertyServices{
-    private Notification:NotificationService
+    private notificationService: IntegratedNotificationService
     constructor(){
-        this.Notification = new NotificationService();
+        this.notificationService = new IntegratedNotificationService();
     }
 
     async createProperty(propertyData:PropertyCreateDTO,userId?:string):Promise<IProperty>{
@@ -38,6 +38,10 @@ class PropertyServices{
             await session.commitTransaction();
             session.endSession()
             logger.info(`Propriété créée avec succès: ${property._id}`);
+
+            // Notification pour nouvelle propriété créée
+            await this.notificationService.onNewPropertyCreated(property);
+
             return property
             }catch(error){
                 await  session.abortTransaction();

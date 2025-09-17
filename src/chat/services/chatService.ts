@@ -1,6 +1,6 @@
 
 import { EventEmitter } from "stream";
-import { NotificationService } from "../../services/notificationServices";
+import { IntegratedNotificationService } from "../../notification/services/IntegratedNotificationService";
 import  appCacheAndPresenceService from "../../services/redisInstance"
 import { IMessage,
   IConversation,
@@ -37,16 +37,16 @@ const   logger = createLogger("chatservice")
 
 class ChatService extends EventEmitter {
   private io: IOServer;
-  private notificationService: NotificationService;
+  private notificationService: IntegratedNotificationService;
   private cacheService: typeof appCacheAndPresenceService;
   private messageQueue:Queue;
   private auditService:SecurityAuditService;
   // private  messageDeliveryQueue:Queue;
-  
+
   constructor(io: IOServer) {
     super();
     this.io = io;
-    this.notificationService = new NotificationService();
+    this.notificationService = new IntegratedNotificationService(io);
     this.cacheService = appCacheAndPresenceService;
     this.messageQueue = new Queue('message-delivery', {
       connection:redisForBullMQ
@@ -173,7 +173,7 @@ class ChatService extends EventEmitter {
     }
   }
   /**
-   * Récupère les conversations d'un utilisateur (version optimisée)
+   * Récupère les conversations d'un utilisateur 
    */
   async getUserConversations({
   userId,
@@ -765,39 +765,13 @@ async unarchiveConversation(
    * Envoi des notifications pour un nouveau message
    */
   private async sendMessageNotifications(message: IMessage, conversation: IConversation): Promise<void> {
-  const participants = conversation.participants.filter(
-    (p) => p._id.toString() !== message.senderId.toString()
-  );
-
-  for (const participant of participants) {
     try {
-      const notificationPayload: NotificationPayload = {
-        userId: participant._id.toString(),
-        type: 'push',
-        priority: 'normal', 
-        push: {
-          notification: {
-            title: `Nouveau message de ${message.senderId}`,
-            body: typeof message.content === 'string'
-              ? message.content.substring(0, 100)
-              : `${message.content} partagé`,
-            data: {
-              conversationId: conversation._id.toString(),
-              messageId:(message._id as Types.ObjectId).toString(),
-              senderId: message.senderId.toString(),
-              targetUserId: participant._id.toString()
-            },
-          },
-          // Tu peux ajouter ici fcmTokens et webpushSubscriptions si nécessaire
-        },
-      };
-
-      await this.notificationService.sendNotification(notificationPayload);
+      // Utiliser le nouveau service de notification intégré
+      await this.notificationService.onNewMessage(message, conversation);
     } catch (error) {
-      console.error(`Erreur notification participant ${participant._id}:`, error);
+      console.error('Erreur envoi notifications message:', error);
     }
   }
-}
   /**
    * Invalidation des caches liés
    */
@@ -1122,26 +1096,7 @@ async unarchiveConversation(
 
       // Notification de réaction
       if (message.senderId.toString() !== userId) {
-      const notificationPayload: NotificationPayload = {
-          userId: message.senderId.toString(),
-          type: 'push',
-          push: {
-            notification: {
-              title: 'Nouvelle réaction',
-              body: `Quelqu'un a réagi ${reactionType} à votre message`,
-              data: {
-                conversationId,
-                messageId,
-                reactionType,
-                reactorId: userId
-              }
-            },
-            fcmTokens: undefined, // optionnel
-            webpushSubscriptions: undefined // optionnel
-          },
-          priority: 'normal'
-        };
-        await this.notificationService.sendNotification(notificationPayload);
+        await this.notificationService.onMessageReaction(message, userId, reactionType, conversation);
       }
 
       // Émission de l'événement

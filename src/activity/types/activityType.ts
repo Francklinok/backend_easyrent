@@ -5,7 +5,7 @@ export interface ActivityType {
   clientId: Types.ObjectId;
   isVisited: boolean;                
   visitDate: Date;
-  isVisiteAcccepted:boolean;
+  isVisitAccepted:boolean;
   isReservation:boolean;
   message:string                                 
   reservationDate: Date;           
@@ -20,8 +20,8 @@ export interface ActivityType {
     }[];
   isBookingAccepted?:boolean;
   isPayment?:boolean;
-  amout:number,
-  payementDate:Date,
+  amount:number,
+  paymentDate:Date,
   conversationId?: Types.ObjectId,
   reason?:string,
   refusDate?:Date,
@@ -39,7 +39,7 @@ export interface VisiteData{
   visitDate:Date
 }
 
-export interface AtivityData{
+export interface ActivityData{
   activityId: Types.ObjectId,
   reservationDate:Date
   documentsUploaded: boolean;        
@@ -50,21 +50,21 @@ export interface AtivityData{
     }[];
 }
 
-export interface AccepteReservation{
+export interface AcceptReservation{
   activityId: Types.ObjectId,
   acceptedDate:Date,
 }
-export interface RefusReservation{
+export interface RefuseReservation{
   activityId: Types.ObjectId,
   refusDate:Date,
   reason:string
 }
 
-export  interface ActiviytyPayement{
+export interface ActivityPayment{
   activityId: Types.ObjectId,
   isBookingAccepted:boolean,
   amount:number,
   isPayment?:boolean;
-  payementDate:Date,
+  paymentDate:Date
 }
 
