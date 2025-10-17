@@ -17,7 +17,7 @@ export class EmailNotificationService {
       const recipients = Array.isArray(data.to) ? data.to : [data.to];
       const results = await Promise.all(
         recipients.map(async (email) => {
-          const success = await this.notificationService.sendEmailSafely({
+          const success = await this.notificationService.sendemail({
             to: email,
             subject: data.subject,
             html: data.htmlContent || '',
@@ -86,7 +86,7 @@ export class EmailNotificationService {
     let success = 0;
     let failed = 0;
 
-    const batchSize = 50; // Process in batches to avoid overwhelming the system
+    const batchSize = 50;
     for (let i = 0; i < emails.length; i += batchSize) {
       const batch = emails.slice(i, i + batchSize);
       const results = await Promise.all(
@@ -99,7 +99,6 @@ export class EmailNotificationService {
       success += results.filter(r => r).length;
       failed += results.filter(r => !r).length;
 
-      // Small delay between batches
       if (i + batchSize < emails.length) {
         await this.delay(1000);
       }
@@ -118,8 +117,6 @@ export class EmailNotificationService {
     templateId: string,
     templateData: Record<string, any> = {}
   ): Promise<{ html: string; text?: string }> {
-    // This would typically fetch from a database or template service
-    // For now, we'll use predefined templates
     const templates: Record<string, { html: string; text?: string }> = {
       welcome: {
         html: this.getWelcomeTemplate(templateData),

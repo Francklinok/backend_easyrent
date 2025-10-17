@@ -1,10 +1,3 @@
-import config from "../../../config";
-/**
- * Normalise le port en valeur numérique ou chaîne
- * @param val Valeur du port à normaliser
- * @returns Port normalisé ou false si invalide
- */
-
 /**
  * Normalise le port en valeur numérique
  * @param val Valeur du port à normaliser

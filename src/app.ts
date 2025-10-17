@@ -19,9 +19,10 @@ import chatRouter from './chat/routers/chatRouter';
 import userRouter from './users/routes/routes';
 import walletRouter from './wallet/routes/walletRoutes';
 import serviceRouter from './service-marketplace/routes/serviceRoutes';
-import { initializeGraphQLServer } from './graphql/server';
+// import { initializeGraphQLServer } from './graphql/server';
 
-const logger = createLogger("app")
+const logger = createLogger("app");
+console.log('📱 Initialisation de l\'application Express...');
 // import { propertyErrorHandler } from './property/middlewares/propertyErrorHandler';
 
 // Configuration pour ES modules avec __dirname
@@ -29,7 +30,9 @@ const logger = createLogger("app")
 // const __dirname = path.dirname(__filename);
 
 // Création et configuration de l'application Express
+logger.info('🏗️ Création de l\'instance Express...');
 const app = express();
+logger.info('✅ Application Express créée avec succès');
 
 // Middleware pour traquer l'activité sur les requêtes HTTP
 // const userPresenceService = new UserPresenceService();
@@ -88,20 +91,65 @@ app.get('/reset-password', (req, res) => {
 });
 
 // Connexion à MongoDB avec gestion des événements
-mongoose.connect(config.database.url, {})
-  .then(() => console.log('✅ Connecté à MongoDB'))
+logger.info('🌱 Tentative de connexion à MongoDB...', {
+  url: config.database.url?.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'), // Masquer les credentials
+  options: config.database.options
+});
+
+mongoose.connect(config.database.url)
+  .then(() => {
+    console.log('✅ Connecté à MongoDB');
+    logger.info('✅ Connexion MongoDB établie avec succès', {
+      readyState: mongoose.connection.readyState,
+      host: mongoose.connection.host,
+      port: mongoose.connection.port,
+      dbName: mongoose.connection.name
+    });
+  })
   .catch(err => {
     console.error('❌ Erreur de connexion MongoDB:', err);
+    logger.error('💥 Échec de la connexion MongoDB', {
+      error: err.message,
+      stack: err.stack,
+      code: err.code,
+      codeName: err.codeName,
+      url: config.database.url?.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')
+    });
     process.exit(1);
   });
 
 // Surveillance de la connexion MongoDB
 mongoose.connection.on('error', err => {
-  logger.error('❌ Erreur MongoDB:', err);
+  logger.error('❌ Erreur MongoDB détectée:', {
+    error: err.message,
+    stack: err.stack,
+    code: err.code,
+    readyState: mongoose.connection.readyState,
+    timestamp: new Date().toISOString()
+  });
+});
+
+mongoose.connection.on('connecting', () => {
+  logger.info('🔄 Connexion à MongoDB en cours...');
+});
+
+mongoose.connection.on('connected', () => {
+  logger.info('✅ MongoDB connecté');
+});
+
+mongoose.connection.on('reconnected', () => {
+  logger.info('🔄 MongoDB reconnecté');
 });
 
 mongoose.connection.on('disconnected', () => {
-  logger.warn('⚠️ MongoDB déconnecté');
+  logger.warn('⚠️ MongoDB déconnecté', {
+    readyState: mongoose.connection.readyState,
+    timestamp: new Date().toISOString()
+  });
+});
+
+mongoose.connection.on('close', () => {
+  logger.info('🔒 Connexion MongoDB fermée');
 });
 
 process.on('SIGINT', async () => {
@@ -121,22 +169,37 @@ app.get('/', (req, res) => {
 });
 
 // Routes API
-app.use('/api/v1/auth', auThrouter);
-//property  routes
-app.use('/api/properties', propertyRouter);
-// user routes
-app.use('/api', userRouter);
-// wallet routes
-app.use('/api/wallet', walletRouter);
-// service marketplace routes
-app.use('/api/services', serviceRouter);
+logger.info('🛣️ Configuration des routes API...');
+try {
+  app.use('/api/v1/auth', auThrouter);
+  logger.debug('✅ Route auth configurée');
 
-// Initialize GraphQL Server
-initializeGraphQLServer(app).then(() => {
-  logger.info('✅ GraphQL Server ready at /graphql');
-}).catch(err => {
-  logger.error('❌ Failed to initialize GraphQL Server:', err);
-});
+  //property  routes
+  app.use('/api/properties', propertyRouter);
+  logger.debug('✅ Route properties configurée');
+
+  // user routes
+  app.use('/api', userRouter);
+  logger.debug('✅ Route users configurée');
+
+  // wallet routes
+  app.use('/api/wallet', walletRouter);
+  logger.debug('✅ Route wallet configurée');
+
+  // service marketplace routes
+  app.use('/api/services', serviceRouter);
+  logger.debug('✅ Route services configurée');
+
+  logger.info('✅ Toutes les routes API sont configurées');
+} catch (error) {
+  logger.error('💥 Erreur lors de la configuration des routes:', {
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined
+  });
+  throw error;
+}
+
+// Note: GraphQL Server will be initialized in server.ts with HTTP server
 
 
 

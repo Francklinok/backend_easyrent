@@ -30,13 +30,13 @@ class PropertyController {
                 data:property
             });
         }catch(error){
-            logger.error('Erreur lors de la création de la propriété:', error),
+            logger.error('Erreur lors de la création de la propriété:', error);
             res.status(500).json({
-            success: false,
-            message: 'Erreur lors de la création de la propriété',
-            error: error instanceof Error ? error.message : 'Erreur inconnue'
+                success: false,
+                message: 'Erreur lors de la création de la propriété',
+                error: error instanceof Error ? error.message : 'Erreur inconnue'
             });
-            next()
+            next(error);
         }
 
     }
@@ -58,12 +58,12 @@ async  deletedProperty(req:Request,  res:Response, next:NextFunction):Promise<vo
     }catch(error){
          logger.error(`Erreur lors de la suppression de la propriété ${req.params.id}:`, error);
 
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la suppression de la propriété',
-      error: error instanceof Error ? error.message : 'Erreur inconnue',
-    });
-    next()
+        res.status(500).json({
+            success: false,
+            message: 'Erreur lors de la suppression de la propriété',
+            error: error instanceof Error ? error.message : 'Erreur inconnue',
+        });
+        next(error);
     }
 }
 
@@ -71,13 +71,13 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
     const filters = req.query as unknown as PropertyQueryFilters & PaginationOptions;
     try{
         const properies = await this.propertyServices.getProperty(filters)
-        if(!properies){
-            logger.error("property doesn t been found");
+        if(!properies || properies.properties.length === 0){
+            logger.error("properties not found");
             res.status(404).json({
                 success: false,
-                message: 'property not found',
+                message: 'properties not found',
             });
-            return 
+            return;
         }
         res.status(200).json({
             success: true,
@@ -85,17 +85,17 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
             data:properies
         });  
     }catch(error){
-        logger.error("error fetching properties",  error);
+        logger.error("error fetching properties", error);
         res.status(500).json({
             success: false,
             message: 'Erreur lors de la récupération des propriétés',
-            error: error instanceof Error ? error.message : 'Erreur inconnue',  
-            })
-            next(error)
+            error: error instanceof Error ? error.message : 'Erreur inconnue',
+        });
+        next(error);
         }
      }
      async getPropertyByOwner(req:Request, res:Response, next:NextFunction){
-        const id = req.params 
+        const {id} = req.params; 
         const { page = 1, limit = 10, sortBy, sortOrder, status } = req.query as {
             page?: string;
             limit?: string;
@@ -103,37 +103,39 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
             sortOrder?: 'asc' | 'desc';
             status?: PropertyStatus;
         };
-        const filters:PropertyParams = {
-                ownerId: { id }, // correspond à ton PropertyQueryFilters
-                pagination: {
+        const filters: PropertyParams = {
+            ownerId: id,
+            pagination: {
                 page: Number(page),
                 limit: Number(limit),
                 sortBy,
                 sortOrder,
-                } as PaginationOptions,
-                status,
-                } as  PropertyParams
+            } as PaginationOptions,
+            status,
+        } as PropertyParams;
         try{
             const property = await this.propertyServices.getPropertyByOwner(filters)
             if(!property){
                 res.status(404).json({
                     success: false,
                     message: 'property not found',
-                })  
+                });
+                return;
             }
-            res.status(201).json({
-                success:true,
-                message:property
-            })
+            res.status(200).json({
+                success: true,
+                message: 'Properties found',
+                data: property
+            });
             
         }catch(error){
-            logger.error("error fetching properties",  error);
+            logger.error("error fetching properties", error);
             res.status(500).json({
                 success: false,
                 message: 'Erreur lors de la récupération des propriétés',
-                error: error instanceof Error ? error.message : 'Erreur inconnue',  
-                })
-            next()
+                error: error instanceof Error ? error.message : 'Erreur inconnue',
+            });
+            next(error);
         }
        
      }
@@ -142,23 +144,25 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
         try{
             const property = await this.propertyServices.finPropertyById(id)
             if(!property){
-            res.status(404).json({
-                success: false,
-                message: 'property not found',
-            })  
+                res.status(404).json({
+                    success: false,
+                    message: 'property not found',
+                });
+                return;
             }
-            res.status(201).json({
-                success:true,
-                message:property
-            })
+            res.status(200).json({
+                success: true,
+                message: 'Property found',
+                data: property
+            });
         }catch(error){
-             logger.error("error fetching properties",  error);
+            logger.error("error fetching property", error);
             res.status(500).json({
                 success: false,
-                message: 'Erreur lors de la récupération des propriétés',
-                error: error instanceof Error ? error.message : 'Erreur inconnue',  
-                })
-            next()
+                message: 'Erreur lors de la récupération de la propriété',
+                error: error instanceof Error ? error.message : 'Erreur inconnue',
+            });
+            next(error);
 
         }
      }
@@ -167,24 +171,27 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
         try{
             const stats = await this.propertyServices.getPropertyState()
             if(!stats){
-                logger.warn('data has not  been  found')
-                res.status(400).json({
-                    success:false
-                })
-                
+                logger.warn('Statistics not found');
+                res.status(404).json({
+                    success: false,
+                    message: 'Statistics not found'
+                });
+                return;
             }
             logger.info('Statistiques des propriétés récupérées');
 
             res.status(200).json({
-            success: true,
-            data: stats})
+                success: true,
+                data: stats
+            });
         }catch(error){
-             logger.info('error  fetching property state ',error);
+            logger.error('error fetching property state', error);
             res.status(500).json({
-            success: false,
-            error: error instanceof Error ? error.message : 'Erreur inconnue'
-
-        })
+                success: false,
+                message: 'Erreur lors de la récupération des statistiques',
+                error: error instanceof Error ? error.message : 'Erreur inconnue'
+            });
+            next(error);
         }
      }
      async getSimilarProperty(req:Request, res:Response, next:NextFunction){
@@ -206,20 +213,22 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
             if(!similarProperty){
                 res.status(404).json({
                     success: false,
-                    message: 'property not found',
-                })
+                    message: 'similar properties not found',
+                });
+                return;
             }
-            res.status(201).json({
-                success:true,
-                message:similarProperty
-            })
+            res.status(200).json({
+                success: true,
+                message: 'Similar properties found',
+                data: similarProperty
+            });
         }catch(error){
             res.status(500).json({
                 success: false,
-                message: 'Erreur lors de la récupération des propriétés',
+                message: 'Erreur lors de la récupération des propriétés similaires',
                 error: error instanceof Error ? error.message : 'Erreur inconnue',
-                })
-                next()
+            });
+            next(error);
         }
      }
      async  permanentDeletion(req:Request,  res:Response, next:NextFunction){
@@ -229,20 +238,21 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
             if(!deletProperty){
                 res.status(404).json({
                     success: false,
-                    message: 'property not deleted',
-                })
+                    message: 'property not found or not deleted',
+                });
+                return;
             }
-            res.status(201).json({
-                success:true,
-                message:"property deleted"
-            })
+            res.status(200).json({
+                success: true,
+                message: "property permanently deleted"
+            });
         }catch(error){
             res.status(500).json({
                 success: false,
-                message: 'error  deleting  property',
-                error: error instanceof Error ? error.message : 'unknow error',
-                })
-                next()
+                message: 'error deleting property',
+                error: error instanceof Error ? error.message : 'unknown error',
+            });
+            next(error);
         }
      }
      async restoreProperty(req:Request, res:Response, next:NextFunction){
@@ -251,23 +261,24 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
             const  propertyRestore = await this.propertyServices.restoreProperty(id)
             if(!propertyRestore){
                 res.status(404).json({
-                    success:false,
-                    message:"property not  found"
-
-                })
-                res.status(201).json({
-                    sucess:true,
-                    message:"property restored",
-                    data:propertyRestore
-                })
+                    success: false,
+                    message: "property not found"
+                });
+                return;
             }
+            res.status(200).json({
+                success: true,
+                message: "property restored",
+                data: propertyRestore
+            });
 
         }catch(error){
-            res.status(501).json({
-                success:false,
-                message:"error restoring  property",
-                error: error instanceof Error ? error.message : 'unknow error',
-            })
+            res.status(500).json({
+                success: false,
+                message: "error restoring property",
+                error: error instanceof Error ? error.message : 'unknown error',
+            });
+            next(error);
         }
      }
      async  searchProperty(req:Request, res:Response, next:NextFunction){
@@ -281,23 +292,25 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
                 pagination: { page, limit }
                 };
             const searchProperty = await this.propertyServices.searchProperty(queryData)
-            if(!searchProperty){
+            if(!searchProperty || (searchProperty.property && searchProperty.property.length === 0)){
                 res.status(404).json({
-                    success:false,
-                    message:"property not found"
-                })
+                    success: false,
+                    message: "properties not found"
+                });
+                return;
             }
-            res.status(201).json({
-                success:true,
-                message:"property  founded",
-                data:searchProperty
-            })
+            res.status(200).json({
+                success: true,
+                message: "properties found",
+                data: searchProperty
+            });
         }catch(error){
-            res.status(501).json({
-                succes:false,
-                message:"error searching  property",
-                error: error instanceof Error ? error.message : 'unknow error',
-            })
+            res.status(500).json({
+                success: false,
+                message: "error searching property",
+                error: error instanceof Error ? error.message : 'unknown error',
+            });
+            next(error);
         }
      }
      async updateProperty(req:Request, res:Response, next:NextFunction){
@@ -309,21 +322,23 @@ async getProperties(req:Request,  res:Response, next:NextFunction):Promise<void>
             const updateProperty = await this.propertyServices.updateProperty(propertyData)
             if(!updateProperty){
                 res.status(404).json({
-                    success:false,
-                    message:"property not updated"
-                })
+                    success: false,
+                    message: "property not found or not updated"
+                });
+                return;
             }
-            res.status(201).json({
-                success:true,
-                message:"property updated",
-                data:updateProperty
-            })
+            res.status(200).json({
+                success: true,
+                message: "property updated",
+                data: updateProperty
+            });
         }catch(error){
-            res.status(501).json({
-                succes:false,
-                message:"error updating  property",
-                error: error instanceof Error ? error.message : 'unknow error',
-            })
+            res.status(500).json({
+                success: false,
+                message: "error updating property",
+                error: error instanceof Error ? error.message : 'unknown error',
+            });
+            next(error);
         }
      }
 }

@@ -16,7 +16,8 @@ import { IMessage,
   SearchMessagesParams} from '../types/chatTypes';
 import { GetMessagesParams } from '../types/chatTypes';
 import { MediaFile } from '../types/chatTypes';
-import  config from  '../../../config'
+import config from '../../../config';
+import type { Config } from '../../../config/type';
 import ValidationService from "./validationService";
 import { Types } from "mongoose";
 import EncryptionService from "./encryptionService";
@@ -39,7 +40,7 @@ class ChatService extends EventEmitter {
   private io: IOServer;
   private notificationService: IntegratedNotificationService;
   private cacheService: typeof appCacheAndPresenceService;
-  private messageQueue:Queue;
+  private messageQueue: Queue | null = null;
   private auditService:SecurityAuditService;
   // private  messageDeliveryQueue:Queue;
 
@@ -48,12 +49,22 @@ class ChatService extends EventEmitter {
     this.io = io;
     this.notificationService = new IntegratedNotificationService(io);
     this.cacheService = appCacheAndPresenceService;
-    this.messageQueue = new Queue('message-delivery', {
-      connection:redisForBullMQ
-    })
-    // this.messageDeliveryQueue = new Queue('message-delivery', {
-    //   connection: redisForBullMQ
-    // });
+
+    // Créer la queue seulement si Redis est disponible
+    if (redisForBullMQ) {
+      try {
+        this.messageQueue = new Queue('message-delivery', {
+          connection: redisForBullMQ
+        });
+        logger.info('Message queue initialized successfully');
+      } catch (error) {
+        logger.error('Failed to initialize message queue:', error);
+        this.messageQueue = null;
+      }
+    } else {
+      logger.warn('Redis not available, message queue disabled');
+    }
+
     // Configuration des événements d'erreur
     this.setupErrorHandling();
     this.auditService = SecurityAuditService.getInstance();
@@ -163,7 +174,7 @@ class ChatService extends EventEmitter {
         }
        
         // Cache avec TTL approprié
-        await this.cacheService.set(cacheKey, conversation,config.cacheTTL.conversation);
+        await this.cacheService.set(cacheKey, conversation, (config as Config).cacheTTL.conversation);
       }
       logger.info('chat succefull created')
       return conversation;
@@ -273,7 +284,7 @@ class ChatService extends EventEmitter {
       : validConversations;
 
     // Cache avec TTL plus court pour les données dynamiques
-    await this.cacheService.set(cacheKey, result, config.cacheTTL.userConversations);
+    await this.cacheService.set(cacheKey, result, (config as Config).cacheTTL.userConversations);
    
     return result;
   } catch (error) {
@@ -616,12 +627,12 @@ async unarchiveConversation(
         };
 
         // Création des variantes en parallèle
-        const variantPromises = Object.entries(config.imageVariants).map(async ([size, config]) => {
+        const variantPromises = Object.entries((config as Config).imageVariants).map(async ([size, variantConfig]) => {
           const variantPath = `uploads/${size}_${file.filename}`;
 
           await sharp(imagePath)
-            .resize(config.width, config.height, { fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: config.quality })
+            .resize(variantConfig.width, variantConfig.height, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: variantConfig.quality })
             .toFile(variantPath);
           
           return { size, path: variantPath };
@@ -1365,7 +1376,7 @@ async unarchiveConversation(
         // Auto-suppression après timeout
         setTimeout(async () => {
           await this.setTypingStatus(conversationId, userId, false);
-        },config.typingTimeout);
+        }, (config as Config).typingTimeout);
       } else {
         typingUsers = typingUsers.filter(id => id !== userId);
       }

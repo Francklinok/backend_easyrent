@@ -62,33 +62,39 @@ export class WalletService {
 
   async processPayment(userId: string, data: CreateTransactionRequest): Promise<ITransaction> {
     const session = await mongoose.startSession();
-    
+
     try {
-      await session.withTransaction(async () => {
+      return await session.withTransaction(async () => {
+        // Vérifier le solde pour les paiements
+        if (data.type === 'payment') {
+          const wallet = await this.getWallet(userId);
+          if (!wallet || wallet.balance < data.amount) {
+            throw new Error('Solde insuffisant');
+          }
+        }
+
         // Créer la transaction
         const transaction = await this.createTransaction(userId, data);
-        
+
         // Déduire du solde si c'est un paiement
         if (data.type === 'payment') {
           await this.updateBalance(userId, -data.amount);
         }
-        
+
         // Ajouter au solde si c'est une réception
         if (data.type === 'received') {
           await this.updateBalance(userId, data.amount);
         }
-        
+
         // Marquer comme complété
-        await this.updateTransactionStatus(transaction.id, 'completed');
-        
-        return transaction;
+        await this.updateTransactionStatus(transaction._id.toString(), 'completed');
+
+        // Retourner la transaction mise à jour
+        return await Transaction.findById(transaction._id);
       });
     } finally {
       await session.endSession();
     }
-
-    const transaction = await this.createTransaction(userId, data);
-    return transaction;
   }
 
   async transferMoney(userId: string, data: TransferRequest): Promise<ITransaction> {
@@ -126,7 +132,7 @@ export class WalletService {
         await this.updateBalance(data.recipientId, data.amount);
 
         // Marquer les transactions comme complétées
-        await this.updateTransactionStatus(debitTransaction.id, 'completed');
+        await this.updateTransactionStatus(debitTransaction._id.toString(), 'completed');
 
         return debitTransaction;
       });

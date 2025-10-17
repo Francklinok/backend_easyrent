@@ -9,145 +9,273 @@ import { Transaction } from '../../wallet/models/Transaction';
 
 export const propertyResolvers = {
   Query: {
-    property: async (_, { id }, { user }) => {
-      const propertyService = new PropertyServices();
-      const property = await propertyService.finPropertyById(id);
-      
-      if (!property) throw new Error('Property not found');
-      
-      return property;
-    },
-    
-    properties: async (_, { filters, pagination }) => {
-      const propertyService = new PropertyServices();
-      const result = await propertyService.getProperty({
-        ...filters,
-        ...pagination
-      });
-      
-      if (!result) return { edges: [], pageInfo: { hasNextPage: false, hasPreviousPage: false }, totalCount: 0 };
-      
-      const edges = result.properties.map((property, index) => ({
-        node: property,
-        cursor: Buffer.from((pagination?.page || 1 * index).toString()).toString('base64')
-      }));
-      
-      return {
-        edges,
-        pageInfo: {
-          hasNextPage: result.page < result.totalPages,
-          hasPreviousPage: result.page > 1,
-          startCursor: edges[0]?.cursor,
-          endCursor: edges[edges.length - 1]?.cursor
-        },
-        totalCount: result.total
-      };
-    },
-    
-    searchProperties: async (_, { query, filters, pagination }) => {
-      const propertyService = new PropertyServices();
-      
-      if (query) {
-        return await propertyService.searchProperty({
-          q: query,
-          pagination
-        });
+    property: async (_: any, { id }: any, { user }: any) => {
+      try {
+        const propertyService = new PropertyServices();
+        const property = await propertyService.finPropertyById(id);
+
+        if (!property) throw new Error('Property not found');
+
+        return property;
+      } catch (error: any) {
+        throw new Error(`Error fetching property: ${error.message}`);
       }
-      
-      return await propertyService.getProperty({
-        ...filters,
-        ...pagination
-      });
     },
     
-    similarProperties: async (_, { propertyId, limit }) => {
-      const propertyService = new PropertyServices();
-      return await propertyService.getSImilarProperty({
-        propertyId,
-        pagination: { limit: limit || 5 }
-      });
+    properties: async (_: any, { filters, pagination }: any) => {
+      try {
+        const propertyService = new PropertyServices();
+        const result = await propertyService.getProperty({
+          ...filters,
+          ...pagination
+        });
+
+        if (!result || !result.properties) {
+          return {
+            edges: [],
+            pageInfo: { hasNextPage: false, hasPreviousPage: false },
+            totalCount: 0
+          };
+        }
+
+        const edges = result.properties.map((property: any, index: number) => ({
+          node: property,
+          cursor: Buffer.from(((pagination?.page || 1) * (pagination?.limit || 10) + index).toString()).toString('base64')
+        }));
+
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage: result.page < result.totalPages,
+            hasPreviousPage: result.page > 1,
+            startCursor: edges[0]?.cursor,
+            endCursor: edges[edges.length - 1]?.cursor
+          },
+          totalCount: result.total
+        };
+      } catch (error: any) {
+        throw new Error(`Error fetching properties: ${error.message}`);
+      }
     },
     
-    propertyStats: async (_, __, { user }) => {
-      if (!user) throw new Error('Authentication required');
-      
-      const propertyService = new PropertyServices();
-      return await propertyService.getPropertyState();
+    searchProperties: async (_: any, { query, filters, pagination }: any) => {
+      try {
+        const propertyService = new PropertyServices();
+
+        if (query) {
+          const result = await propertyService.searchProperty({
+            q: query,
+            pagination
+          });
+
+          if (!result || !result.properties) {
+            return {
+              edges: [],
+              pageInfo: { hasNextPage: false, hasPreviousPage: false },
+              totalCount: 0
+            };
+          }
+
+          const edges = result.properties.map((property: any, index: number) => ({
+            node: property,
+            cursor: Buffer.from(((pagination?.page || 1) * (pagination?.limit || 10) + index).toString()).toString('base64')
+          }));
+
+          return {
+            edges,
+            pageInfo: {
+              hasNextPage: result.page < result.totalPages,
+              hasPreviousPage: result.page > 1,
+              startCursor: edges[0]?.cursor,
+              endCursor: edges[edges.length - 1]?.cursor
+            },
+            totalCount: result.total
+          };
+        }
+
+        return await propertyService.getProperty({
+          ...filters,
+          ...pagination
+        });
+      } catch (error: any) {
+        throw new Error(`Error searching properties: ${error.message}`);
+      }
     },
     
-    propertiesByOwner: async (_, { ownerId, pagination, status }, { user }) => {
-      if (!user) throw new Error('Authentication required');
-      
-      const propertyService = new PropertyServices();
-      return await propertyService.getPropertyByOwner({
-        ownerId: ownerId || user.userId,
-        pagination,
-        status
-      });
+    similarProperties: async (_: any, { propertyId, limit }: any) => {
+      try {
+        const propertyService = new PropertyServices();
+        const result = await propertyService.getSImilarProperty({
+          propertyId,
+          pagination: { limit: limit || 5 }
+        });
+
+        return Array.isArray(result) ? result : (result?.properties || []);
+      } catch (error: any) {
+        throw new Error(`Error fetching similar properties: ${error.message}`);
+      }
+    },
+    
+    propertyStats: async (_: any, __: any, { user }: any) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const propertyService = new PropertyServices();
+        const stats = await propertyService.getPropertyState();
+
+        if (!stats) throw new Error('Statistics not available');
+
+        return stats;
+      } catch (error: any) {
+        throw new Error(`Error fetching property stats: ${error.message}`);
+      }
+    },
+    
+    propertiesByOwner: async (_: any, { ownerId, pagination, status }: any, { user }: any) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const propertyService = new PropertyServices();
+        const result = await propertyService.getPropertyByOwner({
+          ownerId: ownerId || user.userId,
+          pagination,
+          status
+        });
+
+        if (!result || !result.properties) {
+          return {
+            edges: [],
+            pageInfo: { hasNextPage: false, hasPreviousPage: false },
+            totalCount: 0
+          };
+        }
+
+        const edges = result.properties.map((property: any, index: number) => ({
+          node: property,
+          cursor: Buffer.from(((pagination?.page || 1) * (pagination?.limit || 10) + index).toString()).toString('base64')
+        }));
+
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage: result.page < result.totalPages,
+            hasPreviousPage: result.page > 1,
+            startCursor: edges[0]?.cursor,
+            endCursor: edges[edges.length - 1]?.cursor
+          },
+          totalCount: result.total
+        };
+      } catch (error: any) {
+        throw new Error(`Error fetching properties by owner: ${error.message}`);
+      }
     }
   },
 
   Mutation: {
-    createProperty: async (_, { input }, { user }) => {
-      if (!user) throw new Error('Authentication required');
-      
-      const propertyService = new PropertyServices();
-      return await propertyService.createProperty({
-        ...input,
-        ownerId: user.userId
-      });
-    },
-    
-    updateProperty: async (_, { id, input }, { user }) => {
-      if (!user) throw new Error('Authentication required');
-      
-      const property = await Property.findOne({ _id: id, ownerId: user.userId });
-      if (!property) throw new Error('Property not found or unauthorized');
-      
-      const propertyService = new PropertyServices();
-      return await propertyService.updateProperty({
-        propertyId: id,
-        data: input
-      });
-    },
-    
-    deleteProperty: async (_, { id }, { user }) => {
-      if (!user) throw new Error('Authentication required');
-      
-      const property = await Property.findById(id);
-      if (!property || property.ownerId.toString() !== user.userId) {
-        throw new Error('Property not found or unauthorized');
+    createProperty: async (_: any, { input }: any, { user }: any) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const propertyService = new PropertyServices();
+        const property = await propertyService.createProperty(
+          input,
+          user.userId
+        );
+
+        if (!property) throw new Error('Failed to create property');
+
+        return property;
+      } catch (error: any) {
+        throw new Error(`Error creating property: ${error.message}`);
       }
-      
-      const propertyService = new PropertyServices();
-      await propertyService.deleteProperty(id);
-      return true;
     },
     
-    restoreProperty: async (_, { id }, { user }) => {
-      if (!user) throw new Error('Authentication required');
-      
-      const property = await Property.findById(id);
-      if (!property || property.ownerId.toString() !== user.userId) {
-        throw new Error('Property not found or unauthorized');
+    updateProperty: async (_: any, { id, input }: any, { user }: any) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const property = await Property.findOne({ _id: id, ownerId: user.userId });
+        if (!property) throw new Error('Property not found or unauthorized');
+
+        const propertyService = new PropertyServices();
+        const updatedProperty = await propertyService.updateProperty({
+          propertyId: id,
+          data: input
+        });
+
+        if (!updatedProperty) throw new Error('Failed to update property');
+
+        return updatedProperty;
+      } catch (error: any) {
+        throw new Error(`Error updating property: ${error.message}`);
       }
-      
-      const propertyService = new PropertyServices();
-      await propertyService.restoreProperty(id);
-      return await Property.findById(id);
+    },
+    
+    deleteProperty: async (_: any, { id }: any, { user }: any) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const property = await Property.findById(id);
+        if (!property || property.ownerId.toString() !== user.userId) {
+          throw new Error('Property not found or unauthorized');
+        }
+
+        const propertyService = new PropertyServices();
+        const result = await propertyService.deleteProperty(id);
+
+        return !!result;
+      } catch (error: any) {
+        throw new Error(`Error deleting property: ${error.message}`);
+      }
+    },
+    
+    restoreProperty: async (_: any, { id }: any, { user }: any) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const property = await Property.findById(id);
+        if (!property || property.ownerId.toString() !== user.userId) {
+          throw new Error('Property not found or unauthorized');
+        }
+
+        const propertyService = new PropertyServices();
+        const result = await propertyService.restoreProperty(id);
+
+        if (!result) throw new Error('Failed to restore property');
+
+        return await Property.findById(id);
+      } catch (error: any) {
+        throw new Error(`Error restoring property: ${error.message}`);
+      }
+    },
+
+    updatePropertyStatus: async (_: any, { id, status }: any, { user }: any) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const property = await Property.findOne({ _id: id, ownerId: user.userId });
+        if (!property) throw new Error('Property not found or unauthorized');
+
+        property.status = status;
+        await property.save();
+
+        return property;
+      } catch (error: any) {
+        throw new Error(`Error updating property status: ${error.message}`);
+      }
     }
   },
 
   Property: {
-    owner: async (property) => {
+    owner: async (property: any) => {
       return await User.findById(property.ownerId);
     },
     
-    activities: async (property) => {
+    activities: async (property: any) => {
       return await Activity.find({ propertyId: property._id }).sort({ createdAt: -1 });
     },
     
-    services: async (property) => {
+    services: async (property: any) => {
       return await Service.find({ 
         'availability.zones': property.generalHInfo.area,
         'requirements.propertyTypes': property.propertyType,
@@ -155,21 +283,21 @@ export const propertyResolvers = {
       });
     },
     
-    conversations: async (property) => {
+    conversations: async (property: any) => {
       return await Conversation.find({ propertyId: property._id })
         .populate('participants', 'firstName lastName profilePicture')
         .sort({ updatedAt: -1 })
         .limit(10);
     },
     
-    recentActivities: async (property) => {
+    recentActivities: async (property: any) => {
       return await Activity.find({ propertyId: property._id })
         .populate('clientId', 'firstName lastName profilePicture email')
         .sort({ createdAt: -1 })
         .limit(20);
     },
     
-    financialStats: async (property) => {
+    financialStats: async (property: any) => {
       const transactions = await Transaction.find({
         'metadata.propertyId': property._id.toString()
       });
@@ -191,7 +319,7 @@ export const propertyResolvers = {
       };
     },
     
-    similarProperties: async (property) => {
+    similarProperties: async (property: any) => {
       const propertyService = new PropertyServices();
       return await propertyService.getSImilarProperty({
         propertyId: property._id.toString(),
@@ -199,7 +327,7 @@ export const propertyResolvers = {
       });
     },
     
-    occupancyRate: async (property) => {
+    occupancyRate: async (property: any) => {
       const totalDays = 365;
       const rentedDays = await Activity.countDocuments({
         propertyId: property._id,
@@ -210,11 +338,11 @@ export const propertyResolvers = {
       return Math.min(100, (rentedDays / totalDays) * 100);
     },
     
-    performanceScore: async (property) => {
+    performanceScore: async (property: any) => {
       const activities = await Activity.find({ propertyId: property._id });
       const totalActivities = activities.length;
-      const acceptedActivities = activities.filter(a => 
-        a.isReservationAccepted || a.isVisiteAcccepted
+      const acceptedActivities = activities.filter(a =>
+        a.isReservationAccepted || a.isVisitAccepted
       ).length;
       
       if (totalActivities === 0) return 0;
@@ -226,7 +354,7 @@ export const propertyResolvers = {
       return Math.round((acceptanceRate + priceCompetitiveness + responseTime) / 3);
     },
     
-    reviews: async (property) => {
+    reviews: async (property: any) => {
       const activities = await Activity.find({
         propertyId: property._id,
         isReservationAccepted: true
@@ -241,7 +369,7 @@ export const propertyResolvers = {
       }));
     },
     
-    marketAnalysis: async (property) => {
+    marketAnalysis: async (property: any) => {
       const similarProperties = await Property.find({
         'generalHInfo.area': property.generalHInfo.area,
         propertyType: property.propertyType,
@@ -267,17 +395,17 @@ export const propertyResolvers = {
       };
     },
     
-    pricePerSquareMeter: (property) => {
+    pricePerSquareMeter: (property: any) => {
       return property.generalHInfo.surface > 0 
         ? property.ownerCriteria.monthlyRent / property.generalHInfo.surface 
         : 0;
     },
     
-    isAvailable: (property) => {
+    isAvailable: (property: any) => {
       return property.status === 'AVAILABLE' && property.isActive;
     },
     
-    recommendedServices: async (property) => {
+    recommendedServices: async (property: any) => {
       const recommendationEngine = new RecommendationEngine();
       
       const recommendations = await recommendationEngine.getRecommendations({

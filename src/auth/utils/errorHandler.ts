@@ -8,7 +8,7 @@ const logger = createLogger('ErrorHandler');
 /**
  * Gestionnaire d'erreurs centralisé
  */
-export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
+export const errorHandler = (err: any, req: Request, res: Response, _next: NextFunction) => {
   // Journaliser l'erreur
   const statusCode = err.statusCode || 500;
   const errorMessage = err.message || 'Erreur interne du serveur';
@@ -19,7 +19,7 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
     stack: err.stack,
     path: req.path,
     method: req.method,
-    userId: req.user?.id
+    userId: req.user?.userId
   });
 
   // Préparer la réponse

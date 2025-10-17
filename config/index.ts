@@ -16,10 +16,10 @@ const envConfigs: Record<string, Partial<Config>> = {
 /**
  * Configuration finale qui combine la configuration de base avec celle spécifique à l'environnement
  */
-const config: Config = {
+const config = {
   ...baseConfig,
   ...(envConfigs[env] || {}),
-};
+} as Config;
 
 export default config;
 

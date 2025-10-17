@@ -105,7 +105,7 @@ export class UserPresenceService {
       const presenceKey = `${this.REDIS_PREFIX}${userId}`;
       const presenceData = await this.redisClient.get(presenceKey);
 
-      if (!presenceData) {
+      if (!presenceData || typeof presenceData !== 'string') {
         return null;
       }
 
@@ -169,12 +169,13 @@ export class UserPresenceService {
           const values = await this.redisClient.mGet(keys);
           
           keys.forEach((key, index) => {
-            if (values[index]) {
-              const presence = JSON.parse(values[index]!) as UserPresence;
+            const value = values[index];
+            if (value && typeof value === 'string') {
+              const presence = JSON.parse(value) as UserPresence;
               presence.lastActive = new Date(presence.lastActive);
-              
+
               const updatedPresence = this.calculateCurrentStatus(presence);
-              
+
               if (updatedPresence.status !== PresenceStatus.OFFLINE) {
                 onlineUsers.set(updatedPresence.userId, updatedPresence);
               }

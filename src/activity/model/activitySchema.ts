@@ -28,7 +28,7 @@ const ActivitySchema = new Schema<IActivity>(
 
     isVisited: { type: Boolean, default: false },
     visitDate: { type: Date },
-    isVisiteAcccepted:{type:Boolean, default:true},
+    isVisitAccepted:{type:Boolean, default:true},
     isReservation: { type: Boolean, default: false },
     message: { type: String, default: "", required: true }, 
     reservationDate: { type: Date, default: Date.now },
@@ -38,8 +38,8 @@ const ActivitySchema = new Schema<IActivity>(
     isBookingAccepted: { type: Boolean, default: false },
     uploadedFiles: { type: [UploadedFileSchema], default: [] },
     isPayment:{type:Boolean, default:false},
-    amout:{type:Number, default:0},
-    payementDate:{type:Date, default:Date.now},
+    amount:{type:Number, default:0},
+    paymentDate:{type:Date, default:Date.now},
     refusDate:{type:Date, default:Date.now},
     reason:{type:String, default:""}
 

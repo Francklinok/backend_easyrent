@@ -1,12 +1,11 @@
 
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import { Config } from './type';
 
 // Chargement des variables d'environnement
 dotenv.config();
-
 /**
- * Validation des variables d'environnement obligatoires
+ * Validation des variables d'environnement obligatoires   
  */
 const requiredEnvVars = [
   'JWT_SECRET',
@@ -14,12 +13,11 @@ const requiredEnvVars = [
   'DATABASE_URL'
 ];
 
-for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
-    throw new Error(`Environment variable ${envVar} is required`);
-  }
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+if (missingVars.length > 0) {
+  console.error(`Variables d'environnement manquantes: ${missingVars.join(', ')}`);
+  process.exit(1);
 }
-
 /**
  * Fonction helper pour valider et récupérer une variable d'environnement string
  */
@@ -101,7 +99,7 @@ const baseConfig: Config = {
     commandTimeout: parseInt(process.env.REDIS_COMMAND_TIMEOUT || '5000', 10),
   },
   storage: {
-    provider: (process.env.STORAGE_PROVIDER as 'local' | 's3' | 'azure') || 'local',
+    provider: (process.env.STORAGE_PROVIDER || 'local') as 'local' | 's3' | 'azure',
     bucketName: process.env.STORAGE_BUCKET || 'easyrent-local',
   },
   // ✅ Configuration email corrigée
@@ -151,11 +149,12 @@ const baseConfig: Config = {
       auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL!,
       client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL!,
       univers_domain:process.env.UNIVERSE_DOMAIN
-    },},
+    },
+  },
   security: {
     level: (process.env.SECURITY_LEVEL as 'low' | 'medium' | 'high' | 'adaptive') || 'adaptive',
     rateLimit: {
-      windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 minutes
+      windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
       max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
     },
   },
@@ -167,7 +166,6 @@ const baseConfig: Config = {
     origin: (process.env.CORS_ORIGIN || 'http://localhost:3000,http://192.168.1.66:3000')
     .split(',')
     .map(o => o.trim()),
-    // origin: process.env.CORS_ORIGIN || '*',
     methods: ['GET', 'POST', 'HEAD', 'PUT', 'PATCH', 'DELETE'],
   },
   rateLimit: {
@@ -175,32 +173,27 @@ const baseConfig: Config = {
   },
   messageMaxLength: parseInt(process.env.CHAT_MESSAGE_MAX_LENGTH || '10000', 10),
   typingTimeout: parseInt(process.env.TYPING_TIMEOUT || '10000', 10),
-    cacheTTL: {
-      conversation: 3600,
-      userConversations: 300,
-      searchIndex: 3600 * 24 * 7,
-      patterns: 3600 * 12,
-      reactions: 3600 * 24 * 30,
-    },
-    pagination: {
-      defaultLimit: 20,
-      maxLimit: 100,
-    },
-    encryption: {
-      algorithm: 'aes-256-gcm',
-      ivLength: 16,
-      secretKey: Buffer.from(process.env.ENCRYPTION_KEY || '', 'hex')
-    },
-    imageVariants: {
-      thumbnail: { width: 150, height: 150, quality: 60 },
-      medium: { width: 800, height: 600, quality: 80 },
-      large: { width: 1920, height: 1080, quality: 90 },
-    },
-   
-   
-  
-  };
-
-
+  cacheTTL: {
+    conversation: 3600,
+    userConversations: 300,
+    searchIndex: 3600 * 24 * 7,
+    patterns: 3600 * 12,
+    reactions: 3600 * 24 * 30,
+  },
+  pagination: {
+    defaultLimit: 20,
+    maxLimit: 100,
+  },
+  encryption: {
+    algorithm: 'aes-256-gcm',
+    ivLength: 16,
+    secretKey: Buffer.from(process.env.ENCRYPTION_KEY || '', 'hex')
+  },
+  imageVariants: {
+    thumbnail: { width: 150, height: 150, quality: 60 },
+    medium: { width: 800, height: 600, quality: 80 },
+    large: { width: 1920, height: 1080, quality: 90 },
+  }
+};
 
 export default baseConfig;

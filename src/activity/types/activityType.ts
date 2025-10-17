@@ -33,7 +33,7 @@ export interface ActivityType {
   };
 
 export interface VisiteData{
-  propertyId: Types.ObjectId,
+  propertyId: Types.ObjectId | string,
   clientId?: Types.ObjectId,
   message:string,
   visitDate:Date
@@ -52,11 +52,11 @@ export interface ActivityData{
 
 export interface AcceptReservation{
   activityId: Types.ObjectId,
-  acceptedDate:Date,
+  acceptedDate?:Date,
 }
 export interface RefuseReservation{
   activityId: Types.ObjectId,
-  refusDate:Date,
+  refusDate?:Date,
   reason:string
 }
 
@@ -68,3 +68,16 @@ export interface ActivityPayment{
   paymentDate:Date
 }
 
+export interface PaymentResult {
+    activityId: Types.ObjectId,
+    amount: number,
+
+}
+
+export interface ActivityFilter{
+  propertyId?: Types.ObjectId | string,
+  userId: Types.ObjectId | string,
+  pagination:{page:number,limit:number},
+  filters?:{isVisited?:boolean,isReservation?:boolean,booking?:boolean,isPayment?:boolean}
+
+}

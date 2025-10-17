@@ -80,16 +80,35 @@ const propertySchema = new Schema<IPropertyDocument>(
     },
 
     generalLandinfo: {
-      surface:{type:Number,min:1,required:true},
+      surface: { type: Number, min: 1, required: true },
       constructible: { type: Boolean, default: true },
       cultivable: { type: Boolean, default: true },
       fence: { type: Boolean, default: false },
     },
 
     images: {
-      type: [String],
+      type: [{
+        publicId: { type: String, required: true },
+        originalUrl: { type: String, required: true },
+        variants: {
+          thumbnail: { type: String, required: true },
+          small: { type: String, required: true },
+          medium: { type: String, required: true },
+          large: { type: String, required: true },
+          original: { type: String, required: true }
+        },
+        metadata: {
+          width: { type: Number, required: true },
+          height: { type: Number, required: true },
+          format: { type: String, required: true },
+          size: { type: Number, required: true },
+          aspectRatio: { type: Number, required: true }
+        },
+        uploadedAt: { type: Date, default: Date.now },
+        order: { type: Number, default: 0 }
+      }],
       validate: {
-        validator: (v: string[]) => v.length > 0,
+        validator: (v: any[]) => v.length > 0,
         message: 'Au moins une image est requise',
       },
       required: true,

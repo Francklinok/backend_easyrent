@@ -5,6 +5,7 @@ import { userResolvers } from '../../users/graphql/userResolvers';
 import { walletResolvers } from '../../wallet/graphql/walletResolvers';
 import { chatResolvers } from '../../chat/graphql/chatResolvers';
 import { activityResolvers } from '../../activity/graphql/activityResolvers';
+import { cryptoResolvers } from '../../crypto/graphql/cryptoResolvers';
 import { GraphQLScalarType } from 'graphql';
 import { Kind } from 'graphql/language';
 
@@ -48,19 +49,22 @@ export const resolvers = {
     ...userResolvers.Query,
     ...walletResolvers.Query,
     ...chatResolvers.Query,
-    ...activityResolvers.Query
+    ...activityResolvers.Query,
+    ...cryptoResolvers.Query
   },
   Mutation: {
     ...propertyResolvers.Mutation,
     ...serviceResolvers.Mutation,
     ...walletResolvers.Mutation,
     ...chatResolvers.Mutation,
-    ...activityResolvers.Mutation
+    ...activityResolvers.Mutation,
+    ...cryptoResolvers.Mutation
   },
   Subscription: {
     ...walletResolvers.Subscription,
     ...chatResolvers.Subscription,
-    ...activityResolvers.Subscription
+    ...activityResolvers.Subscription,
+    ...cryptoResolvers.Subscription
   },
   // Types
   Property: propertyResolvers.Property,

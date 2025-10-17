@@ -3,7 +3,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import { Request } from 'express';
-import config from '../../../config';
 // Définition des niveaux de log personnalisés
 const levels = {
   error: 0,
@@ -26,7 +25,7 @@ winston.addColors(colors);
 
 // Détermine le niveau de log selon l'environnement
 const level = () => {
-  const  env = config.app.env
+  const env = process.env.NODE_ENV || 'development';
   return env === 'development' ? 'debug' : 'info';
 };
 

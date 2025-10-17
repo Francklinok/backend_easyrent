@@ -6,10 +6,11 @@ import ChatService from '../services/chatService';
 import EncryptionService from '../services/encryptionService';
 import ValidationService from '../services/validationService';
 import AIAnalysisService from '../services/AIAnalysis';
+import { Types } from 'mongoose';
 
 export const chatResolvers = {
   Query: {
-    conversation: async (_, { id }, { user }) => {
+    conversation: async (_: any, { id }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const conversation = await Conversation.findById(id)
@@ -27,7 +28,7 @@ export const chatResolvers = {
       return conversation;
     },
     
-    conversations: async (_, { pagination }, { user }) => {
+    conversations: async (_: any, { pagination }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const chatService = new ChatService(null as any);
@@ -54,7 +55,7 @@ export const chatResolvers = {
       };
     },
     
-    searchConversations: async (_, { query, filters }, { user }) => {
+    searchConversations: async (_: any, { query, filters }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const searchQuery: any = {
@@ -75,7 +76,7 @@ export const chatResolvers = {
         .limit(20);
     },
     
-    conversationAnalytics: async (_, { conversationId }, { user }) => {
+    conversationAnalytics: async (_: any, { conversationId }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const chatService = new ChatService(null as any);
@@ -84,7 +85,7 @@ export const chatResolvers = {
   },
 
   Mutation: {
-    sendMessage: async (_, { input }, { user }) => {
+    sendMessage: async (_: any, { input }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const chatService = new ChatService(null as any);
@@ -103,7 +104,7 @@ export const chatResolvers = {
       return await chatService.sendMessage(messageData);
     },
     
-    reactToMessage: async (_, { input }, { user }) => {
+    reactToMessage: async (_: any, { input }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const chatService = new ChatService(null as any);
@@ -115,7 +116,7 @@ export const chatResolvers = {
       });
     },
     
-    markMessagesAsRead: async (_, { conversationId, messageIds }, { user }) => {
+    markMessagesAsRead: async (_: any, { conversationId, messageIds }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const chatService = new ChatService(null as any);
@@ -123,7 +124,7 @@ export const chatResolvers = {
       return true;
     },
     
-    deleteMessage: async (_, { input }, { user }) => {
+    deleteMessage: async (_: any, { input }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const chatService = new ChatService(null as any);
@@ -136,7 +137,7 @@ export const chatResolvers = {
       });
     },
     
-    archiveConversation: async (_, { conversationId }, { user, req }) => {
+    archiveConversation: async (_: any, { conversationId }: any, { user, req }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const chatService = new ChatService(null as any);
@@ -148,7 +149,7 @@ export const chatResolvers = {
       );
     },
     
-    createOrGetConversation: async (_, { input }, { user }) => {
+    createOrGetConversation: async (_: any, { input }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
       const chatService = new ChatService(null as any);
@@ -162,25 +163,25 @@ export const chatResolvers = {
   },
 
   Conversation: {
-    participants: async (conversation) => {
+    participants: async (conversation: any) => {
       return await User.find({ _id: { $in: conversation.participants } })
         .select('firstName lastName profilePicture presenceStatus lastActive email');
     },
-    
-    lastMessage: async (conversation) => {
+
+    lastMessage: async (conversation: any) => {
       return await Message.findOne({ conversationId: conversation._id })
         .sort({ createdAt: -1 });
     },
-    
-    unreadCount: async (conversation, { userId }) => {
+
+    unreadCount: async (conversation: any, { userId }: any) => {
       return await Message.countDocuments({
         conversationId: conversation._id,
         senderId: { $ne: userId },
         'status.read': { $not: { $elemMatch: { userId } } }
       });
     },
-    
-    messages: async (conversation, { limit, offset, filters }) => {
+
+    messages: async (conversation: any, { limit, offset, filters }: any) => {
       const query: any = { conversationId: conversation._id, isDeleted: false };
       
       if (filters?.messageType) query.messageType = filters.messageType;
@@ -213,24 +214,24 @@ export const chatResolvers = {
       return messages;
     },
     
-    property: async (conversation) => {
+    property: async (conversation: any) => {
       if (!conversation.propertyId) return null;
       return await Property.findById(conversation.propertyId);
     },
-    
-    stats: async (conversation) => {
+
+    stats: async (conversation: any) => {
       const chatService = new ChatService(null as any);
       return await chatService.getConversationStats(conversation._id.toString());
     },
-    
-    onlineParticipants: async (conversation) => {
+
+    onlineParticipants: async (conversation: any) => {
       return await User.find({
         _id: { $in: conversation.participants },
         presenceStatus: 'online'
       }).select('firstName lastName profilePicture');
     },
-    
-    isArchivedFor: (conversation, { userId }) => {
+
+    isArchivedFor: (conversation: any, { userId }: any) => {
       if (!conversation.isArchivedBy) return false;
       return conversation.isArchivedBy.some(
         (entry: any) => entry.userId.toString() === userId
@@ -239,33 +240,33 @@ export const chatResolvers = {
   },
 
   Message: {
-    sender: async (message) => {
+    sender: async (message: any) => {
       return await User.findById(message.senderId);
     },
-    
-    conversation: async (message) => {
+
+    conversation: async (message: any) => {
       return await Conversation.findById(message.conversationId);
     },
-    
-    replyTo: async (message) => {
+
+    replyTo: async (message: any) => {
       if (!message.replyTo) return null;
       return await Message.findById(message.replyTo);
     },
-    
-    property: async (message) => {
+
+    property: async (message: any) => {
       if (!message.location?.propertyId) return null;
       return await Property.findById(message.location.propertyId);
     },
-    
-    aiInsights: (message) => {
+
+    aiInsights: (message: any) => {
       return message.aiInsights || null;
     },
-    
-    reactions: (message) => {
+
+    reactions: (message: any) => {
       return message.reactions || [];
     },
-    
-    mentions: async (message) => {
+
+    mentions: async (message: any) => {
       if (!message.mentions || message.mentions.length === 0) return [];
       
       return await User.find({
@@ -273,25 +274,25 @@ export const chatResolvers = {
       }).select('firstName lastName username profilePicture');
     },
     
-    readStatus: (message, { userId }) => {
+    readStatus: (message: any, { userId }: any) => {
       if (!message.status?.read) return null;
-      
+
       const readEntry = message.status.read.find(
         (entry: any) => entry.userId.toString() === userId
       );
-      
+
       return readEntry ? readEntry.timestamp : null;
     },
-    
-    isEdited: (message) => {
+
+    isEdited: (message: any) => {
       return message.isEdited || false;
     },
-    
-    editHistory: (message) => {
+
+    editHistory: (message: any) => {
       return message.editHistory || [];
     },
-    
-    sentimentAnalysis: async (message) => {
+
+    sentimentAnalysis: async (message: any) => {
       if (message.aiInsights?.sentiment) {
         return message.aiInsights.sentiment;
       }
@@ -308,7 +309,7 @@ export const chatResolvers = {
 
   Subscription: {
     messageAdded: {
-      subscribe: async function* (_, { conversationId }, { user }) {
+      subscribe: async function* (_: any, { conversationId }: any, { user }: any) {
         if (!user) throw new Error('Authentication required');
         
         const conversation = await Conversation.findById(conversationId);
@@ -322,15 +323,15 @@ export const chatResolvers = {
     },
     
     conversationUpdated: {
-      subscribe: async function* (_, { userId }, { user }) {
+      subscribe: async function* (_: any, { userId }: any, { user }: any) {
         if (!user || user.userId !== userId) throw new Error('Access denied');
-        
+
         yield { conversationUpdated: null };
       }
     },
-    
+
     typingStatus: {
-      subscribe: async function* (_, { conversationId }, { user }) {
+      subscribe: async function* (_: any, { conversationId }: any, { user }: any) {
         if (!user) throw new Error('Authentication required');
         
         const conversation = await Conversation.findById(conversationId);
@@ -344,18 +345,18 @@ export const chatResolvers = {
   },
 
   AIInsight: {
-    sentiment: (aiInsight) => aiInsight.sentiment,
-    intentDetection: (aiInsight) => aiInsight.intentDetection,
-    autoSuggestions: (aiInsight) => aiInsight.autoSuggestions || [],
-    priority: (aiInsight) => aiInsight.priority || 'normal',
-    confidence: (aiInsight) => aiInsight.confidence || 0,
-    language: (aiInsight) => aiInsight.language || 'unknown',
-    topics: (aiInsight) => aiInsight.topics || [],
-    entities: (aiInsight) => aiInsight.entities || []
+    sentiment: (aiInsight: any) => aiInsight.sentiment,
+    intentDetection: (aiInsight: any) => aiInsight.intentDetection,
+    autoSuggestions: (aiInsight: any) => aiInsight.autoSuggestions || [],
+    priority: (aiInsight: any) => aiInsight.priority || 'normal',
+    confidence: (aiInsight: any) => aiInsight.confidence || 0,
+    language: (aiInsight: any) => aiInsight.language || 'unknown',
+    topics: (aiInsight: any) => aiInsight.topics || [],
+    entities: (aiInsight: any) => aiInsight.entities || []
   },
-  
+
   SentimentAnalysis: {
-    score: (sentiment) => sentiment.score || 0,
-    label: (sentiment) => sentiment.label || 'neutral'
+    score: (sentiment: any) => sentiment.score || 0,
+    label: (sentiment: any) => sentiment.label || 'neutral'
   }
 };

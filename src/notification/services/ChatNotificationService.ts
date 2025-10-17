@@ -1,4 +1,5 @@
 import { NotificationManager } from './NotificationManager';
+import { NotificationType, NotificationPriority, NotificationChannel } from '../types/notificationTypes';
 import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('ChatNotificationService');
@@ -38,23 +39,30 @@ export class ChatNotificationService {
 
       const targetUserIds = participants.map((p: any) => p._id?.toString() || p.toString());
 
-      return await this.notificationManager.sendNotification({
-        type: 'push',
-        title: `💬 ${senderName}`,
-        body: messagePreview,
-        data: {
-          type: 'chat',
-          action: 'new_message',
-          conversationId: conversation._id.toString(),
-          messageId: message._id?.toString(),
-          senderId: message.senderId?.toString(),
-          messageType: message.messageType
-        },
-        targetUsers: targetUserIds,
+      const result = await this.notificationManager.sendNotification({
+        userId: targetUserIds,
+        type: NotificationType.MESSAGE_RECEIVED,
+        channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
         priority: this.getMessagePriority(message),
-        sound: 'default',
-        badge: true
+        title: `💬 ${senderName}`,
+        message: messagePreview,
+        data: {
+          push: {
+            tokens: [],
+            title: `💬 ${senderName}`,
+            body: messagePreview,
+            data: {
+              type: 'chat',
+              action: 'new_message',
+              conversationId: conversation._id.toString(),
+              messageId: message._id?.toString(),
+              senderId: message.senderId?.toString(),
+              messageType: message.messageType
+            }
+          }
+        }
       });
+      return result.success;
     } catch (error) {
       logger.error('Erreur notification nouveau message', {
         error: error instanceof Error ? error.message : 'Erreur inconnue',
@@ -82,23 +90,23 @@ export class ChatNotificationService {
 
       const reactorName = await this.getSenderName(reactorId);
 
-      return await this.notificationManager.sendNotification({
-        type: 'push',
+      const result = await this.notificationManager.sendNotification({
+        userId: [message.senderId?.toString()],
+        type: NotificationType.MESSAGE_RECEIVED,
+        channels: [NotificationChannel.IN_APP],
+        priority: NotificationPriority.NORMAL,
         title: '👍 Nouvelle réaction',
-        body: `${reactorName} a réagi ${reactionType} à votre message`,
+        message: `${reactorName} a réagi ${reactionType} à votre message`,
         data: {
-          type: 'chat',
-          action: 'message_reaction',
-          conversationId: conversation._id.toString(),
-          messageId: message._id?.toString(),
-          reactorId,
-          reactionType
-        },
-        targetUsers: [message.senderId?.toString()],
-        priority: 'normal',
-        sound: 'subtle',
-        badge: false
+          inApp: {
+            userId: message.senderId?.toString(),
+            title: '👍 Nouvelle réaction',
+            message: `${reactorName} a réagi ${reactionType} à votre message`,
+            category: 'chat'
+          }
+        }
       });
+      return result.success;
     } catch (error) {
       logger.error('Erreur notification réaction message', {
         error: error instanceof Error ? error.message : 'Erreur inconnue',
@@ -123,25 +131,27 @@ export class ChatNotificationService {
       }
 
       const senderName = await this.getSenderName(message.senderId);
+      const messageText = typeof message.content === 'string'
+        ? message.content.substring(0, 100)
+        : 'Message avec mention';
 
-      return await this.notificationManager.sendNotification({
-        type: 'push',
+      const result = await this.notificationManager.sendNotification({
+        userId: mentionedUserIds,
+        type: NotificationType.MESSAGE_RECEIVED,
+        channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
+        priority: NotificationPriority.HIGH,
         title: `🔔 ${senderName} vous a mentionné`,
-        body: typeof message.content === 'string'
-          ? message.content.substring(0, 100)
-          : 'Message avec mention',
+        message: messageText,
         data: {
-          type: 'chat',
-          action: 'message_mention',
-          conversationId: conversation._id.toString(),
-          messageId: message._id?.toString(),
-          senderId: message.senderId?.toString()
-        },
-        targetUsers: mentionedUserIds,
-        priority: 'high',
-        sound: 'attention',
-        badge: true
+          inApp: {
+            userId: mentionedUserIds,
+            title: `🔔 ${senderName} vous a mentionné`,
+            message: messageText,
+            category: 'chat'
+          }
+        }
       });
+      return result.success;
     } catch (error) {
       logger.error('Erreur notification mention message', {
         error: error instanceof Error ? error.message : 'Erreur inconnue',
@@ -183,23 +193,23 @@ export class ChatNotificationService {
 
       const targetUserIds = participants.map((p: any) => p._id?.toString() || p.toString());
 
-      return await this.notificationManager.sendNotification({
-        type: 'push',
+      const result = await this.notificationManager.sendNotification({
+        userId: targetUserIds,
+        type: NotificationType.MESSAGE_RECEIVED,
+        channels: [NotificationChannel.IN_APP],
+        priority: NotificationPriority.NORMAL,
         title,
-        body,
+        message: body,
         data: {
-          type: 'chat',
-          action: 'conversation_created',
-          conversationId: conversation._id.toString(),
-          creatorId,
-          conversationType: conversation.type,
-          propertyId: conversation.propertyId?.toString()
-        },
-        targetUsers: targetUserIds,
-        priority: 'normal',
-        sound: 'default',
-        badge: true
+          inApp: {
+            userId: targetUserIds,
+            title,
+            message: body,
+            category: 'chat'
+          }
+        }
       });
+      return result.success;
     } catch (error) {
       logger.error('Erreur notification nouvelle conversation', {
         error: error instanceof Error ? error.message : 'Erreur inconnue',
@@ -215,20 +225,23 @@ export class ChatNotificationService {
    */
   async sendScheduledMessageDeliveredNotification(message: any): Promise<boolean> {
     try {
-      return await this.notificationManager.sendNotification({
-        type: 'push',
+      const result = await this.notificationManager.sendNotification({
+        userId: [message.senderId?.toString()],
+        type: NotificationType.MESSAGE_RECEIVED,
+        channels: [NotificationChannel.IN_APP],
+        priority: NotificationPriority.LOW,
         title: '⏰ Message programmé envoyé',
-        body: 'Votre message programmé a été livré',
+        message: 'Votre message programmé a été livré',
         data: {
-          type: 'chat',
-          action: 'scheduled_message_delivered',
-          messageId: message._id?.toString()
-        },
-        targetUsers: [message.senderId?.toString()],
-        priority: 'low',
-        sound: 'subtle',
-        badge: false
+          inApp: {
+            userId: message.senderId?.toString(),
+            title: '⏰ Message programmé envoyé',
+            message: 'Votre message programmé a été livré',
+            category: 'chat'
+          }
+        }
       });
+      return result.success;
     } catch (error) {
       logger.error('Erreur notification message programmé', {
         error: error instanceof Error ? error.message : 'Erreur inconnue',
@@ -278,37 +291,37 @@ export class ChatNotificationService {
   /**
    * Déterminer la priorité du message
    */
-  private getMessagePriority(message: any): 'low' | 'normal' | 'high' | 'urgent' {
+  private getMessagePriority(message: any): NotificationPriority {
     // Messages avec mentions = priorité élevée
     if (message.mentions && message.mentions.length > 0) {
-      return 'high';
+      return NotificationPriority.HIGH;
     }
 
     // Messages de réponse = priorité normale élevée
     if (message.replyTo) {
-      return 'normal';
+      return NotificationPriority.NORMAL;
     }
 
     // Messages avec IA détectant une urgence
     if (message.aiInsights?.priority === 'urgent') {
-      return 'urgent';
+      return NotificationPriority.URGENT;
     }
 
     if (message.aiInsights?.priority === 'high') {
-      return 'high';
+      return NotificationPriority.HIGH;
     }
 
     // Messages liés aux propriétés = priorité normale
     if (message.messageType === 'property' || message.messageType === 'location') {
-      return 'normal';
+      return NotificationPriority.NORMAL;
     }
 
     // Médias = priorité légèrement plus faible
     if (['image', 'video', 'audio', 'document'].includes(message.messageType)) {
-      return 'normal';
+      return NotificationPriority.NORMAL;
     }
 
-    return 'normal';
+    return NotificationPriority.NORMAL;
   }
 
   /**

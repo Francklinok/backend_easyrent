@@ -2,8 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import ActivityServices from '../service/ActivityServices';
 import { createLogger } from '../../utils/logger/logger';
 import { Server as IOServer } from 'socket.io';
-import  { Type } from '@sinclair/typebox';
-
+// import  { Type } from '@sinclair/typebox';
+import { Types } from "mongoose";
+import { ActivityPayment } from '../types/activityType';
 const logger = createLogger('ActivityController');
 
 class ActivityController {
@@ -27,7 +28,7 @@ class ActivityController {
         propertyId,
         visitDate,
         message,
-        clientId as  Type.ObjectId
+        clientId: new Types.ObjectId(clientId)
       });
 
       res.status(201).json({
@@ -48,7 +49,8 @@ class ActivityController {
       const result = await this.activityService.createReservation({
         activityId,
         reservationDate,
-        uploadedFiles
+        uploadedFiles,
+        documentsUploaded:false
       });
 
       res.status(201).json({
@@ -98,9 +100,9 @@ class ActivityController {
 
   async processPayment(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { activityId, amount } = req.body;
+      const payment  = req.body as ActivityPayment
 
-      const result = await this.activityService.processPayment(activityId, { amount });
+      const result = await this.activityService.processPayment(payment);
 
       res.status(200).json({
         success: true,

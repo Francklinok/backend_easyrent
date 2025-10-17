@@ -3,6 +3,7 @@ import { NotificationManager } from './NotificationManager';
 import { ActivityNotificationService } from './ActivityNotificationService';
 import { PropertyNotificationService } from './PropertyNotificationService';
 import { ChatNotificationService } from './ChatNotificationService';
+import { NotificationType, NotificationChannel, NotificationPriority } from '../types/notificationTypes';
 import { createLogger } from '../../utils/logger/logger';
 
 const logger = createLogger('IntegratedNotificationService');
@@ -303,20 +304,29 @@ export class IntegratedNotificationService {
       logger.info('Notification nouveau service proposé', { serviceId: service._id });
 
       // Notifier les utilisateurs intéressés par ce type de service
-      return await this.notificationManager.sendNotification({
-        type: 'push',
+      const targetUsers = await this.getInterestedUsers('service', service);
+      const result = await this.notificationManager.sendNotification({
+        userId: targetUsers,
+        type: NotificationType.CUSTOM,
+        channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
         title: '🔧 Nouveau service disponible',
-        body: `${service.title} proposé dans votre région`,
+        message: `${service.title} proposé dans votre région`,
         data: {
-          type: 'service_marketplace',
-          action: 'new_service',
-          serviceId: service._id.toString(),
-          category: service.category,
-          location: service.location
+          inApp: {
+            userId: targetUsers,
+            title: '🔧 Nouveau service disponible',
+            message: `${service.title} proposé dans votre région`,
+            category: 'service',
+            actionUrl: `/services/${service._id}`
+          }
         },
-        targetUsers: await this.getInterestedUsers('service', service),
-        priority: 'normal'
+        priority: NotificationPriority.NORMAL,
+        metadata: {
+          source: 'service_marketplace',
+          tags: ['new_service', service.category]
+        }
       });
+      return result.success;
     } catch (error) {
       logger.error('Erreur notification nouveau service', { error });
       return false;
@@ -330,20 +340,28 @@ export class IntegratedNotificationService {
     try {
       logger.info('Notification demande de service', { requestId: serviceRequest._id });
 
-      return await this.notificationManager.sendNotification({
-        type: 'push',
+      const result = await this.notificationManager.sendNotification({
+        userId: serviceRequest.providerId,
+        type: NotificationType.CUSTOM,
+        channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
         title: '📞 Nouvelle demande de service',
-        body: `Quelqu'un souhaite votre service: ${serviceRequest.serviceTitle}`,
+        message: `Quelqu'un souhaite votre service: ${serviceRequest.serviceTitle}`,
         data: {
-          type: 'service_marketplace',
-          action: 'service_request',
-          requestId: serviceRequest._id.toString(),
-          clientId: serviceRequest.clientId,
-          serviceId: serviceRequest.serviceId
+          inApp: {
+            userId: serviceRequest.providerId,
+            title: '📞 Nouvelle demande de service',
+            message: `Quelqu'un souhaite votre service: ${serviceRequest.serviceTitle}`,
+            category: 'service',
+            actionUrl: `/service-requests/${serviceRequest._id}`
+          }
         },
-        targetUsers: [serviceRequest.providerId],
-        priority: 'high'
+        priority: NotificationPriority.HIGH,
+        metadata: {
+          source: 'service_marketplace',
+          tags: ['service_request']
+        }
       });
+      return result.success;
     } catch (error) {
       logger.error('Erreur notification demande de service', { error });
       return false;
@@ -361,24 +379,33 @@ export class IntegratedNotificationService {
       });
 
       const title = isAccepted ? '✅ Service accepté' : '❌ Service refusé';
-      const body = isAccepted
+      const message = isAccepted
         ? `Votre demande pour ${serviceRequest.serviceTitle} a été acceptée`
         : `Votre demande pour ${serviceRequest.serviceTitle} a été refusée`;
+      const fullMessage = response ? `${message}: ${response}` : message;
 
-      return await this.notificationManager.sendNotification({
-        type: 'push',
+      const result = await this.notificationManager.sendNotification({
+        userId: serviceRequest.clientId,
+        type: NotificationType.CUSTOM,
+        channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
         title,
-        body: response ? `${body}: ${response}` : body,
+        message: fullMessage,
         data: {
-          type: 'service_marketplace',
-          action: isAccepted ? 'service_accepted' : 'service_refused',
-          requestId: serviceRequest._id.toString(),
-          providerId: serviceRequest.providerId,
-          response
+          inApp: {
+            userId: serviceRequest.clientId,
+            title,
+            message: fullMessage,
+            category: 'service',
+            actionUrl: `/service-requests/${serviceRequest._id}`
+          }
         },
-        targetUsers: [serviceRequest.clientId],
-        priority: 'high'
+        priority: NotificationPriority.HIGH,
+        metadata: {
+          source: 'service_marketplace',
+          tags: [isAccepted ? 'service_accepted' : 'service_refused']
+        }
       });
+      return result.success;
     } catch (error) {
       logger.error('Erreur notification réponse service', { error });
       return false;

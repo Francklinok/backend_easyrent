@@ -391,8 +391,8 @@ export class SmsNotificationService {
       });
 
       return {
-        totalMessages: usage.reduce((sum, record) => sum + parseInt(record.count), 0),
-        totalCost: usage.reduce((sum, record) => sum + parseFloat(record.price), 0),
+        totalMessages: usage.reduce((sum, record) => sum + parseInt(record.count.toString()), 0),
+        totalCost: usage.reduce((sum, record) => sum + parseFloat(record.price.toString()), 0),
         records: usage.map(record => ({
           date: record.startDate,
           count: record.count,

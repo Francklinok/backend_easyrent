@@ -50,9 +50,10 @@ class ActivityServices {
 
     const session = await mongoose.startSession();
     session.startTransaction();
+    const { propertyId, visitDate, message, clientId } = visitData;
+
 
     try {
-      const { propertyId, visitDate, message, clientId } = visitData;
 
       // Vérification de la propriété avec gestion d'erreur spécifique
       const property = await Property.findById(propertyId).session(session);
@@ -159,7 +160,7 @@ class ActivityServices {
         conversationId: conversation._id.toString(),
         propertyDetails: {
           title: property.title,
-          location: property.location
+          location: property.address
         }
       };
 
@@ -184,7 +185,7 @@ class ActivityServices {
   }
 
   async createReservation(activity: ActivityData) {
-    const { activityId, reservationDate, uploadedFiles } = activity;
+    const { activityId, reservationDate, uploadedFiles,documentsUploaded } = activity;
     const session = await mongoose.startSession();
     session.startTransaction();
 
@@ -213,6 +214,7 @@ class ActivityServices {
         files = uploadedFiles;
         if (files && files.length > 0) {
           isdocumentUpload = true;
+          // documentsUploaded: true
         }
       }
 
@@ -314,7 +316,7 @@ class ActivityServices {
       }
 
       // use the accept date from reservation if available
-      const acceptDate = reservation?.acceptDate ?? new Date();
+      const acceptDate = reservation?.acceptedDate ?? new Date();
 
       let convId = activityDoc.conversationId;
       if (!convId) {
@@ -813,9 +815,9 @@ class ActivityServices {
     }
   }
 
-  async processPayment(activityId: string, paymentData: ActivityPayment) {
+  async processPayment( paymentData: ActivityPayment) {
     try {
-      const result = await this.payReservation({ activityId, ...paymentData });
+      const result = await this.payReservation(paymentData );
       return result;
     } catch (error) {
       logger.error("error processing payment", error);

@@ -6,19 +6,16 @@ const logger = createLogger('GraphQLSecurity');
 
 // Rate limiters pour différents types d'opérations
 const queryLimiter = new RateLimiterMemory({
-  keyGenerator: (root, args, context) => context.user?.userId || context.req.ip,
   points: 100, // Nombre de requêtes
   duration: 60, // Par minute
 });
 
 const mutationLimiter = new RateLimiterMemory({
-  keyGenerator: (root, args, context) => context.user?.userId || context.req.ip,
   points: 20, // Nombre de mutations
   duration: 60, // Par minute
 });
 
 const subscriptionLimiter = new RateLimiterMemory({
-  keyGenerator: (root, args, context) => context.user?.userId || context.req.ip,
   points: 5, // Nombre de subscriptions
   duration: 60, // Par minute
 });
@@ -52,12 +49,13 @@ const isAdmin = rule({ cache: 'contextual' })(
 const queryRateLimit = rule({ cache: 'no_cache' })(
   async (parent, args, context) => {
     try {
-      await queryLimiter.consume(context.user?.userId || context.req.ip);
+      const key = context.user?.userId || context.req?.ip || 'anonymous';
+      await queryLimiter.consume(key);
       return true;
     } catch (rejRes) {
       logger.warn('Query rate limit exceeded', {
         userId: context.user?.userId,
-        ip: context.req.ip
+        ip: context.req?.ip
       });
       return new Error('Too many queries. Please try again later.');
     }
@@ -67,12 +65,13 @@ const queryRateLimit = rule({ cache: 'no_cache' })(
 const mutationRateLimit = rule({ cache: 'no_cache' })(
   async (parent, args, context) => {
     try {
-      await mutationLimiter.consume(context.user?.userId || context.req.ip);
+      const key = context.user?.userId || context.req?.ip || 'anonymous';
+      await mutationLimiter.consume(key);
       return true;
     } catch (rejRes) {
       logger.warn('Mutation rate limit exceeded', {
         userId: context.user?.userId,
-        ip: context.req.ip
+        ip: context.req?.ip
       });
       return new Error('Too many mutations. Please try again later.');
     }
@@ -118,10 +117,10 @@ export const permissions = shield({
   },
   
   Subscription: {
-    messageAdded: and(isAuthenticated, subscriptionLimiter),
-    activityUpdated: and(isAuthenticated, subscriptionLimiter),
-    walletUpdated: and(isAuthenticated, subscriptionLimiter),
-    serviceRecommendationUpdated: and(isAuthenticated, subscriptionLimiter),
+    messageAdded: isAuthenticated,
+    activityUpdated: isAuthenticated,
+    walletUpdated: isAuthenticated,
+    serviceRecommendationUpdated: isAuthenticated,
   }
 }, {
   allowExternalErrors: true,

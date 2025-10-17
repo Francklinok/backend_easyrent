@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { EmailNotificationService } from './EmailNotificationService';
 import { SmsNotificationService } from './SmsNotificationService';
 import { InAppNotificationService } from './InAppNotificationService';
+import { PushNotificationService } from './PushNotificationService';  // ✅ AJOUTÉ
 import { Notification, NotificationHistory } from '../models/Notification';
 import {
   NotificationRequest,
@@ -20,6 +21,7 @@ export class NotificationManager {
   private emailService: EmailNotificationService;
   private smsService: SmsNotificationService;
   private inAppService: InAppNotificationService;
+  private pushService: PushNotificationService;  // ✅ AJOUTÉ
   private isProcessingQueue: boolean = false;
   private queueProcessingInterval: NodeJS.Timeout | null = null;
 
@@ -27,11 +29,12 @@ export class NotificationManager {
     this.emailService = new EmailNotificationService();
     this.smsService = new SmsNotificationService();
     this.inAppService = new InAppNotificationService(io);
+    this.pushService = new PushNotificationService();  // ✅ AJOUTÉ
 
     // Démarrer le traitement automatique de la queue
     this.startQueueProcessing();
 
-    logger.info('NotificationManager initialisé');
+    logger.info('NotificationManager initialisé avec tous les services');
   }
 
   /**
@@ -44,6 +47,7 @@ export class NotificationManager {
   }> {
     const results: Record<NotificationChannel, boolean> = {} as any;
     let overallSuccess = false;
+    let notificationId: string | undefined;
 
     try {
       const userIds = Array.isArray(request.userId) ? request.userId : [request.userId];
@@ -51,7 +55,6 @@ export class NotificationManager {
       // Traitement pour chaque utilisateur
       for (const userId of userIds) {
         // Créer la notification en base pour les canaux in-app
-        let notificationId: string | undefined;
 
         if (request.channels.includes(NotificationChannel.IN_APP)) {
           const notification = new Notification({
@@ -229,9 +232,8 @@ export class NotificationManager {
         metadata: {
           ...request.metadata,
           channel: request.channels,
-          source: 'scheduled',
-          scheduledRequest: request
-        }
+          source: 'scheduled'
+        } as any
       });
 
       const savedNotification = await notification.save();
@@ -275,14 +277,15 @@ export class NotificationManager {
 
       for (const notification of scheduledNotifications) {
         try {
-          const request = notification.metadata?.scheduledRequest as NotificationRequest;
+          const metadata = notification.metadata as any;
+          const request = metadata?.scheduledRequest as NotificationRequest;
           if (request) {
             await this.sendNotification(request);
 
             // Marquer comme traitée
             notification.metadata = notification.metadata || {};
-            notification.metadata.processed = true;
-            notification.metadata.processedAt = new Date();
+            (notification.metadata as any).processed = true;
+            (notification.metadata as any).processedAt = new Date();
             await notification.save();
           }
         } catch (error) {
@@ -407,7 +410,8 @@ export class NotificationManager {
     const services = await Promise.all([
       this.emailService.getProviderStatus(),
       this.smsService.getProviderStatus(),
-      this.inAppService.getProviderStatus()
+      this.inAppService.getProviderStatus(),
+      this.pushService.getProviderStatus()  // ✅ AJOUTÉ
     ]);
 
     return services;
@@ -442,26 +446,38 @@ export class NotificationManager {
   // Méthodes privées utilitaires
 
   private async sendPushNotification(pushData: any, userId: string, notificationId?: string): Promise<boolean> {
-    // Intégration avec le service push existant
+    // ✅ Utiliser le PushNotificationService consolidé
     try {
-      // Utiliser le NotificationService existant pour les push notifications
-      const { NotificationService } = await import('../../services/notificationServices');
-      const pushService = new NotificationService();
-
-      let success = false;
-
       if (pushData.tokens && pushData.tokens.length > 0) {
-        success = await pushService.sendFCMPushNotification(pushData.tokens, {
+        const result = await this.pushService.sendCustomNotification({
+          tokens: pushData.tokens,
           title: pushData.title,
           body: pushData.body,
           icon: pushData.icon,
-          data: pushData.data
+          image: pushData.image,
+          sound: pushData.sound,
+          badge: pushData.badge,
+          data: pushData.data,
+          clickAction: pushData.clickAction,
+          category: pushData.category,
+          tag: pushData.tag
         });
+
+        logger.info('Push notification envoyée', {
+          userId,
+          notificationId,
+          success: result.success,
+          failed: result.failed
+        });
+
+        return result.success > 0;
       }
 
-      return success;
+      return false;
     } catch (error) {
       logger.error('Erreur envoi push notification', {
+        userId,
+        notificationId,
         error: error instanceof Error ? error.message : 'Erreur inconnue'
       });
       return false;
@@ -578,5 +594,9 @@ export class NotificationManager {
 
   get inApp(): InAppNotificationService {
     return this.inAppService;
+  }
+
+  get push(): PushNotificationService {  // ✅ AJOUTÉ
+    return this.pushService;
   }
 }

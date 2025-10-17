@@ -1,4 +1,6 @@
-import { ApolloServer } from 'apollo-server-express';
+import { ApolloServer } from '@apollo/server';
+import cors from 'cors';
+import { json } from 'body-parser';
 import { chatTypeDefs, chatResolvers } from '../graphql';
 import { Server as IOServer } from 'socket.io';
 import { createLogger } from '../../utils/logger/logger';
@@ -26,25 +28,14 @@ export class ChatGraphQLIntegration {
       this.apolloServer = new ApolloServer({
         typeDefs,
         resolvers,
-        context: ({ req }) => {
-          // Récupérer l'utilisateur depuis le token JWT ou session
-          const user = req.user || null;
-
-          return {
-            user,
-            req,
-            io: this.io
-          };
-        },
         introspection: process.env.NODE_ENV !== 'production',
-        playground: process.env.NODE_ENV !== 'production',
         formatError: (error) => {
           logger.error('GraphQL Error:', error);
           return {
             message: error.message,
             code: error.extensions?.code,
             path: error.path
-          };
+          } as any;
         }
       });
 
@@ -61,19 +52,32 @@ export class ChatGraphQLIntegration {
   /**
    * Applique le middleware GraphQL à l'application Express
    */
-  applyMiddleware(app: any, path: string = '/graphql'): void {
+  async applyMiddleware(app: any, path: string = '/graphql'): Promise<void> {
     if (!this.apolloServer) {
       throw new Error('Apollo Server doit être initialisé avant d\'appliquer le middleware');
     }
 
-    this.apolloServer.applyMiddleware({
-      app,
+    app.use(
       path,
-      cors: {
-        origin: process.env.FRONTEND_URL || '*',
-        credentials: true
+      cors(),
+      json(),
+      async (req: any, res: any) => {
+        try {
+          const context = {
+            user: req.user || null,
+            req,
+            io: this.io
+          };
+          
+          await this.apolloServer!.executeOperation(
+            { query: req.body.query, variables: req.body.variables },
+            { contextValue: context }
+          ).then(result => res.json(result));
+        } catch (error) {
+          res.status(500).json({ error: 'Internal server error' });
+        }
       }
-    });
+    );
 
     logger.info(`GraphQL endpoint disponible sur ${path}`);
   }

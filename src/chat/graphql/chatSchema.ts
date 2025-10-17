@@ -1,4 +1,4 @@
-import { gql } from 'apollo-server-express';
+import gql from 'graphql-tag';
 
 export const chatTypeDefs = gql`
   # ==================== TYPES ====================
@@ -19,7 +19,6 @@ export const chatTypeDefs = gql`
     title: String!
     address: String
     images: [String!]
-    ownerCriteria: String
     price: Float
     location: Location
   }
@@ -89,6 +88,7 @@ export const chatTypeDefs = gql`
     readStatus(userId: ID!): String
     sentimentAnalysis: SentimentAnalysis
     property: Property
+    conversation: Conversation
     isDeleted: Boolean
     deletedAt: String
     deletedBy: ID

@@ -85,6 +85,16 @@ export interface NotificationMetadata {
   deliveredAt?: Date;
   readAt?: Date;
   clickedAt?: Date;
+  activityId?: string; // For linking to specific user activities or logs
+  propertyId?: string; // For linking to properties
+  ownerId?: string; // For linking to property owner
+  broadcast?: boolean; // For broadcast notifications
+  processed?: boolean;
+  processedAt?: Date;
+  reminderType?: string;
+  actionUrl?: string; // For clickable actions
+  imageUrl?: string; // For notification images
+  [key: string]: any; // Allow additional dynamic properties
 }
 
 export interface EmailNotificationData {

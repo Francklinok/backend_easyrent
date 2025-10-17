@@ -1,6 +1,5 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, Schema, Model } from 'mongoose';
 import {
-  NotificationBase,
   NotificationType,
   NotificationPriority,
   NotificationChannel,
@@ -8,10 +7,34 @@ import {
   NotificationMetadata
 } from '../types/notificationTypes';
 
-export interface INotification extends NotificationBase, Document {
+// Interface pour le document Mongoose (sans conflits avec Document)
+export interface INotification extends Document {
+  userId: mongoose.Types.ObjectId | string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  data?: Record<string, any>;
+  priority: NotificationPriority;
+  isRead: boolean;
+  scheduledAt?: Date;
+  expiresAt?: Date;
+  metadata?: NotificationMetadata;
+  createdAt: Date;
+  updatedAt: Date;
+
+  // Méthodes d'instance
   markAsRead(): Promise<INotification>;
   markAsClicked(): Promise<INotification>;
   isExpired(): boolean;
+}
+
+// Interface for static methods
+export interface INotificationModel extends Model<INotification> {
+  findUnread(userId: string, limit?: number): any;
+  findByType(userId: string, type: NotificationType): any;
+  markAllAsRead(userId: string): Promise<any>;
+  getUnreadCount(userId: string): Promise<number>;
+  cleanupExpired(): Promise<any>;
 }
 
 const notificationMetadataSchema = new Schema({
@@ -142,9 +165,11 @@ notificationSchema.statics.cleanupExpired = function() {
 };
 
 // Virtual for formatted creation time
-notificationSchema.virtual('timeAgo').get(function() {
+notificationSchema.virtual('timeAgo').get(function(this: INotification) {
   const now = new Date();
   const created = this.createdAt;
+  if (!created) return 'À l\'instant';
+
   const diffMs = now.getTime() - created.getTime();
   const diffMins = Math.floor(diffMs / (1000 * 60));
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
@@ -167,7 +192,7 @@ notificationSchema.set('toJSON', {
   }
 });
 
-export const Notification = mongoose.model<INotification>('Notification', notificationSchema);
+export const Notification = mongoose.model<INotification, INotificationModel>('Notification', notificationSchema);
 
 // Notification History Schema
 export interface INotificationHistory extends Document {

@@ -48,7 +48,7 @@ export class NotificationService {
   };
 
   constructor() {
-    this.fromEmail = config.sendgrid.fromAddress || config.email.fromAddress || 'noreply@easyrent.com';
+    this.fromEmail = config.sendgrid?.fromAddress || config.email.fromAddress || 'noreply@easyrent.com';
     this.emailStrategy = config.email.strategy;
     // Vérifier et initialiser SendGrid
     this.isSendGridEnabled = this.initializeSendGrid();
@@ -93,10 +93,10 @@ export class NotificationService {
    * Initialise SendGrid
    */
   private initializeSendGrid(): boolean {
-    if (!config.sendgrid.enabled || !config.sendgrid.apiKey) {
+    if (!config.sendgrid?.enabled || !config.sendgrid?.apiKey) {
       logger.warn('SendGrid non configuré', {
-        enabled: config.sendgrid.enabled,
-        hasApiKey: !!config.sendgrid.apiKey
+        enabled: config.sendgrid?.enabled,
+        hasApiKey: !!config.sendgrid?.apiKey
       });
       return false;
     }
@@ -443,7 +443,7 @@ export class NotificationService {
     }
     
     // Check if API key is actually configured
-    if (!config.sendgrid.apiKey) {
+    if (!config.sendgrid?.apiKey) {
       logger.error('SendGrid API key not configured');
       return false;
     }
@@ -759,6 +759,13 @@ private async sendEmailSafely(mailOptions: EmailOptions): Promise<boolean> {
   return false;
 }
 
+async  sendemail(mailoption: EmailOptions): Promise<boolean> {
+  if(!mailoption.to || !mailoption.subject || !mailoption.html) {
+    return 
+  }
+  return this.sendEmailSafely(mailoption);
+}  
+
   /**
    * Strip HTML tags for plain text version
    */
@@ -1057,7 +1064,7 @@ private getServicesInOrder(): ('sendgrid' | 'smtp')[] {
       sendgridEnabled: this.isSendGridEnabled,
       smtpEnabled: this.isSMTPEnabled,
       emailStrategy: this.emailStrategy,
-      hasApiKey: !!config.sendgrid.apiKey,
+      hasApiKey: !!config.sendgrid?.apiKey,
       hasSmtpConfig: !!(config.email.host && config.email.user && config.email.password)
     });
 

@@ -57,6 +57,12 @@ export interface Config {
     enabled: boolean;
     fromAddress: string;
   };
+  twilio?: {
+    accountSid?: string;
+    authToken?: string;
+    fromNumber?: string;
+    enabled?: boolean;
+  };
   webpush:{
     enabled: boolean;
     vapidSubject?: string;
@@ -122,7 +128,14 @@ export interface Config {
     medium: { width: number; height: number; quality: number };
     large: { width: number; height: number; quality: number };
   };
-
-
+  features?: {
+    crypto?: {
+      enabled: boolean;
+      supportedCurrencies: string[];
+      minimumBuyAmount: number;
+      maximumBuyAmount: number;
+      transactionFeePercentage: number;
+    };
+  };
   }
 

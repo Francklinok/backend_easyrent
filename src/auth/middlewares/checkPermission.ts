@@ -1,7 +1,6 @@
-
-
 import { Request, Response, NextFunction } from 'express';
 import { createLogger } from '../../utils/logger/logger';
+import { checkUserPermission } from '../utils/checkUserPermission';
 
 const logger = createLogger('RBACMiddleware');
 

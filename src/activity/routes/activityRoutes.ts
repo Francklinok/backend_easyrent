@@ -1,14 +1,16 @@
 import { Router } from 'express';
 import ActivityController from '../controllers/activityController';
-import { authenticateToken } from '../../auth/middleware/authMiddleware';
 import { Server as IOServer } from 'socket.io';
+// import { authenticateToken } from '../../auth/middleware/authMiddleware';
+import { authenticate } from '../../auth/middlewares';
+
 
 const createActivityRoutes = (io: IOServer): Router => {
   const router = Router();
   const activityController = new ActivityController(io);
 
   // Toutes les routes nécessitent une authentification
-  router.use(authenticateToken);
+  router.use(authenticate);
 
   // Routes pour les visites
   router.post('/visit', activityController.createVisite.bind(activityController));

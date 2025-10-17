@@ -3,7 +3,16 @@
 /**
  * Vérifier si l'utilisateur a la permission requise
  */
-async function checkUserPermission(
+export interface PermissionModel {
+  action: string;
+  resource: string;
+  // optional fields can be added here (e.g., scope, conditions, expiresAt)
+}
+
+/**
+ * Vérifier si l'utilisateur a la permission requise
+ */
+export async function checkUserPermission(
   userId: string, 
   action: string, 
   resource: string
@@ -31,9 +40,37 @@ async function checkUserPermission(
 }
 
 /**
- * Fonction fictive pour récupérer les permissions d'un utilisateur
+ * Récupérer les permissions d'un utilisateur depuis la base de données
  */
-async function getUserPermissionsFromDb(userId: string): Promise<PermissionModel[]> {
-  // Exemple - à remplacer par votre implémentation
-  return []; 
+export async function getUserPermissionsFromDb(userId: string): Promise<PermissionModel[]> {
+  try {
+    const User = (await import('../../users/models/userModel')).default;
+    const user = await User.findById(userId).select('role');
+    
+    if (!user) return [];
+    
+    // Permissions basées sur les rôles
+    const rolePermissions: Record<string, PermissionModel[]> = {
+      super_admin: [{ action: '*', resource: '*' }],
+      admin: [
+        { action: '*', resource: 'users' },
+        { action: '*', resource: 'properties' },
+        { action: 'read', resource: '*' }
+      ],
+      agent: [
+        { action: 'create', resource: 'properties' },
+        { action: 'update', resource: 'properties' },
+        { action: 'read', resource: 'properties' }
+      ],
+      client: [
+        { action: 'read', resource: 'properties' },
+        { action: 'create', resource: 'bookings' }
+      ]
+    };
+    
+    return rolePermissions[user.role] || [];
+  } catch (error) {
+    console.error('Error fetching user permissions:', error);
+    return [];
+  }
 }

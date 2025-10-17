@@ -72,49 +72,43 @@ class UserPresenceService {
         lazyConnect: true, // Don't connect immediately
         enableReadyCheck: true,
 
-        // retryDelayOnFailover: 1000,
-        maxRetriesPerRequest: 10,
-        enableOfflineQueue: true,
+        maxRetriesPerRequest: 3, // Réduit pour éviter les boucles
+        enableOfflineQueue: false, // Désactiver la queue en mode offline
 
         keepAlive: 30000,
         family: 4,
 
         retryStrategy: (times: number) => {
-          if (times > this.maxConnectionAttempts) {
-            logger.error(`Redis connection failed after ${this.maxConnectionAttempts} attempts`);
-            this.scheduleReconnection();
-            return null; // Stop retrying
-          }
-          const delay = Math.min(times * 200, 3000);
-          logger.info(`Redis retry attempt ${times} in ${delay}ms`);
-          return delay;
+          // Ne JAMAIS retry automatiquement pour éviter les crashes
+          logger.warn(`Redis connection attempt ${times} failed, NOT retrying automatically`);
+          this.redisConnected = false;
+          return null; // Arrêter les retries
         },
-        reconnectOnError: (err) => {
-          const targetError = ['READONLY', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND'];
-          // const targetError = 'READONLY';
-          // return err.message.includes(targetError);
-          return targetError.some(target => err.message.includes(target))
+        reconnectOnError: () => {
+          // Ne JAMAIS reconnecter automatiquement
+          return false;
         },
         tls: config.redis.url.startsWith('rediss://') ? {
           rejectUnauthorized: false
         } : undefined,
-        //additional stability  settings
-         commandTimeout: 5000,
-        // socket: {
-        //   keepAlive: true,
-        //   keepAliveInitialDelay: 0
-        // }
+        commandTimeout: 5000,
       });
 
       this.setupRedisEventHandlers();
-      this.connectToRedis();
+      // Connecter de manière asynchrone sans bloquer le constructeur
+      this.connectToRedis().catch(err => {
+        logger.error('Error in initial Redis connection', {
+          error: err instanceof Error ? err.message : 'Unknown error'
+        });
+        // Ne PAS re-throw, ne PAS appeler scheduleReconnection()
+      });
 
     } catch (error) {
       logger.error('Error initializing Redis client', {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       this.redisConnected = false;
-      this.scheduleReconnection();
+      // Ne PAS appeler scheduleReconnection() ici
     }
   }
 
@@ -150,9 +144,7 @@ class UserPresenceService {
     this.redisClient.on('close', () => {
       logger.warn('Redis client connection closed');
       this.redisConnected = false;
-      if(!this.isReconnecting){
-        this.scheduleReconnection()
-      }
+      // Ne PAS appeler scheduleReconnection() pour éviter les boucles infinies
     });
 
     this.redisClient.on('reconnecting', (delay: number) => {
@@ -164,7 +156,7 @@ class UserPresenceService {
     this.redisClient.on('end', () => {
       logger.warn('Redis client connection ended');
       this.redisConnected = false;
-      this.scheduleReconnection();
+      // Ne PAS appeler scheduleReconnection() pour éviter les boucles infinies
     });
   }
   private isTemporaryError(err: Error): boolean {
@@ -222,7 +214,7 @@ class UserPresenceService {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       this.isReconnecting = false;
-      this.scheduleReconnection();
+      // Ne PAS appeler scheduleReconnection() pour éviter les boucles infinies
     }
   }
   
@@ -243,14 +235,24 @@ class UserPresenceService {
     if (!this.redisClient) return;
 
     try {
+      // Vérifier l'état avant de tenter la connexion
+      if (this.redisClient.status === 'end' || this.redisClient.status === 'close') {
+        logger.warn('Redis client already closed, skipping connection attempt');
+        this.redisConnected = false;
+        return;
+      }
+
       await this.redisClient.connect();
       logger.info('Redis connection established successfully');
+      this.redisConnected = true;
     } catch (error) {
       logger.error('Failed to connect to Redis during initial connection', {
         error: error instanceof Error ? error.message : 'Unknown error',
-        attempts: this.connectionAttempts
+        attempts: this.connectionAttempts,
+        status: this.redisClient?.status
       });
       this.redisConnected = false;
+      // Ne pas re-throw l'erreur pour éviter le crash
     }
   }
 
@@ -277,18 +279,18 @@ class UserPresenceService {
       logger.error(`${operationName} failed`, {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
-      
+
       // If it's a connection error, mark as disconnected
       if (this.isConnectionError(error)) {
         this.redisConnected = false;
-        this.scheduleReconnection();
+        // Ne PAS appeler scheduleReconnection() pour éviter les boucles infinies
       }
-      
+
       if (fallback) {
         logger.debug(`Using fallback for ${operationName}`);
         return fallback();
       }
-      
+
       return null;
     }
   }

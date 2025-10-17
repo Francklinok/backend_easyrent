@@ -35,8 +35,9 @@ export class ActivityNotificationService {
       }
 
       // Notification in-app + email pour le propriétaire
+      const owner = property.ownerId as any;
       const ownerNotification: NotificationRequest = {
-        userId: property.ownerId._id.toString(),
+        userId: owner._id.toString(),
         type: NotificationType.VISIT_SCHEDULED,
         channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
         priority: NotificationPriority.HIGH,
@@ -44,7 +45,7 @@ export class ActivityNotificationService {
         message: `${client.firstName} ${client.lastName} souhaite visiter votre propriété "${property.title}"`,
         data: {
           email: {
-            to: property.ownerId.email,
+            to: owner.email,
             subject: 'Nouvelle demande de visite - EasyRent',
             templateData: {
               propertyName: property.title,
@@ -56,7 +57,7 @@ export class ActivityNotificationService {
             }
           },
           inApp: {
-            userId: property.ownerId._id.toString(),
+            userId: owner._id.toString(),
             title: 'Nouvelle demande de visite',
             message: `${client.firstName} ${client.lastName} souhaite visiter "${property.title}"`,
             actionUrl: `/activities/${activity._id}`,
@@ -64,7 +65,10 @@ export class ActivityNotificationService {
             category: 'visit',
             icon: 'calendar'
           }
-        }
+        },
+        metadata: {
+          activityId: activity._id
+        } as any
       };
 
       const result = await this.notificationManager.sendTemplateNotification(
@@ -75,7 +79,7 @@ export class ActivityNotificationService {
 
       logger.info('Notification de demande de visite envoyée', {
         propertyId: property._id,
-        ownerId: property.ownerId._id,
+        ownerId: owner._id,
         clientId: client._id,
         success: result.success
       });
@@ -156,7 +160,10 @@ export class ActivityNotificationService {
             category: 'visit',
             icon: isAccepted ? 'check-circle' : 'x-circle'
           }
-        }
+        },
+        metadata: {
+          activityId: activity._id
+        } as any
       };
 
       const templateId = isAccepted ? 'visit_accepted' : 'visit_rejected';
@@ -199,8 +206,9 @@ export class ActivityNotificationService {
         return false;
       }
 
+      const owner = property.ownerId as any;
       const ownerNotification: NotificationRequest = {
-        userId: property.ownerId._id.toString(),
+        userId: owner._id.toString(),
         type: NotificationType.BOOKING_REQUEST,
         channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
         priority: NotificationPriority.HIGH,
@@ -208,7 +216,7 @@ export class ActivityNotificationService {
         message: `${client.firstName} ${client.lastName} souhaite réserver votre propriété "${property.title}"`,
         data: {
           email: {
-            to: property.ownerId.email,
+            to: owner.email,
             subject: 'Nouvelle demande de réservation - EasyRent',
             templateData: {
               propertyName: property.title,
@@ -221,7 +229,7 @@ export class ActivityNotificationService {
             }
           },
           inApp: {
-            userId: property.ownerId._id.toString(),
+            userId: owner._id.toString(),
             title: 'Nouvelle demande de réservation',
             message: `${client.firstName} ${client.lastName} souhaite réserver "${property.title}"`,
             actionUrl: `/activities/${activity._id}`,
@@ -229,7 +237,10 @@ export class ActivityNotificationService {
             category: 'reservation',
             icon: 'home'
           }
-        }
+        },
+        metadata: {
+          activityId: activity._id
+        } as any
       };
 
       const result = await this.notificationManager.sendTemplateNotification(
@@ -240,7 +251,7 @@ export class ActivityNotificationService {
 
       logger.info('Notification de demande de réservation envoyée', {
         propertyId: property._id,
-        ownerId: property.ownerId._id,
+        ownerId: owner._id,
         clientId: client._id,
         success: result.success
       });
@@ -366,8 +377,9 @@ export class ActivityNotificationService {
       }
 
       // Notification au propriétaire
+      const owner = property.ownerId as any;
       const ownerNotification: NotificationRequest = {
-        userId: property.ownerId._id.toString(),
+        userId: owner._id.toString(),
         type: NotificationType.PAYMENT_RECEIVED,
         channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
         priority: NotificationPriority.HIGH,
@@ -375,7 +387,7 @@ export class ActivityNotificationService {
         message: `Paiement de ${activity.amount}€ reçu pour "${property.title}"`,
         data: {
           email: {
-            to: property.ownerId.email,
+            to: owner.email,
             subject: 'Paiement reçu - EasyRent',
             templateData: {
               propertyName: property.title,
@@ -388,7 +400,7 @@ export class ActivityNotificationService {
             }
           },
           inApp: {
-            userId: property.ownerId._id.toString(),
+            userId: owner._id.toString(),
             title: 'Paiement reçu',
             message: `Paiement de ${activity.amount}€ reçu de ${client.firstName} ${client.lastName}`,
             actionUrl: `/activities/${activity._id}`,
@@ -453,7 +465,7 @@ export class ActivityNotificationService {
 
       logger.info('Notifications de paiement envoyées', {
         propertyId: property._id,
-        ownerId: property.ownerId._id,
+        ownerId: owner._id,
         clientId: client._id,
         amount: activity.amount,
         ownerSuccess: ownerResult.success,

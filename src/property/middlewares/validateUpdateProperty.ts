@@ -2,7 +2,6 @@ import { body, param } from 'express-validator';
 import mongoose from 'mongoose';
 import { PropertyStatus } from '../types/propertyType';
 import { validateResults } from '../utils/validateResults';
-
 /**
  * Middleware pour valider la mise à jour d'une propriété
  */

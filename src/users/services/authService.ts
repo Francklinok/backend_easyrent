@@ -202,7 +202,7 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
       }
 
       const decoded = jwt.verify(refreshToken, jwtRefreshSecret) as TokenPayload;
-      const user = await this.userService.getUserById(decoded.userId)
+      const user = await this.userService.getUserById(decoded.userId);
       
       if (!user || !user.isActive) {
         logger.warn('Token refresh failed: user not found or inactive', { userId: decoded.userId });
@@ -328,7 +328,7 @@ async refreshAccessToken(refreshToken: string): Promise<string | null> {
         return null;
       }
 
-      const user = await this.userService.getUserById(decoded.userId) as UserInfo | null;
+      const user = await this.userService.getUserById(decoded.userId);
       if (!user || !user.isActive) {
         return null;
       }
@@ -731,13 +731,13 @@ logger.debug('expected token (TOTP) would be:', { generatedToken });
    */
   async verifyAndEnableTwoFactor(userId: string, code: string): Promise<boolean> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo | null;
-      if (!user || !user.tempTwoFactorSecret) {
+      const user = await this.userService.getUserById(userId);
+      if (!user || !user.security?.tempTwoFactorSecret) {
         return false;
       }
 
       const isValid = speakeasy.totp.verify({
-        secret: user.tempTwoFactorSecret,
+        secret: user.security.tempTwoFactorSecret,
         encoding: 'base32',
         token: code,
         window: 2
@@ -764,7 +764,7 @@ logger.debug('expected token (TOTP) would be:', { generatedToken });
 
   async disableTwoFactor(userId: string, password: string): Promise<boolean> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo | null;
+      const user = await this.userService.getUserById(userId);
       if (!user) {
         logger.warn('User not found for 2FA disable', { userId });
         return false;
@@ -1087,14 +1087,14 @@ async generateVerificationToken(userId: string): Promise<string> {
    */
   async verifyTwoFactorToken(userId: string, code: string): Promise<boolean> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo | null;
+      const user = await this.userService.getUserById(userId);
       if (!user) {
         logger.warn('User not found for 2FA token verification', { userId });
         return false;
       }
 
       // Vérifier le code avec le secret temporaire
-      const tempSecret = user.tempTwoFactorSecret;
+      const tempSecret = user.security?.tempTwoFactorSecret;
       if (!tempSecret) {
         logger.warn('No temporary 2FA secret found', { userId });
         return false;
@@ -1135,7 +1135,7 @@ async generateVerificationToken(userId: string): Promise<string> {
    */
   async getSecurityInfo(userId: string): Promise<SecurityInfo> {
     try {
-      const user = await this.userService.getUserById(userId) as UserInfo | null;
+      const user = await this.userService.getUserById(userId);
       if (!user) {
         throw new Error('User not found');
       }
@@ -1157,7 +1157,7 @@ async generateVerificationToken(userId: string): Promise<string> {
       }
 
       // Handle different password change field names
-      const lastPasswordChange = user.lastPasswordChange || user.passwordChangedAt || user.createdAt;
+      const lastPasswordChange = user.passwordChangedAt || user.createdAt;
 
       // Handle different account lockout structures
       const accountLockout = this.getAccountLockoutInfo(user);
@@ -1196,36 +1196,30 @@ async generateVerificationToken(userId: string): Promise<string> {
   /**
    * Vérifie si le compte utilisateur est verrouillé
    */
-  private isUserAccountLocked(user: UserInfo): boolean {
-    // Handle nested accountLockout structure
-    if (user.accountLockout?.isLocked && user.accountLockout.lockUntil && user.accountLockout.lockUntil > new Date()) {
+  private isUserAccountLocked(user: IUser): boolean {
+    // Handle security structure
+    if (user.security?.accountLocked && user.security.lockExpiresAt && user.security.lockExpiresAt > new Date()) {
       return true;
     }
-    
-    // Handle flat structure
-    if (user.isLocked && user.lockUntil && user.lockUntil > new Date()) {
-      return true;
-    }
-    
+
     return false;
   }
 
   /**
    * Récupère les informations de verrouillage du compte
    */
-  private getAccountLockoutInfo(user: UserInfo): { isLocked: boolean; lockUntil?: Date } {
-    // Handle nested structure
-    if (user.accountLockout) {
+  private getAccountLockoutInfo(user: IUser): { isLocked: boolean; lockUntil?: Date } {
+    // Handle security structure
+    if (user.security) {
       return {
-        isLocked: user.accountLockout.isLocked || false,
-        lockUntil: user.accountLockout.lockUntil
+        isLocked: user.security.accountLocked || false,
+        lockUntil: user.security.lockExpiresAt
       };
     }
-    
-    // Handle flat structure
+
     return {
-      isLocked: user.isLocked || false,
-      lockUntil: user.lockUntil
+      isLocked: false,
+      lockUntil: undefined
     };
   }
 
