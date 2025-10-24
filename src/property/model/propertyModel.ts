@@ -55,13 +55,13 @@ const propertySchema = new Schema<IPropertyDocument>(
     },
     description: {
       type: String,
-      minlength: [80, 'La description doit contenir au moins 80 caractères'],
+      minlength: [20, 'La description doit contenir au moins 20 caractères'],
       required: [true, 'La description est requise'],
       trim: true,
     },
     address: {
       type: String,
-      minlength: [10, "L'adresse doit contenir au moins 10 caractères"],
+      minlength: [5, "L'adresse doit contenir au moins 5 caractères"],
       required: [true, "L'adresse est requise"],
       trim: true,
     },
@@ -155,14 +155,14 @@ const propertySchema = new Schema<IPropertyDocument>(
 
     iserviceAvalaible: { type: Boolean, default: false },
 
-    services: {
+    services: [{
       serviceId: {
         type: mongoose.Types.ObjectId,
         ref: 'Services',
-        required: true,
+        required: false,
         index: true,
       },
-    },
+    }],
 
     atouts: { type: [AtoutSchema], default: [] },
   },
@@ -205,11 +205,9 @@ propertySchema.pre('save', function (this: IPropertyDocument, next) {
     this.generalHInfo.bedrooms + this.generalHInfo.bathrooms >
     this.generalHInfo.rooms
   ) {
-    return next(
-      new Error(
-        'Le nombre total de chambres et salles de bain ne peut pas dépasser le nombre de pièces'
-      )
-    );
+    // Tolérance: on log seulement au lieu de bloquer
+    console.warn('⚠️  Warning: bedrooms + bathrooms > rooms');
+    // return next(new Error('...'));  // Désactivé pour tolérance
   }
   next();
 });

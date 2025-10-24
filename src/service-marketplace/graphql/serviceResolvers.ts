@@ -4,8 +4,12 @@ import { ServiceSubscription } from '../models/ServiceSubscription';
 import { ServiceReview } from '../models/ServiceReview';
 import { ServiceMarketplaceService } from '../services/ServiceMarketplaceService';
 import { RecommendationEngine } from '../services/RecommendationEngine';
+import { ServiceDocumentUploadService } from '../utils/serviceDocumentUpload';
+import ImageUploadService from '../../services/imageUploadService';
 import User from '../../users/models/userModel';
 import Property from '../../property/model/propertyModel';
+import GraphQLUpload from 'graphql-upload-ts';
+
 
 export const serviceResolvers = {
   Query: {
@@ -201,6 +205,55 @@ export const serviceResolvers = {
       try {
         if (!user) throw new Error('Authentication required');
 
+        // Handle image uploads if provided
+        if (input.images && Array.isArray(input.images) && input.images.length > 0) {
+          if (input.images.length > 10) {
+            throw new Error('Maximum 10 images allowed');
+          }
+
+          const imageService = ImageUploadService.getInstance();
+          const uploadedImages: string[] = [];
+          const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+          for (const imageFile of input.images) {
+            const { createReadStream } = await imageFile;
+            const stream = createReadStream();
+            const chunks: Buffer[] = [];
+            let totalSize = 0;
+            
+            for await (const chunk of stream) {
+              totalSize += chunk.length;
+              if (totalSize > MAX_FILE_SIZE) {
+                throw new Error('File too large (max 10MB)');
+              }
+              chunks.push(chunk);
+            }
+            const buffer = Buffer.concat(chunks);
+
+            const validation = await imageService.validateImage(buffer);
+            if (!validation.isValid) {
+              throw new Error(validation.error || 'Invalid image');
+            }
+
+            const safeCategory = input.category.replace(/[^a-zA-Z0-9_-]/g, '');
+            const uploadResult = await imageService.uploadOptimizedImage(
+              buffer,
+              `services/${safeCategory}`,
+              `service_${Date.now()}_${Math.random().toString(36).substring(7)}`
+            );
+
+            if (uploadResult.success && uploadResult.data) {
+              uploadedImages.push(uploadResult.data.originalUrl);
+            }
+          }
+
+          input.media = {
+            ...input.media,
+            photos: uploadedImages
+          };
+          delete input.images;
+        }
+
         const marketplaceService = new ServiceMarketplaceService();
         const service = await marketplaceService.createService(user.userId, input);
 
@@ -367,8 +420,131 @@ export const serviceResolvers = {
       } catch (error: any) {
         throw new Error(`Error responding to review: ${error.message}`);
       }
+    },
+
+    uploadServiceDocuments: async (_: any, { serviceId, documents }, { user }) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const service = await Service.findOne({ _id: serviceId, providerId: user.userId });
+        if (!service) throw new Error('Service not found or unauthorized');
+
+        const uploadedDocs: any = {};
+
+        const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB for documents
+        const ALLOWED_DOC_TYPES = ['professionalLicense', 'insurance', 'certifications', 'identityProof'];
+
+        for (const [docType, files] of Object.entries(documents)) {
+          if (!files || !Array.isArray(files)) continue;
+          if (!ALLOWED_DOC_TYPES.includes(docType)) {
+            throw new Error(`Invalid document type: ${docType}`);
+          }
+          
+          uploadedDocs[docType] = [];
+          for (const file of files) {
+            const { createReadStream } = await file;
+            const stream = createReadStream();
+            const chunks: Buffer[] = [];
+            let totalSize = 0;
+            
+            for await (const chunk of stream) {
+              totalSize += chunk.length;
+              if (totalSize > MAX_FILE_SIZE) {
+                throw new Error('Document too large (max 20MB)');
+              }
+              chunks.push(chunk);
+            }
+            
+            const buffer = Buffer.concat(chunks);
+            const safeServiceId = serviceId.replace(/[^a-zA-Z0-9_-]/g, '');
+            const safeCategory = service.category.replace(/[^a-zA-Z0-9_-]/g, '');
+            const safeDocType = docType.replace(/[^a-zA-Z0-9_-]/g, '');
+            
+            const result = await ServiceDocumentUploadService.uploadDocument(
+              buffer,
+              safeServiceId,
+              safeCategory,
+              safeDocType
+            );
+            uploadedDocs[docType].push(result.url);
+          }
+        }
+
+        service.verificationDocuments = {
+          ...service.verificationDocuments,
+          ...uploadedDocs,
+          status: 'pending'
+        } as any;
+
+        await service.save();
+        return service;
+      } catch (error: any) {
+        throw new Error(`Error uploading documents: ${error.message}`);
+      }
+    },
+
+    uploadJustificationImages: async (_: any, { serviceId, images }, { user }) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        const service = await Service.findOne({ _id: serviceId, providerId: user.userId });
+        if (!service) throw new Error('Service not found or unauthorized');
+
+        const imageService = ImageUploadService.getInstance();
+        const uploadedImages: string[] = [];
+
+        if (images.length > 10) {
+          throw new Error('Maximum 10 images allowed');
+        }
+
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+        for (const image of images) {
+          const { createReadStream } = await image;
+          const stream = createReadStream();
+          const chunks: Buffer[] = [];
+          let totalSize = 0;
+          
+          for await (const chunk of stream) {
+            totalSize += chunk.length;
+            if (totalSize > MAX_FILE_SIZE) {
+              throw new Error('Image too large (max 10MB)');
+            }
+            chunks.push(chunk);
+          }
+          
+          const buffer = Buffer.concat(chunks);
+          
+          const validation = await imageService.validateImage(buffer);
+          if (!validation.isValid) {
+            throw new Error(validation.error || 'Invalid image');
+          }
+
+          const safeServiceId = serviceId.replace(/[^a-zA-Z0-9_-]/g, '');
+          const safeCategory = service.category.replace(/[^a-zA-Z0-9_-]/g, '');
+          
+          const uploadResult = await imageService.uploadOptimizedImage(
+            buffer,
+            `services/${safeCategory}/${safeServiceId}`,
+            `${safeServiceId}_${Date.now()}`
+          );
+
+          if (uploadResult.success && uploadResult.data) {
+            uploadedImages.push(uploadResult.data.originalUrl);
+          }
+        }
+
+        service.justificationImages = [...(service.justificationImages || []), ...uploadedImages];
+        await service.save();
+        
+        return service;
+      } catch (error: any) {
+        throw new Error(`Error uploading justification images: ${error.message}`);
+      }
     }
   },
+
+  Upload: GraphQLUpload,
 
   Service: {
     provider: async (service: any) => {
@@ -381,6 +557,33 @@ export const serviceResolvers = {
     
     reviews: async (service: any) => {
       return await ServiceReview.find({ serviceId: service._id }).sort({ createdAt: -1 });
+    },
+    
+    verificationStatus: (service: any) => {
+      return service.verificationDocuments?.status || 'pending';
+    },
+    
+    hasRequiredDocuments: (service: any) => {
+      const validation = ServiceDocumentUploadService.validateDocuments(
+        service.category,
+        service.verificationDocuments || {}
+      );
+      return validation.isValid;
+    },
+    
+    documentRequirements: (service: any) => {
+      const isMandatory = ServiceDocumentUploadService.areDocumentsMandatory(service.category);
+      const validation = ServiceDocumentUploadService.validateDocuments(
+        service.category,
+        service.verificationDocuments || {}
+      );
+      
+      return {
+        isMandatory,
+        requiredDocuments: validation.requiredDocuments || [],
+        errors: validation.errors || [],
+        warnings: validation.warnings || []
+      };
     },
     
     isAvailableForProperty: async (service, { propertyId }) => {

@@ -1,18 +1,12 @@
 import { Request, Response } from 'express';
 import { ServiceMarketplaceService } from '../services/ServiceMarketplaceService';
 import { RecommendationEngine } from '../services/RecommendationEngine';
+import { ServiceDocumentUploadService } from '../utils/serviceDocumentUpload';
+import ImageUploadService from '../../services/imageUploadService';
+import { Service } from '../models/Service';
 import multer from 'multer';
-import path from 'path';
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/services/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`);
-  }
-});
-
+const storage = multer.memoryStorage();
 export const upload = multer({ storage });
 
 export class ServiceController {
@@ -41,7 +35,30 @@ export class ServiceController {
   async createService(req: Request, res: Response) {
     try {
       const userId = (req as any).user?.userId;
-      const photos = (req.files as Express.Multer.File[])?.map(file => file.path) || [];
+      const files = req.files as Express.Multer.File[];
+      
+      let photos: string[] = [];
+      
+      if (files && files.length > 0) {
+        const imageService = ImageUploadService.getInstance();
+        
+        for (const file of files) {
+          const validation = await imageService.validateImage(file.buffer);
+          if (!validation.isValid) {
+            throw new Error(validation.error || 'Invalid image');
+          }
+          
+          const uploadResult = await imageService.uploadOptimizedImage(
+            file.buffer,
+            `services/${req.body.category}`,
+            `service_${Date.now()}_${Math.random().toString(36).substring(7)}`
+          );
+          
+          if (uploadResult.success && uploadResult.data) {
+            photos.push(uploadResult.data.originalUrl);
+          }
+        }
+      }
       
       const service = await this.serviceMarketplace.createService(userId, req.body, photos);
       
@@ -54,6 +71,180 @@ export class ServiceController {
       res.status(400).json({
         success: false,
         message: 'Erreur lors de la création du service',
+        error: error.message
+      });
+    }
+  }
+
+  async uploadServiceDocuments(req: Request, res: Response) {
+    try {
+      const { serviceId } = req.params;
+      const userId = (req as any).user?.userId;
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+      const service = await Service.findOne({ _id: serviceId, providerId: userId });
+      if (!service) {
+        return res.status(404).json({ success: false, message: 'Service non trouvé' });
+      }
+
+      const validation = ServiceDocumentUploadService.validateDocuments(
+        service.category,
+        service.verificationDocuments
+      );
+
+      const uploadedDocs: any = {};
+
+      if (files.professionalLicense) {
+        uploadedDocs.professionalLicense = [];
+        for (const file of files.professionalLicense) {
+          const result = await ServiceDocumentUploadService.uploadDocument(
+            file.buffer,
+            serviceId,
+            service.category,
+            'professionalLicense'
+          );
+          uploadedDocs.professionalLicense.push(result.url);
+        }
+      }
+
+      if (files.insurance) {
+        uploadedDocs.insurance = [];
+        for (const file of files.insurance) {
+          const result = await ServiceDocumentUploadService.uploadDocument(
+            file.buffer,
+            serviceId,
+            service.category,
+            'insurance'
+          );
+          uploadedDocs.insurance.push(result.url);
+        }
+      }
+
+      if (files.certifications) {
+        uploadedDocs.certifications = [];
+        for (const file of files.certifications) {
+          const result = await ServiceDocumentUploadService.uploadDocument(
+            file.buffer,
+            serviceId,
+            service.category,
+            'certifications'
+          );
+          uploadedDocs.certifications.push(result.url);
+        }
+      }
+
+      if (files.identityProof) {
+        uploadedDocs.identityProof = [];
+        for (const file of files.identityProof) {
+          const result = await ServiceDocumentUploadService.uploadDocument(
+            file.buffer,
+            serviceId,
+            service.category,
+            'identityProof'
+          );
+          uploadedDocs.identityProof.push(result.url);
+        }
+      }
+
+      service.verificationDocuments = {
+        ...service.verificationDocuments,
+        ...uploadedDocs,
+        status: 'pending'
+      };
+
+      await service.save();
+
+      res.json({
+        success: true,
+        message: 'Documents uploadés avec succès',
+        data: { documents: uploadedDocs, validation }
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: 'Erreur lors de l\'upload des documents',
+        error: error.message
+      });
+    }
+  }
+
+  async uploadJustificationImages(req: Request, res: Response) {
+    try {
+      const { serviceId } = req.params;
+      const userId = (req as any).user?.userId;
+      const files = req.files as Express.Multer.File[];
+
+      const service = await Service.findOne({ _id: serviceId, providerId: userId });
+      if (!service) {
+        return res.status(404).json({ success: false, message: 'Service non trouvé' });
+      }
+
+      const imageService = ImageUploadService.getInstance();
+      const uploadedImages: string[] = [];
+
+      for (const file of files) {
+        const validation = await imageService.validateImage(file.buffer);
+        if (!validation.isValid) {
+          throw new Error(validation.error || 'Invalid image');
+        }
+        
+        const uploadResult = await imageService.uploadOptimizedImage(
+          file.buffer,
+          `services/${service.category}/${serviceId}`,
+          `${serviceId}_${Date.now()}`
+        );
+        
+        if (uploadResult.success && uploadResult.data) {
+          uploadedImages.push(uploadResult.data.originalUrl);
+        }
+      }
+
+      service.justificationImages = [...(service.justificationImages || []), ...uploadedImages];
+      await service.save();
+
+      res.json({
+        success: true,
+        message: 'Images justificatives uploadées avec succès',
+        data: { images: uploadedImages }
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: 'Erreur lors de l\'upload des images',
+        error: error.message
+      });
+    }
+  }
+
+  async getServiceWithDocuments(req: Request, res: Response) {
+    try {
+      const { serviceId } = req.params;
+
+      const service = await Service.findById(serviceId);
+      if (!service) {
+        return res.status(404).json({ success: false, message: 'Service non trouvé' });
+      }
+
+      const isMandatory = ServiceDocumentUploadService.areDocumentsMandatory(service.category);
+      const validation = ServiceDocumentUploadService.validateDocuments(
+        service.category,
+        service.verificationDocuments
+      );
+
+      res.json({
+        success: true,
+        data: {
+          service,
+          documentRequirements: {
+            isMandatory,
+            validation
+          }
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la récupération du service',
         error: error.message
       });
     }

@@ -36,6 +36,17 @@ export interface IService extends Document {
     videos?: string[];
     documents?: string[];
   };
+  verificationDocuments: {
+    professionalLicense?: string[];
+    insurance?: string[];
+    certifications?: string[];
+    identityProof?: string[];
+    otherDocuments?: string[];
+    status: 'pending' | 'verified' | 'rejected';
+    verifiedAt?: Date;
+    rejectionReason?: string;
+  };
+  justificationImages: string[];
   tags: string[];
   status: string;
   rating: number;
@@ -94,6 +105,21 @@ const ServiceSchema = new Schema<IService>({
     videos: [{ type: String }],
     documents: [{ type: String }]
   },
+  verificationDocuments: {
+    professionalLicense: [{ type: String }],
+    insurance: [{ type: String }],
+    certifications: [{ type: String }],
+    identityProof: [{ type: String }],
+    otherDocuments: [{ type: String }],
+    status: { 
+      type: String, 
+      default: 'pending', 
+      enum: ['pending', 'verified', 'rejected']
+    },
+    verifiedAt: { type: Date },
+    rejectionReason: { type: String }
+  },
+  justificationImages: [{ type: String }],
   tags: [{ type: String }],
   status: { 
     type: String, 

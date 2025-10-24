@@ -1,6 +1,6 @@
 import { AuthenticationError, ForbiddenError, UserInputError } from '../../graphql/errors';
 import { PubSub } from 'graphql-subscriptions';
-import GraphQLUpload from 'graphql-upload';
+import GraphQLUpload from 'graphql-upload-ts';
 import Property from '../model/propertyModel';
 import ImageUploadService from '../../services/imageUploadService';
 import {

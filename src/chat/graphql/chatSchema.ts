@@ -215,6 +215,8 @@ export const chatTypeDefs = gql`
     DIRECT
     GROUP
     PROPERTY_DISCUSSION
+    PROPERTY_INQUIRY
+
   }
 
   enum MessageType {

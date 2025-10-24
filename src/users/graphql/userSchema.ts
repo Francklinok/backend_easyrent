@@ -69,6 +69,12 @@ export const userTypeDefs = gql`
   extend type Mutation {
     updateProfile(input: UpdateProfileInput!): User!
     updatePreferences(input: UpdatePreferencesInput!): User!
+    logout(allDevices: Boolean): LogoutResponse!
+  }
+
+  type LogoutResponse {
+    success: Boolean!
+    message: String!
   }
 
   input UpdateProfileInput {

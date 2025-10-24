@@ -109,7 +109,7 @@ export const propertyTypeDefs = gql`
     equipments: [Equipment!]!
     ownerCriteria: OwnerCriteria!
     iserviceAvalaible: Boolean!
-    services: PropertyService
+    services: [PropertyService!]
     atouts: [Atout!]!
     createdAt: String!
     updatedAt: String!
@@ -248,7 +248,7 @@ export const propertyTypeDefs = gql`
     equipments: [EquipmentInput!] = []
     ownerCriteria: OwnerCriteriaInput!
     iserviceAvalaible: Boolean = false
-    services: PropertyServiceInput
+    services: [PropertyServiceInput!]
     atouts: [AtoutInput!] = []
   }
 
@@ -322,7 +322,7 @@ export const propertyTypeDefs = gql`
     equipments: [EquipmentInput!]
     ownerCriteria: OwnerCriteriaInput
     iserviceAvalaible: Boolean
-    services: PropertyServiceInput
+    services: [PropertyServiceInput!]
     atouts: [AtoutInput!]
     status: PropertyStatus
     isActive: Boolean

@@ -67,19 +67,20 @@ const baseConfig: Config = {
     name: 'easyrent',
     port: parseInt(process.env.PORT || '3000', 10),
     env: process.env.NODE_ENV || 'development',
-    frontendUrl: process.env.FRONTEND_URL || 'http://192.168.1.66:3000',
+    frontendUrl: process.env.FRONTEND_URL,
     host: process.env.HOST || "localhost",
   },
   network:{
-     host: '192.168.1.66'
+     host: process.env.FRONTEND_URL, 
+    //  '192.168.1.66'
   },
   auth: {
     jwtSecret: getRequiredEnvString('JWT_SECRET'),
     jwtRefreshSecret: getRequiredEnvString('JWT_REFRESH_SECRET'),
-     jwtExpiresIn: process.env.NODE_ENV === 'development' 
-    ? (process.env.JWT_EXPIRES_IN || '2h')  // Plus long en dev pour les tests
-    : (process.env.JWT_EXPIRES_IN || '15m'), // Court en production
-    jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+     jwtExpiresIn: process.env.NODE_ENV === 'development'
+    ? (process.env.JWT_EXPIRES_IN || '24h')  // 24h en dev pour faciliter les tests
+    : (process.env.JWT_EXPIRES_IN || '1h'), // Court en production
+    jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',  // 30 jours pour refresh token
     passwordSaltRounds: parseInt(process.env.PASSWORD_SALT_ROUNDS || '10', 10),
     mfaEnabled: process.env.MFA_ENABLED === 'true',
     tokenCleanupInterval: process.env.TOKEN_CLEANUP_INTERVAL || '1h',

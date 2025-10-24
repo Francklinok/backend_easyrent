@@ -151,21 +151,46 @@ export const chatResolvers = {
     
     createOrGetConversation: async (_: any, { input }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
-      
+
+      // Convertir les types GraphQL (MAJUSCULES) vers les types Mongoose (minuscules)
+      const typeMapping: Record<string, string> = {
+        'DIRECT': 'direct',
+        'GROUP': 'group',
+        'PROPERTY_DISCUSSION': 'property_discussion',
+        'PROPERTY_INQUIRY': 'property_inquiry'
+      };
+
+      const conversationType = input.type
+        ? (typeMapping[input.type] || input.type.toLowerCase())
+        : 'direct';
+
       const chatService = new ChatService(null as any);
       return await chatService.createOrGetConversation({
         userId: user.userId,
         participantId: input.participantId,
-        type: input.type || 'direct',
-        propertyId: input.propertyId
+        type: conversationType,
+        propertyId: input.propertyId,
+        // conversationId: input.conversationId
       });
     }
   },
 
   Conversation: {
+    // Convert Mongoose enum values (lowercase) to GraphQL enum values (UPPERCASE)
+    type: (conversation: any) => {
+      if (!conversation.type) return 'DIRECT';
+      return conversation.type.toUpperCase().replace(/_/g, '_');
+    },
+
     participants: async (conversation: any) => {
-      return await User.find({ _id: { $in: conversation.participants } })
+      const users = await User.find({ _id: { $in: conversation.participants } })
         .select('firstName lastName profilePicture presenceStatus lastActive email');
+      
+      // Convert presenceStatus to uppercase for GraphQL
+      return users.map((user: any) => ({
+        ...user.toObject(),
+        presenceStatus: user.presenceStatus ? user.presenceStatus.toUpperCase() : 'OFFLINE'
+      }));
     },
 
     lastMessage: async (conversation: any) => {

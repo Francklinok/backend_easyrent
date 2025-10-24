@@ -154,7 +154,7 @@ const UserSchema = new Schema<IUser>(
     lastUserAgent: String,
     presenceStatus: {
       type: String,
-      enum: ['online', 'away', 'offline'],
+      enum: ['online', 'away', 'offline', 'busy'],
       default: 'offline',
       index: true
     },

@@ -85,7 +85,7 @@ export interface IConversation extends Document {
   _id: Types.ObjectId
   participants: Types.ObjectId[];
   admins: ObjectId[];
-  type: 'direct' | 'group' | 'property_discussion';
+  type: 'direct' | 'group' | 'property_discussion' | 'property_inquiry';
   groupInfo?: {
     name?: string;
     description?: string;
@@ -171,7 +171,7 @@ export interface MediaFile {
 }
 export interface CreateConversationParams {
   participantId?: string;
-  type?: 'direct' | 'group' | 'property_discussion';
+  type?: 'direct' | 'group' | 'property_discussion' | 'property_inquiry';
   propertyId?: string;
   userId: string;
 }

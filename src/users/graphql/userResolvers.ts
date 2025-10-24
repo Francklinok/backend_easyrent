@@ -17,6 +17,30 @@ export const userResolvers = {
     }
   },
 
+  Mutation: {
+    logout: async (_, { allDevices }, { user }) => {
+      if (!user) throw new Error('Authentication required');
+      
+      try {
+        // Import AuthService dynamically to avoid circular dependencies
+        const { AuthService } = await import('../../users/services/authService');
+        const authService = new AuthService();
+        
+        await authService.logout(user.userId);
+        
+        return {
+          success: true,
+          message: allDevices ? 'Déconnexion de tous les appareils réussie' : 'Déconnexion réussie'
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          message: `Erreur lors de la déconnexion: ${error.message}`
+        };
+      }
+    }
+  },
+
   User: {
     fullName: (user) => {
       return `${user.firstName} ${user.lastName}`.trim();

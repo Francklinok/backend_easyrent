@@ -6,6 +6,11 @@ import { RecommendationEngine } from '../../service-marketplace/services/Recomme
 import PropertyServices from '../proprityServices/proprityServices';
 import Conversation from '../../chat/model/conversationModel';
 import { Transaction } from '../../wallet/models/Transaction';
+import { PropertyType } from '../types/propertyType';
+
+// type SimilarPropertyResult =
+//   | PropertyType[]                      
+//   | { properties: PropertyType[] };    
 
 export const propertyResolvers = {
   Query: {
@@ -25,20 +30,13 @@ export const propertyResolvers = {
     properties: async (_: any, { filters, pagination }: any) => {
       try {
         const propertyService = new PropertyServices();
-        const result = await propertyService.getProperty({
+        const result: any = await propertyService.getProperty({
           ...filters,
           ...pagination
         });
 
-        if (!result || !result.properties) {
-          return {
-            edges: [],
-            pageInfo: { hasNextPage: false, hasPreviousPage: false },
-            totalCount: 0
-          };
-        }
-
-        const edges = result.properties.map((property: any, index: number) => ({
+        const properties = Array.isArray(result) ? result : (result?.properties || []);
+        const edges = properties.map((property: any, index: number) => ({
           node: property,
           cursor: Buffer.from(((pagination?.page || 1) * (pagination?.limit || 10) + index).toString()).toString('base64')
         }));
@@ -46,12 +44,12 @@ export const propertyResolvers = {
         return {
           edges,
           pageInfo: {
-            hasNextPage: result.page < result.totalPages,
-            hasPreviousPage: result.page > 1,
+            hasNextPage: result?.page < result?.totalPages || false,
+            hasPreviousPage: result?.page > 1 || false,
             startCursor: edges[0]?.cursor,
             endCursor: edges[edges.length - 1]?.cursor
           },
-          totalCount: result.total
+          totalCount: result?.total || properties.length
         };
       } catch (error: any) {
         throw new Error(`Error fetching properties: ${error.message}`);
@@ -63,20 +61,13 @@ export const propertyResolvers = {
         const propertyService = new PropertyServices();
 
         if (query) {
-          const result = await propertyService.searchProperty({
+          const result: any = await propertyService.searchProperty({
             q: query,
             pagination
           });
 
-          if (!result || !result.properties) {
-            return {
-              edges: [],
-              pageInfo: { hasNextPage: false, hasPreviousPage: false },
-              totalCount: 0
-            };
-          }
-
-          const edges = result.properties.map((property: any, index: number) => ({
+          const properties = Array.isArray(result) ? result : (result?.properties || []);
+          const edges = properties.map((property: any, index: number) => ({
             node: property,
             cursor: Buffer.from(((pagination?.page || 1) * (pagination?.limit || 10) + index).toString()).toString('base64')
           }));
@@ -84,19 +75,21 @@ export const propertyResolvers = {
           return {
             edges,
             pageInfo: {
-              hasNextPage: result.page < result.totalPages,
-              hasPreviousPage: result.page > 1,
+              hasNextPage: result?.page < result?.totalPages || false,
+              hasPreviousPage: result?.page > 1 || false,
               startCursor: edges[0]?.cursor,
               endCursor: edges[edges.length - 1]?.cursor
             },
-            totalCount: result.total
+            totalCount: result?.total || properties.length
           };
         }
 
-        return await propertyService.getProperty({
+        const result = await propertyService.getProperty({
           ...filters,
           ...pagination
         });
+        
+        return result;
       } catch (error: any) {
         throw new Error(`Error searching properties: ${error.message}`);
       }
@@ -108,7 +101,7 @@ export const propertyResolvers = {
         const result = await propertyService.getSImilarProperty({
           propertyId,
           pagination: { limit: limit || 5 }
-        });
+        }) as any
 
         return Array.isArray(result) ? result : (result?.properties || []);
       } catch (error: any) {
@@ -136,21 +129,14 @@ export const propertyResolvers = {
         if (!user) throw new Error('Authentication required');
 
         const propertyService = new PropertyServices();
-        const result = await propertyService.getPropertyByOwner({
+        const result: any = await propertyService.getPropertyByOwner({
           ownerId: ownerId || user.userId,
           pagination,
           status
         });
 
-        if (!result || !result.properties) {
-          return {
-            edges: [],
-            pageInfo: { hasNextPage: false, hasPreviousPage: false },
-            totalCount: 0
-          };
-        }
-
-        const edges = result.properties.map((property: any, index: number) => ({
+        const properties = Array.isArray(result) ? result : (result?.properties || []);
+        const edges = properties.map((property: any, index: number) => ({
           node: property,
           cursor: Buffer.from(((pagination?.page || 1) * (pagination?.limit || 10) + index).toString()).toString('base64')
         }));
@@ -158,12 +144,12 @@ export const propertyResolvers = {
         return {
           edges,
           pageInfo: {
-            hasNextPage: result.page < result.totalPages,
-            hasPreviousPage: result.page > 1,
+            hasNextPage: result?.page < result?.totalPages || false,
+            hasPreviousPage: result?.page > 1 || false,
             startCursor: edges[0]?.cursor,
             endCursor: edges[edges.length - 1]?.cursor
           },
-          totalCount: result.total
+          totalCount: result?.total || properties.length
         };
       } catch (error: any) {
         throw new Error(`Error fetching properties by owner: ${error.message}`);
@@ -176,6 +162,41 @@ export const propertyResolvers = {
       try {
         if (!user) throw new Error('Authentication required');
 
+        // Transform images from strings to proper format if needed
+        if (input.images && Array.isArray(input.images) && input.images.length > 0) {
+          input.images = input.images.map((img: any, index: number) => {
+            if (typeof img === 'string') {
+              // Create a temporary image object for simple string URLs
+              return {
+                publicId: `temp_${Date.now()}_${index}`,
+                originalUrl: img,
+                variants: {
+                  thumbnail: img,
+                  small: img,
+                  medium: img,
+                  large: img,
+                  original: img
+                },
+                metadata: {
+                  width: 800,
+                  height: 600,
+                  format: 'jpg',
+                  size: 0,
+                  aspectRatio: 1.33
+                },
+                uploadedAt: new Date(),
+                order: index
+              };
+            }
+            return img;
+          });
+        }
+
+        // Remove services if not provided
+        if (!input.services || !input.services.serviceId) {
+          delete input.services;
+        }
+
         const propertyService = new PropertyServices();
         const property = await propertyService.createProperty(
           input,
@@ -184,7 +205,18 @@ export const propertyResolvers = {
 
         if (!property) throw new Error('Failed to create property');
 
-        return property;
+        // Transform images back to strings for GraphQL response
+        const propertyResponse = (property as any).toObject ? (property as any).toObject() : property;
+        if (propertyResponse.images && Array.isArray(propertyResponse.images)) {
+          propertyResponse.images = propertyResponse.images.map((img: any) => {
+            if (typeof img === 'object' && img.originalUrl) {
+              return img.originalUrl;
+            }
+            return img;
+          });
+        }
+
+        return propertyResponse;
       } catch (error: any) {
         throw new Error(`Error creating property: ${error.message}`);
       }
@@ -267,6 +299,51 @@ export const propertyResolvers = {
   },
 
   Property: {
+    // Map MongoDB _id to GraphQL id
+    id: (property: any) => {
+      return property._id?.toString() || property.id?.toString() || null;
+    },
+
+    // Extract ID from ownerId if it's populated
+    ownerId: (property: any) => {
+      if (property.ownerId) {
+        // If it's an object (populated), return the _id
+        if (typeof property.ownerId === 'object' && property.ownerId._id) {
+          return property.ownerId._id.toString();
+        }
+        // If it's already a string/ObjectId, return it
+        return property.ownerId.toString();
+      }
+      return null;
+    },
+
+    // Transform image objects to strings for GraphQL
+    images: (property: any) => {
+      if (property.images && Array.isArray(property.images)) {
+        return property.images.map((img: any) => {
+          if (typeof img === 'object' && img.originalUrl) {
+            return img.originalUrl;
+          }
+          return img;
+        });
+      }
+      return property.images || [];
+    },
+
+    // Map old status values to GraphQL enum
+    status: (property: any) => {
+      const statusMap: Record<string, string> = {
+        'disponible': 'AVAILABLE',
+        'loué': 'RENTED',
+        'louée': 'RENTED',
+        'maintenance': 'MAINTENANCE',
+        'indisponible': 'UNAVAILABLE'
+      };
+
+      const status = property.status || 'AVAILABLE';
+      return statusMap[status.toLowerCase()] || status.toUpperCase();
+    },
+
     owner: async (property: any) => {
       return await User.findById(property.ownerId);
     },
@@ -276,11 +353,15 @@ export const propertyResolvers = {
     },
     
     services: async (property: any) => {
-      return await Service.find({ 
-        'availability.zones': property.generalHInfo.area,
-        'requirements.propertyTypes': property.propertyType,
-        status: 'active'
-      });
+      try {
+        return await Service.find({ 
+          'availability.zones': property.generalHInfo?.area,
+          'requirements.propertyTypes': property.propertyType,
+          status: 'active'
+        });
+      } catch (error) {
+        return [];
+      }
     },
     
     conversations: async (property: any) => {
@@ -370,35 +451,58 @@ export const propertyResolvers = {
     },
     
     marketAnalysis: async (property: any) => {
-      const similarProperties = await Property.find({
-        'generalHInfo.area': property.generalHInfo.area,
-        propertyType: property.propertyType,
-        isActive: true,
-        _id: { $ne: property._id }
-      });
-      
-      const averagePrice = similarProperties.reduce(
-        (sum, p) => sum + p.ownerCriteria.monthlyRent, 0
-      ) / similarProperties.length;
-      
-      const pricePosition = property.ownerCriteria.monthlyRent > averagePrice ? 'above' : 'below';
-      const priceDifference = Math.abs(property.ownerCriteria.monthlyRent - averagePrice);
-      const pricePercentage = (priceDifference / averagePrice) * 100;
-      
-      return {
-        averageMarketPrice: averagePrice,
-        pricePosition,
-        priceDifference,
-        pricePercentage: Math.round(pricePercentage),
-        competitorCount: similarProperties.length,
-        marketTrend: 'stable'
-      };
+      try {
+        const similarProperties = await Property.find({
+          'generalHInfo.area': property.generalHInfo?.area,
+          propertyType: property.propertyType,
+          isActive: true,
+          _id: { $ne: property._id }
+        });
+        
+        if (similarProperties.length === 0) {
+          return {
+            averageMarketPrice: 0,
+            pricePosition: 'unknown',
+            priceDifference: 0,
+            pricePercentage: 0,
+            competitorCount: 0,
+            marketTrend: 'stable'
+          };
+        }
+        
+        const averagePrice = similarProperties.reduce(
+          (sum, p) => sum + (p.ownerCriteria?.monthlyRent || 0), 0
+        ) / similarProperties.length;
+        
+        const propertyPrice = property.ownerCriteria?.monthlyRent || 0;
+        const pricePosition = propertyPrice > averagePrice ? 'above' : 'below';
+        const priceDifference = Math.abs(propertyPrice - averagePrice);
+        const pricePercentage = averagePrice > 0 ? (priceDifference / averagePrice) * 100 : 0;
+        
+        return {
+          averageMarketPrice: averagePrice,
+          pricePosition,
+          priceDifference,
+          pricePercentage: Math.round(pricePercentage),
+          competitorCount: similarProperties.length,
+          marketTrend: 'stable'
+        };
+      } catch (error) {
+        return {
+          averageMarketPrice: 0,
+          pricePosition: 'unknown',
+          priceDifference: 0,
+          pricePercentage: 0,
+          competitorCount: 0,
+          marketTrend: 'stable'
+        };
+      }
     },
     
     pricePerSquareMeter: (property: any) => {
-      return property.generalHInfo.surface > 0 
-        ? property.ownerCriteria.monthlyRent / property.generalHInfo.surface 
-        : 0;
+      const surface = property.generalHInfo?.surface || 0;
+      const rent = property.ownerCriteria?.monthlyRent || 0;
+      return surface > 0 ? rent / surface : 0;
     },
     
     isAvailable: (property: any) => {
@@ -406,24 +510,29 @@ export const propertyResolvers = {
     },
     
     recommendedServices: async (property: any) => {
-      const recommendationEngine = new RecommendationEngine();
-      
-      const recommendations = await recommendationEngine.getRecommendations({
-        propertyType: property.propertyType,
-        location: {
-          city: property.generalHInfo.area,
-          district: property.generalHInfo.area
-        },
-        userProfile: {
-          userId: property.ownerId.toString(),
-          preferences: ['maintenance', 'security'],
-          budget: property.ownerCriteria.monthlyRent * 0.1,
-          lifestyle: ['property_owner']
-        },
-        servicesAlreadySubscribed: []
-      });
-      
-      return recommendations;
+      try {
+        const recommendationEngine = new RecommendationEngine();
+        
+        const recommendations = await recommendationEngine.getRecommendations({
+          propertyType: property.propertyType || 'apartment',
+          location: {
+            city: property.generalHInfo?.area || 'Unknown',
+            district: property.generalHInfo?.area || 'Unknown',
+            coordinates: [0, 0]
+          },
+          userProfile: {
+            userId: property.ownerId?.toString() || '',
+            preferences: ['maintenance', 'security'],
+            budget: (property.ownerCriteria?.monthlyRent || 0) * 0.1,
+            lifestyle: ['property_owner']
+          },
+          servicesAlreadySubscribed: []
+        });
+        
+        return recommendations || [];
+      } catch (error) {
+        return [];
+      }
     }
   },
 

@@ -15,7 +15,26 @@ router.get('/provider/services', serviceController.getProviderServices.bind(serv
 // Routes pour les services
 router.post('/', upload.array('photos', 5), serviceController.createService.bind(serviceController));
 router.get('/', serviceController.getServices.bind(serviceController));
+router.get('/:serviceId', serviceController.getServiceWithDocuments.bind(serviceController));
 router.get('/:serviceId/stats', serviceController.getServiceStats.bind(serviceController));
+
+// Routes pour les documents et images justificatives
+router.post(
+  '/:serviceId/documents',
+  upload.fields([
+    { name: 'professionalLicense', maxCount: 3 },
+    { name: 'insurance', maxCount: 3 },
+    { name: 'certifications', maxCount: 5 },
+    { name: 'identityProof', maxCount: 2 }
+  ]),
+  serviceController.uploadServiceDocuments.bind(serviceController)
+);
+
+router.post(
+  '/:serviceId/justification-images',
+  upload.array('images', 10),
+  serviceController.uploadJustificationImages.bind(serviceController)
+);
 
 // Routes pour les abonnements
 router.post('/subscribe', serviceController.subscribeToService.bind(serviceController));

@@ -1,5 +1,6 @@
 import { ApolloServer } from '@apollo/server';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
+import { HeaderMap } from '@apollo/server';
 import express from 'express';
 import cors from 'cors';
 import { json } from 'body-parser';
@@ -122,28 +123,61 @@ export const initializeGraphQLServer = async (app: any, httpServer: any) => {
     const server = createApolloServer(httpServer);
     await server.start();
 
-    //Application du middleware GraphQL avec la nouvelle syntaxe
+    // Application du middleware GraphQL avec Apollo Server v5
     app.use(
       '/graphql',
-      cors<cors.CorsRequest>(),
+      cors<cors.CorsRequest>({
+        origin: '*',
+        credentials: true,
+        methods: ['GET', 'POST', 'OPTIONS']
+      }),
       json(),
       async (req: any, res: any) => {
-        const context = await createGraphQLContext({ req, res });
-        return (server as any).executeHTTPGraphQLRequest({
-          httpGraphQLRequest: {
-            body: req.body,
-            headers: req.headers,
-            method: req.method,
-            search: req.url.split('?')[1] || ''
-          },
-          context: () => context
-        }).then((result: any) => {
-          res.status(result.status || 200);
-          for (const [key, value] of result.headers) {
+        try {
+          const context = await createGraphQLContext({ req, res });
+
+          // Convertir les headers Express en HeaderMap d'Apollo
+          const headerMap = new HeaderMap();
+          Object.entries(req.headers).forEach(([key, value]) => {
+            if (typeof value === 'string') {
+              headerMap.set(key, value);
+            } else if (Array.isArray(value)) {
+              headerMap.set(key, value.join(', '));
+            }
+          });
+
+          const httpGraphQLResponse = await server.executeHTTPGraphQLRequest({
+            httpGraphQLRequest: {
+              method: req.method?.toUpperCase() || 'POST',
+              headers: headerMap,
+              search: req.url.split('?')[1] || '',
+              body: req.body,
+            },
+            context: async () => context,
+          });
+
+          // Définir le status et les headers de la réponse
+          for (const [key, value] of httpGraphQLResponse.headers) {
             res.setHeader(key, value);
           }
-          res.send(result.body);
-        });
+
+          res.status(httpGraphQLResponse.status || 200);
+
+          // Envoyer le body
+          if (httpGraphQLResponse.body.kind === 'complete') {
+            res.send(httpGraphQLResponse.body.string);
+          } else {
+            for await (const chunk of httpGraphQLResponse.body.asyncIterator) {
+              res.write(chunk);
+            }
+            res.end();
+          }
+        } catch (error) {
+          logger.error('GraphQL request error', {
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          res.status(500).json({ errors: [{ message: 'Internal server error' }] });
+        }
       }
     );
 

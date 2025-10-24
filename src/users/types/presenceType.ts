@@ -5,7 +5,8 @@
 export enum PresenceStatus {
   ONLINE = 'online',
   AWAY = 'away',
-  OFFLINE = 'offline'
+  OFFLINE = 'offline',
+  BUSY = 'busy'
 }
 
 

@@ -1280,7 +1280,7 @@ private temporary2FAToken(user: IUser, deviceId?: string): string {
     const accessToken = jwt.sign(
       payload,
       config.auth.jwtSecret,
-      { expiresIn: '30m' }
+      { expiresIn: config.auth.jwtExpiresIn || '30m' }
     );
     
     // Generate refresh token

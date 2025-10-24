@@ -19,7 +19,7 @@ import { MediaFile } from '../types/chatTypes';
 import config from '../../../config';
 import type { Config } from '../../../config/type';
 import ValidationService from "./validationService";
-import { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import EncryptionService from "./encryptionService";
 import Message from '../model/chatModel';
 import sharp from 'sharp';
@@ -32,7 +32,6 @@ import { AuditEventSeverity,SecurityEventType } from "../../security/type/auditT
 import { ApiError } from "../utils/apiError";
 import Conversation from "../model/conversationModel";
 import AIAnalysisService from "./AIAnalysis";
-
 
 const   logger = createLogger("chatservice")
 
@@ -108,13 +107,15 @@ class ChatService extends EventEmitter {
       // if (userId === participantId) {
       //   throw new Error('Impossible de créer une conversation avec soi-même');
       // }
-       const participants = type === 'direct' && participantId 
-      ? [userId, participantId] 
+       const participants = type === 'direct' && participantId
+      ? [userId, participantId]
       : [userId];
-    
+
 
       const ids = participants.sort(); // Tri pour éviter les doublons
-      const cacheKey = `conversation:${ids[0]}:${ids[1]}:${type}`;
+      const cacheKey = type === 'direct' && ids[1]
+        ? `conversation:${ids[0]}:${ids[1]}:${type}`
+        : `conversation:${ids[0]}:${type}${propertyId ? `:${propertyId}` : ''}`;
 
      
       // Vérification du cache avec type safety
@@ -598,14 +599,46 @@ async unarchiveConversation(
   /**
    * Notification optimisée des participants
    */
+  // private notifyParticipants(conversation: IConversation, event: string, data: any): void {
+  //   if(!conversation?.participants) return;
+  //   conversation.participants
+  //   .filter(p=> p)
+  //   .forEach(p => {
+  //     const id = typeof p === "string"? p:p.userId||p.user||p._id;
+  //     if(!id) return;
+  //     this.io.to(id.toString()).emit(event, {
+  //       ...data,
+  //       timestamp: new Date()
+  //     });
+  //   })
+    
+  // }
   private notifyParticipants(conversation: IConversation, event: string, data: any): void {
-    conversation.participants.forEach(participantId => {
-      this.io.to(participantId.toString()).emit(event, {
+  if (!conversation?.participants?.length) return;
+
+  for (const p of conversation.participants) {
+    if (!p) continue; // skip nulls
+    const id = p instanceof mongoose.Types.ObjectId ? p.toString() : String(p);
+
+
+    // const id = typeof p === "string" || typeof p === "number"
+    //   ? p
+    //   : p?._id ?? p?.userId ?? p?.user;
+
+    // si aucun id détecté, on ignore
+    if (!id) continue;
+
+    try {
+      this.io.to(String(id)).emit(event, {
         ...data,
         timestamp: new Date()
       });
-    });
+    } catch (err) {
+      console.error("[notifyParticipants] ERROR during emit for id =", id, err);
+    }
   }
+}
+
   // Méthodes utilitaires inchangées mais optimisées
   private async processMediaFile(file: MediaFile): Promise<any> {
     try {

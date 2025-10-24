@@ -95,6 +95,8 @@ export const serviceTypeDefs = gql`
     requirements: ServiceRequirements!
     availability: ServiceAvailability!
     media: ServiceMedia!
+    verificationDocuments: VerificationDocuments!
+    justificationImages: [String!]!
     tags: [String!]!
     status: ServiceStatus!
     rating: Float!
@@ -110,6 +112,27 @@ export const serviceTypeDefs = gql`
     # Computed fields
     isAvailableForProperty(propertyId: ID!): Boolean!
     estimatedPrice(propertyType: String!): Float!
+    verificationStatus: String!
+    hasRequiredDocuments: Boolean!
+    documentRequirements: DocumentRequirements!
+  }
+
+  type VerificationDocuments {
+    professionalLicense: [String!]!
+    insurance: [String!]!
+    certifications: [String!]!
+    identityProof: [String!]!
+    otherDocuments: [String!]!
+    status: String!
+    verifiedAt: String
+    rejectionReason: String
+  }
+
+  type DocumentRequirements {
+    isMandatory: Boolean!
+    requiredDocuments: [String!]!
+    errors: [String!]!
+    warnings: [String!]!
   }
 
   type ServicePricing {
@@ -305,6 +328,14 @@ export const serviceTypeDefs = gql`
     requirements: ServiceRequirementsInput!
     availability: ServiceAvailabilityInput!
     tags: [String!] = []
+    images: [Upload!]
+    media: ServiceMediaInput
+  }
+
+  input ServiceMediaInput {
+    photos: [String!]
+    videos: [String!]
+    documents: [String!]
   }
 
   input ServicePricingInput {
@@ -402,6 +433,16 @@ export const serviceTypeDefs = gql`
     serviceReviews(serviceId: ID!, pagination: PaginationInput): [ServiceReview!]!
   }
 
+  scalar Upload
+
+  input ServiceDocumentsInput {
+    professionalLicense: [Upload!]
+    insurance: [Upload!]
+    certifications: [Upload!]
+    identityProof: [Upload!]
+    otherDocuments: [Upload!]
+  }
+
   extend type Mutation {
     createServiceProvider(input: CreateServiceProviderInput!): ServiceProvider!
     updateServiceProvider(id: ID!, input: CreateServiceProviderInput!): ServiceProvider!
@@ -418,6 +459,9 @@ export const serviceTypeDefs = gql`
 
     createServiceReview(input: CreateReviewInput!): ServiceReview!
     respondToReview(reviewId: ID!, response: String!): ServiceReview!
+
+    uploadServiceDocuments(serviceId: ID!, documents: ServiceDocumentsInput!): Service!
+    uploadJustificationImages(serviceId: ID!, images: [Upload!]!): Service!
   }
 
   extend type Subscription {

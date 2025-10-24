@@ -10,7 +10,7 @@ const ConversationSchema = new mongoose.Schema<IConversation>({
     }],
     type: { 
         type: String, 
-        enum: ['direct', 'group', 'property_discussion'], 
+        enum: ['direct', 'group', 'property_discussion', 'property_inquiry'], 
         default: 'direct' 
     },
     admins: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
@@ -74,7 +74,9 @@ const ConversationSchema = new mongoose.Schema<IConversation>({
         }
     }
 }, {
-    timestamps: true
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
 });
 
 const Conversation = mongoose.model<IConversation>('Conversation', ConversationSchema);
