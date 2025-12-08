@@ -7,11 +7,99 @@ import Conversation from '../../chat/model/conversationModel';
 import Message from '../../chat/model/chatModel';
 import ActivityServices from '../service/ActivityServices';
 import { Types } from 'mongoose';
+import { GraphQLError } from 'graphql';
+import { ActivityError } from '../utils/errors';
 
 
 export const activityResolvers = {
 
   Query: {
+    getVisitRequest: async (_: any, { id, visitId, propertyId }: any, { user }: any) => {
+      if (!user) throw new Error('Authentication required');
+
+      // Backward compatibility: use visitId if id is not provided
+      const activityId = id || visitId;
+
+      console.log('[getVisitRequest] Called with:', { activityId, propertyId, userId: user.userId });
+
+      if (!activityId && !propertyId) {
+        throw new Error('Either id/visitId or propertyId is required');
+      }
+
+      let activity;
+
+      if (activityId) {
+        // Check if this is an offline ID (temporary ID that starts with visit_offline_)
+        if (typeof activityId === 'string' && activityId.startsWith('visit_offline_')) {
+          console.log('[getVisitRequest] Offline ID detected, searching by propertyId and userId');
+
+          // For offline IDs, we need to find by propertyId and clientId
+          // since the offline ID doesn't exist in the database yet
+          if (!propertyId) {
+            throw new Error('PropertyId is required for offline visit requests');
+          }
+
+          // Find the most recent visit request for this property and user
+          // isVisited: false means it's a visit request (not yet completed)
+          const query = {
+            propertyId,
+            clientId: user.userId
+          };
+          console.log('[getVisitRequest] Query:', query);
+
+          activity = await Activity.findOne(query)
+            .populate('propertyId')
+            .populate('clientId', 'firstName lastName profilePicture email')
+            .sort({ createdAt: -1 });
+
+          console.log('[getVisitRequest] Activity found:', activity ? 'YES' : 'NO');
+        } else {
+          // Validate that it's a valid ObjectId before querying
+          if (!Types.ObjectId.isValid(activityId)) {
+            throw new Error('Invalid activity ID format');
+          }
+
+          console.log('[getVisitRequest] Valid ObjectId, searching by ID');
+          // Find by activity ID (normal MongoDB ObjectId)
+          activity = await Activity.findById(activityId)
+            .populate('propertyId')
+            .populate('clientId', 'firstName lastName profilePicture email');
+        }
+      } else if (propertyId) {
+        console.log('[getVisitRequest] Searching by propertyId only');
+        // Find by property ID (get latest visit request for the current user)
+        activity = await Activity.findOne({
+          propertyId,
+          clientId: user.userId
+        })
+          .populate('propertyId')
+          .populate('clientId', 'firstName lastName profilePicture email')
+          .sort({ createdAt: -1 });
+      }
+
+      if (!activity) {
+        console.log('[getVisitRequest] No activity found');
+        // Instead of throwing an error, return null to indicate no visit found
+        return null;
+      }
+
+      // Vérifier l'accès
+      const property = await Property.findById(activity.propertyId);
+      const propertyOwnerId = property?.ownerId instanceof Types.ObjectId
+        ? property.ownerId.toString()
+        : String(property?.ownerId);
+
+      const activityClientId = activity.clientId instanceof Types.ObjectId
+        ? activity.clientId.toString()
+        : (activity.clientId as any)?._id?.toString() || String(activity.clientId);
+
+      if (!property || (propertyOwnerId !== user.userId && activityClientId !== user.userId)) {
+        throw new Error('Access denied');
+      }
+      
+      return activity;
+    },
+
     activities: async (_: any, { propertyId, userId, pagination, filters }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
       
@@ -42,13 +130,13 @@ export const activityResolvers = {
         switch (filters.status) {
           case 'PENDING':
             query.$or = [
-              { isVisited: true, isVisiteAcccepted: { $ne: true } },
+              { isVisited: true, isVisiteAcepted: { $ne: true } },
               { isReservation: true, isReservationAccepted: { $ne: true } }
             ];
             break;
           case 'ACCEPTED':
             query.$or = [
-              { isVisiteAcccepted: true },
+              { isVisiteAccepted: true },
               { isReservationAccepted: true }
             ];
             break;
@@ -103,11 +191,16 @@ export const activityResolvers = {
     
     activity: async (_: any, { id }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
-      
+
+      // Validate that it's a valid ObjectId before querying
+      if (!Types.ObjectId.isValid(id)) {
+        throw new Error('Invalid activity ID format');
+      }
+
       const activity = await Activity.findById(id)
         .populate('propertyId')
         .populate('clientId', 'firstName lastName profilePicture email');
-      
+
       if (!activity) throw new Error('Activity not found');
 
       // Vérifier l'accès
@@ -167,7 +260,7 @@ export const activityResolvers = {
         Activity.countDocuments(query),
         Activity.countDocuments({ ...query, isVisited: true }),
         Activity.countDocuments({ ...query, isReservation: true }),
-        Activity.countDocuments({ ...query, isVisiteAcccepted: true }),
+        Activity.countDocuments({ ...query, isVisitAccepted: true }),
         Activity.countDocuments({ ...query, isReservationAccepted: true }),
         Activity.countDocuments({ ...query, isPayment: true }),
         Activity.aggregate([
@@ -198,59 +291,239 @@ export const activityResolvers = {
         page: pagination?.page || 1,
         limit: pagination?.limit || 20
       });
+    },
+
+    // Obtenir la visite d'un utilisateur pour une propriété
+    getUserVisitForProperty: async (_: any, { userId, propertyId }: any, { user }: any) => {
+      if (!user) throw new Error('Authentication required');
+
+      console.log('[getUserVisitForProperty] Called with:', { userId, propertyId });
+
+      const activity = await Activity.findOne({
+        clientId: userId,
+        propertyId: propertyId
+      })
+        .populate('propertyId')
+        .populate('clientId', 'firstName lastName profilePicture email')
+        .sort({ createdAt: -1 });
+
+      console.log('[getUserVisitForProperty] Activity found:', activity ? 'YES' : 'NO');
+
+      return activity;
+    },
+
+    // Vérifier la disponibilité d'un créneau de visite
+    checkVisitTimeSlot: async (_: any, { propertyId, visitDate }: any, { user }: any) => {
+      if (!user) throw new Error('Authentication required');
+      
+      // Vérifier s'il y a déjà une visite programmée à cette date
+      const existingVisit = await Activity.findOne({
+        propertyId: propertyId,
+        visitDate: visitDate,
+        isVisited: true,
+        isVisitAccepted: true
+      });
+      
+      // Retourner true si le créneau est disponible (pas de visite existante)
+      return !existingVisit;
     }
   },
 
   Mutation: {
     createActivity: async (_: any, { input }: any, { user }: any) => {
-      if (!user) throw new Error('Authentication required');
+      try {
+        if (!user) throw new Error('Authentication required');
 
-      const activityService = new ActivityServices(null as any);
-      
-      if (input.isVisited) {
-        return await activityService.createVisite({
+        // Debug logging
+        console.log('[createActivity] Received input:', {
           propertyId: input.propertyId,
-          clientId: user.userId,
+          isVisited: input.isVisited,
+          message: input.message,
+          userId: user.userId
+        });
+
+        // Validate propertyId
+        if (!input.propertyId) {
+          throw new Error('Property ID is required');
+        }
+
+        const activityService = new ActivityServices(null as any);
+
+        if (input.isVisited) {
+          const result = await activityService.createVisite({
+            propertyId: new Types.ObjectId(input.propertyId),
+            clientId: new Types.ObjectId(user.userId),
+            message: input.message,
+            visitDate: input.visitDate
+          });
+          return result.data;
+        }
+
+        if (input.isReservation) {
+          // Verify property exists
+          const property = await Property.findById(input.propertyId);
+          if (!property) {
+            throw new Error('Property not found');
+          }
+
+          // D'abord créer l'activité de base
+          const activity = new Activity({
+            propertyId: new Types.ObjectId(input.propertyId),
+            clientId: new Types.ObjectId(user.userId),
+            message: input.message,
+            isReservation: true,
+            reservationDate: input.reservationDate || new Date()
+          });
+
+          const savedActivity = await activity.save();
+
+          const reservation = await activityService.createReservation({
+            activityId: savedActivity._id as Types.ObjectId,
+            reservationDate: input.reservationDate || new Date(),
+            documentsUploaded: !!input.uploadedFiles && input.uploadedFiles.length > 0,
+            uploadedFiles: input.uploadedFiles
+          });
+
+          if (!reservation) {
+            throw new Error('Failed to create reservation');
+          }
+
+          return reservation;
+        }
+
+        // Verify property exists for general activity
+        const property = await Property.findById(input.propertyId);
+        if (!property) {
+          throw new Error('Property not found');
+        }
+
+        // Activité générale
+        const activity = new Activity({
+          propertyId: new Types.ObjectId(input.propertyId),
+          clientId: new Types.ObjectId(user.userId),
+          message: input.message,
+          isVisited: input.isVisited || false,
+          visitDate: input.visitDate,
+          isReservation: input.isReservation || false
+        });
+
+        return await activity.save();
+      } catch (error) {
+        // Gestion spécifique des erreurs d'activité
+        if (error instanceof ActivityError) {
+          throw new GraphQLError(error.message, {
+            extensions: {
+              code: error.code,
+              statusCode: error.statusCode,
+              context: error.context
+            }
+          });
+        }
+        throw error;
+      }
+    },
+
+    createVisitRequest: async (_: any, { input }: any, { user }: any) => {
+      try {
+        if (!user) throw new Error('Authentication required');
+
+        console.log('[createVisitRequest] Received input:', {
+          propertyId: input.propertyId,
+          message: input.message,
+          visitDate: input.visitDate,
+          userId: user.userId
+        });
+
+        // Validate propertyId
+        if (!input.propertyId) {
+          throw new Error('Property ID is required');
+        }
+
+        const activityService = new ActivityServices(null as any);
+
+        const result = await activityService.createVisite({
+          propertyId: new Types.ObjectId(input.propertyId),
+          clientId: new Types.ObjectId(user.userId),
           message: input.message,
           visitDate: input.visitDate
         });
-      }
-      
-      if (input.isReservation) {
-        // D'abord créer l'activité de base
-        const activity = new Activity({
-          propertyId: input.propertyId,
-          clientId: user.userId,
-          message: input.message,
-          isReservation: true,
-          reservationDate: input.reservationDate || new Date()
-        });
 
-        await activity.save();
-
-        return await activityService.createReservation({
-          activityId: activity._id as Types.ObjectId,
-          reservationDate: input.reservationDate || new Date(),
-          documentsUploaded: !!input.uploadedFiles && input.uploadedFiles.length > 0,
-          uploadedFiles: input.uploadedFiles
-        });
+        return result.data;
+      } catch (error) {
+        // Gestion spécifique des erreurs d'activité
+        if (error instanceof ActivityError) {
+          throw new GraphQLError(error.message, {
+            extensions: {
+              code: error.code,
+              statusCode: error.statusCode,
+              context: error.context
+            }
+          });
+        }
+        throw error;
       }
-      
-      // Activité générale
-      const activity = new Activity({
-        propertyId: input.propertyId,
-        clientId: user.userId,
-        message: input.message,
-        isVisited: input.isVisited || false,
-        visitDate: input.visitDate,
-        isReservation: input.isReservation || false
-      });
-      
-      return await activity.save();
     },
-    
+
+    createBooking: async (_: any, { input }: any, { user }: any) => {
+      if (!user) throw new Error('Authentication required');
+
+      console.log('[createBooking] Received input:', {
+        propertyId: input.propertyId,
+        message: input.message,
+        reservationDate: input.reservationDate,
+        userId: user.userId
+      });
+
+      // Validate propertyId
+      if (!input.propertyId) {
+        throw new Error('Property ID is required');
+      }
+
+      // Verify property exists
+      const property = await Property.findById(input.propertyId);
+      if (!property) {
+        throw new Error('Property not found');
+      }
+
+      // Vérification que l'utilisateur ne réserve pas sa propre propriété
+      if (property.ownerId.toString() === user.userId.toString()) {
+        throw new Error('Cannot create booking for your own property');
+      }
+
+      const activityService = new ActivityServices(null as any);
+
+      // Create the base activity with proper validation
+      const activity = new Activity({
+        propertyId: new Types.ObjectId(input.propertyId),
+        clientId: new Types.ObjectId(user.userId),
+        message: input.message,
+        isReservation: true,
+        reservationDate: input.reservationDate || new Date()
+      });
+
+      const savedActivity = await activity.save();
+
+      const reservation = await activityService.createReservation({
+        activityId: savedActivity._id as Types.ObjectId,
+        reservationDate: input.reservationDate || new Date(),
+        documentsUploaded: !!input.uploadedFiles && input.uploadedFiles.length > 0,
+        uploadedFiles: input.uploadedFiles
+      });
+
+      if (!reservation) {
+        throw new Error('Failed to create reservation');
+      }
+
+      return reservation;
+    },
+
     updateActivityStatus: async (_: any, { id, status, reason }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
+
+      // Validate that it's a valid ObjectId before querying
+      if (!Types.ObjectId.isValid(id)) {
+        throw new Error('Invalid activity ID format');
+      }
 
       const activity = await Activity.findById(id);
       if (!activity) throw new Error('Activity not found');
@@ -307,6 +580,11 @@ export const activityResolvers = {
     processPayment: async (_: any, { activityId, amount }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
 
+      // Validate that it's a valid ObjectId before querying
+      if (!Types.ObjectId.isValid(activityId)) {
+        throw new Error('Invalid activity ID format');
+      }
+
       const activity = await Activity.findById(activityId);
       const activityClientId = activity?.clientId instanceof Types.ObjectId
         ? activity.clientId.toString()
@@ -328,6 +606,11 @@ export const activityResolvers = {
     // Annuler une activité
     cancelActivity: async (_: any, { id, reason }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
+
+      // Validate that it's a valid ObjectId before querying
+      if (!Types.ObjectId.isValid(id)) {
+        throw new Error('Invalid activity ID format');
+      }
 
       const activity = await Activity.findById(id);
       if (!activity) throw new Error('Activity not found');
@@ -376,11 +659,36 @@ export const activityResolvers = {
   },
 
   Activity: {
+    id: (activity: any) => activity._id.toString(),
+
+    propertyId: (activity: any) => {
+      // Ensure propertyId is never null
+      return activity.propertyId ? activity.propertyId.toString() : null;
+    },
+
+    clientId: (activity: any) => {
+      // If clientId is populated (object), return its _id, otherwise return the ID directly
+      if (activity.clientId && typeof activity.clientId === 'object') {
+        return activity.clientId._id ? activity.clientId._id.toString() : activity.clientId.toString();
+      }
+      return activity.clientId ? activity.clientId.toString() : null;
+    },
+
+    // Map GraphQL field isVisiteAccepted to MongoDB field isVisitAccepted
+    isVisiteAccepted: (activity: any) => {
+      return activity.isVisitAccepted !== undefined ? activity.isVisitAccepted : null;
+    },
+
     property: async (activity: any) => {
+      if (!activity.propertyId) return null;
       return await Property.findById(activity.propertyId);
     },
 
     client: async (activity: any) => {
+      // If already populated, return it; otherwise fetch it
+      if (activity.clientId && typeof activity.clientId === 'object' && activity.clientId._id) {
+        return activity.clientId;
+      }
       return await User.findById(activity.clientId);
     },
 
@@ -424,10 +732,17 @@ export const activityResolvers = {
 
     // Statut global de l'activité
     status: (activity: any) => {
+      // Priority 1: Use status field from DB if it exists
+      if (activity.status) return activity.status;
+
+      // Priority 2: Calculate status from other fields (legacy support)
       if (activity.isCancelled) return 'CANCELLED';
       if (activity.isPayment) return 'COMPLETED';
-      if (activity.isReservationAccepted || activity.isVisiteAcccepted) return 'ACCEPTED';
-      if (activity.isReservation || activity.isVisited) return 'PENDING';
+      if (activity.isReservationAccepted || activity.isVisitAccepted === true) return 'ACCEPTED';
+      if (activity.isVisitAccepted === false) return 'REFUSED';
+      // isVisited: false means visit request is pending
+      // isVisitAccepted: undefined/null means pending, true means accepted
+      if (activity.isReservation || (activity.isVisited === false)) return 'PENDING';
       return 'DRAFT';
     },
     
@@ -458,16 +773,21 @@ export const activityResolvers = {
         return 'AWAITING_RESERVATION_APPROVAL';
       }
       
-      if (activity.isVisited && !activity.isVisiteAcccepted) {
+      if (activity.isVisited && !activity.isVisiteAcepted) {
         return 'AWAITING_VISIT_APPROVAL';
       }
       
-      if (activity.isVisited && activity.isVisiteAcccepted) {
+      if (activity.isVisited && activity.isVisiteAcepted) {
         return 'VISIT_SCHEDULED';
       }
       
       return 'AWAITING_RESPONSE';
     },
+
+    // Champs de compatibilité
+    visitTime: (activity: any) => activity.visitDate,
+    visitType: (activity: any) => activity.isVisited ? 'VISIT' : null,
+    rejectionReason: (activity: any) => activity.cancelReason,
     
     // Score de priorité
     priorityScore: async (activity: any) => {
