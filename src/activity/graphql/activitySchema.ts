@@ -10,7 +10,9 @@ export const activityTypeDefs = gql`
     message: String!
     isVisited: Boolean
     visitDate: String
-    isVisiteAcccepted: Boolean
+    visitTime: String
+    visitType: String
+    isVisiteAccepted: Boolean
     isReservation: Boolean
     reservationDate: String
     isReservationAccepted: Boolean
@@ -28,6 +30,7 @@ export const activityTypeDefs = gql`
     isCancelled: Boolean
     cancelReason: String
     cancelDate: String
+    rejectionReason: String
     createdAt: String!
     updatedAt: String!
   }
@@ -36,6 +39,7 @@ export const activityTypeDefs = gql`
     DRAFT
     PENDING
     ACCEPTED
+    REFUSED
     COMPLETED
     CANCELLED
   }
@@ -102,6 +106,19 @@ export const activityTypeDefs = gql`
     uploadedFiles: [String!]
   }
 
+  input VisitRequestInput {
+    propertyId: ID!
+    message: String!
+    visitDate: String
+  }
+
+  input BookingInput {
+    propertyId: ID!
+    message: String!
+    reservationDate: String
+    uploadedFiles: [String!]
+  }
+
   extend type Query {
     activities(
       propertyId: ID
@@ -111,6 +128,12 @@ export const activityTypeDefs = gql`
     ): ActivityConnection!
     
     activity(id: ID!): Activity
+    
+    getVisitRequest(id: ID, visitId: ID, propertyId: ID): Activity
+    
+    getUserVisitForProperty(userId: ID!, propertyId: ID!): Activity
+    
+    checkVisitTimeSlot(propertyId: ID!, visitDate: String!): Boolean!
     
     activityStats(
       propertyId: ID
@@ -126,6 +149,8 @@ export const activityTypeDefs = gql`
 
   extend type Mutation {
     createActivity(input: CreateActivityInput!): Activity!
+    createVisitRequest(input: VisitRequestInput!): Activity!
+    createBooking(input: BookingInput!): Activity!
     updateActivityStatus(id: ID!, status: ActivityStatus!, reason: String): Activity!
     processPayment(activityId: ID!, amount: Float!): Activity!
     cancelActivity(id: ID!, reason: String): Activity!
