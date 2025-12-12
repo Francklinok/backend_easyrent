@@ -293,21 +293,50 @@ export const activityResolvers = {
       });
     },
 
+    // Récupérer l'historique complet des activités de l'utilisateur
+    getUserActivities: async (_: any, { userId }: any, { user }: any) => {
+      // Sécurité: Un utilisateur ne peut voir que ses propres activités
+      if (!user) throw new Error('Authentication required');
+      
+      // Si userId est fourni, vérifier qu'il correspond à l'utilisateur connecté
+      // Sinon utiliser l'ID de l'utilisateur connecté
+      const targetUserId = userId || user.userId;
+      
+      if (userId && userId !== user.userId) {
+         throw new Error('Access denied: You can only view your own activities');
+      }
+
+      console.log(`[Resolver] Fetching activities for user: ${targetUserId}`);
+      const activityService = new ActivityServices(null as any);
+      return await activityService.getUserProgressHistory(targetUserId);
+    },
+
     // Obtenir la visite d'un utilisateur pour une propriété
     getUserVisitForProperty: async (_: any, { userId, propertyId }: any, { user }: any) => {
       if (!user) throw new Error('Authentication required');
 
       console.log('[getUserVisitForProperty] Called with:', { userId, propertyId });
 
+      // ✅ IMPORTANT: Filtrer par isReservation: false pour retourner UNIQUEMENT les visites
+      // Ne pas retourner les réservations (isReservation: true)
       const activity = await Activity.findOne({
         clientId: userId,
-        propertyId: propertyId
+        propertyId: propertyId,
+        isReservation: false  // ← FILTRE CRITIQUE: Uniquement les visites
       })
         .populate('propertyId')
         .populate('clientId', 'firstName lastName profilePicture email')
         .sort({ createdAt: -1 });
 
-      console.log('[getUserVisitForProperty] Activity found:', activity ? 'YES' : 'NO');
+      console.log('[getUserVisitForProperty] Visit found:', activity ? 'YES' : 'NO');
+      if (activity) {
+        console.log('[getUserVisitForProperty] Visit details:', {
+          id: activity._id,
+          isReservation: activity.isReservation,
+          isVisitAccepted: activity.isVisitAccepted,
+          status: activity.status
+        });
+      }
 
       return activity;
     },
@@ -492,19 +521,44 @@ export const activityResolvers = {
 
       const activityService = new ActivityServices(null as any);
 
-      // Create the base activity with proper validation
-      const activity = new Activity({
+      // ✅ NOUVELLE LOGIQUE: Chercher une visite existante
+      console.log('[createBooking] Recherche d\'une visite existante...');
+      const existingVisit = await Activity.findOne({
         propertyId: new Types.ObjectId(input.propertyId),
         clientId: new Types.ObjectId(user.userId),
-        message: input.message,
-        isReservation: true,
-        reservationDate: input.reservationDate || new Date()
+        isReservation: false  // Chercher uniquement les visites
       });
 
-      const savedActivity = await activity.save();
+      let activityToUpdate: any;
 
+      if (existingVisit) {
+        // ✅ VISITE TROUVÉE: Réutiliser l'activité existante
+        console.log('[createBooking] ✅ Visite existante trouvée:', existingVisit._id);
+        console.log('[createBooking] Mise à jour de la visite avec les données de réservation...');
+        
+        // Mettre à jour le message avec celui de la réservation
+        existingVisit.message = input.message;
+        await existingVisit.save();
+        
+        activityToUpdate = existingVisit;
+      } else {
+        // ❌ PAS DE VISITE: Créer une nouvelle activité
+        console.log('[createBooking] ❌ Aucune visite trouvée - Création d\'une nouvelle activité');
+        
+        const activity = new Activity({
+          propertyId: new Types.ObjectId(input.propertyId),
+          clientId: new Types.ObjectId(user.userId),
+          message: input.message,
+          isReservation: false,  // Sera mis à true par createReservation
+          reservationDate: input.reservationDate || new Date()
+        });
+
+        activityToUpdate = await activity.save();
+      }
+
+      // Appeler createReservation pour mettre à jour l'activité avec les données de réservation
       const reservation = await activityService.createReservation({
-        activityId: savedActivity._id as Types.ObjectId,
+        activityId: activityToUpdate._id as Types.ObjectId,
         reservationDate: input.reservationDate || new Date(),
         documentsUploaded: !!input.uploadedFiles && input.uploadedFiles.length > 0,
         uploadedFiles: input.uploadedFiles
