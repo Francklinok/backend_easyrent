@@ -22,7 +22,9 @@ export const activityTypeDefs = gql`
     conversation: Conversation
     messages: [Message!]
     relatedTransactions: [Transaction!]
-    status: ActivityStatus!
+    visiteStatus: ActivityStatus!
+    reservationStatus: ActivityStatus!
+    paymentStatus: PayementStatus!
     type: ActivityType!
     duration: Int
     nextStep: String
@@ -40,8 +42,18 @@ export const activityTypeDefs = gql`
     PENDING
     ACCEPTED
     REFUSED
+    PAYMENT_REQUIRED
+    PAID
     COMPLETED
     CANCELLED
+    EXPIRED
+  }
+  
+  enum PayementStatus {
+    PENDING
+    COMPLETED
+    FAILED
+    
   }
 
   enum ActivityType {
@@ -71,6 +83,20 @@ export const activityTypeDefs = gql`
     acceptanceRate: Float!
     conversionRate: Float!
     averageResponseTime: Float!
+  }
+
+  type ActivityProgress {
+    id: ID!
+    propertyId: ID
+    propertyTitle: String
+    propertyImage: String
+    visitStatus: String
+    visitId: ID
+    reservationStatus: String
+    reservationId: ID
+    paymentStatus: String
+    paymentId: ID
+    updatedAt: String
   }
 
   input ActivityFilters {
@@ -119,6 +145,13 @@ export const activityTypeDefs = gql`
     uploadedFiles: [String!]
   }
 
+  type VisitRequestStatus {
+    status: String!
+    rejectionReason: String
+    visitDate: String
+    message: String
+  }
+
   extend type Query {
     activities(
       propertyId: ID
@@ -135,6 +168,10 @@ export const activityTypeDefs = gql`
     
     checkVisitTimeSlot(propertyId: ID!, visitDate: String!): Boolean!
     
+    getVisitRequestStatus(visitId: ID!, propertyId: ID!): VisitRequestStatus
+
+    getPropertyActivity(propertyId: ID!): [Activity!]!
+    
     activityStats(
       propertyId: ID
       userId: ID
@@ -145,6 +182,8 @@ export const activityTypeDefs = gql`
       pagination: PaginationInput
       filters: ActivityFilters
     ): ActivityConnection!
+
+    getUserActivities(userId: ID): [ActivityProgress]
   }
 
   extend type Mutation {
@@ -152,6 +191,7 @@ export const activityTypeDefs = gql`
     createVisitRequest(input: VisitRequestInput!): Activity!
     createBooking(input: BookingInput!): Activity!
     updateActivityStatus(id: ID!, status: ActivityStatus!, reason: String): Activity!
+    acceptReservation(activityId: ID!): Activity!
     processPayment(activityId: ID!, amount: Float!): Activity!
     cancelActivity(id: ID!, reason: String): Activity!
   }

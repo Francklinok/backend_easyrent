@@ -32,16 +32,30 @@ import {
   isActivityError,
   logActivityError
 } from "../utils/errors";
+import ActivityNotificationService from "./ActivityNotificationService";
 
 const logger = createLogger("ActivityLogger");
 
 class ActivityServices {
   private notificationService: IntegratedNotificationService;
   private chatService: ChatService;
+  private activityNotificationService: ActivityNotificationService;
+  private io: IOServer;
 
   constructor(io: IOServer) {
+    this.io = io;
     this.notificationService = new IntegratedNotificationService(io);
-    this.chatService = new ChatService(io);
+    this.activityNotificationService = new ActivityNotificationService(io);
+    // Initialiser chatService à null, sera initialisé plus tard si nécessaire
+    this.chatService = null as any;
+  }
+
+  private async getChatService() {
+    if (!this.chatService) {
+      const { getChatService } = await import('../../chat/services/chatServiceInstance');
+      this.chatService = getChatService();
+    }
+    return this.chatService;
   }
 
   async createVisite(visitData: VisiteData) {
@@ -76,19 +90,25 @@ class ActivityServices {
         throw new ActivityError("Cannot create visit for your own property", 400, 'CANNOT_VISIT_OWN_PROPERTY');
       }
 
-      // Vérification qu'il n'y a pas déjà une demande de visite en attente
+      // Vérification qu'il n'y a pas déjà une demande de visite en attente ou acceptée
       const existingVisit = await Activity.findOne({
         propertyId,
         clientId,
-        isVisitAccepted: { $ne: false }, // Pas encore refusée
+        isVisited: false, // C'est une demande de visite
         $or: [
           { isVisitAccepted: { $exists: false } }, // En attente
+          { isVisitAccepted: null }, // En attente (null)
           { isVisitAccepted: true } // Acceptée
         ]
       }).session(session);
 
       if (existingVisit) {
-        throw new ActivityError("A visit request already exists for this property", 400, 'VISIT_REQUEST_EXISTS');
+        const status = existingVisit.isVisitAccepted === true ? 'acceptée' : 'en attente';
+        throw new ActivityError(
+          `Vous avez déjà une demande de visite ${status} pour cette propriété`,
+          400,
+          'VISIT_REQUEST_EXISTS'
+        );
       }
 
       const now = visitDate ? new Date(visitDate) : new Date();
@@ -98,50 +118,101 @@ class ActivityServices {
         clientId,
         message,
         isVisited: false,
-        isVisitAccepted: undefined // En attente
+        isVisitAccepted: null
       });
 
       await createVisite.save({ session });
 
-      // Gestion de la conversation
-      let conversation = await Conversation.findOne({
-        participants: { $all: [clientId, property.ownerId] }
-      }).session(session);
+      // Utiliser le ChatService pour créer ou récupérer la conversation (OBLIGATOIRE)
+      let conversation;
+      try {
+        logger.info("Creating conversation for visit request", {
+          userId: clientId?.toString(),
+          participantId: property.ownerId.toString(),
+          propertyId: property._id.toString()
+        });
 
-      if (!conversation) {
-        try {
-          conversation = new Conversation({
-            participants: [clientId, property.ownerId],
-            type: 'property_discussion',
-            propertyId: property._id
-          });
-          await conversation.save({ session });
-        } catch (convError) {
-          throw new ConversationCreationError([clientId?.toString() || '', property.ownerId.toString()], convError);
-        }
+        // Obtenir l'instance du chat service
+        const chatService = await this.getChatService();
+
+        conversation = await chatService.createOrGetConversation({
+          userId: clientId?.toString() || '',
+          participantId: property.ownerId.toString(),
+          type: 'property_discussion',
+          propertyId: property._id.toString()
+        });
+
+        logger.info("Conversation created successfully", {
+          conversationId: conversation._id.toString()
+        });
+      } catch (convError) {
+        logger.error("CRITICAL: Failed to create conversation - rolling back visit creation", convError);
+        // Rollback transaction
+        await session.abortTransaction();
+        session.endSession();
+        throw new ConversationCreationError([clientId?.toString() || '', property.ownerId.toString()], convError);
       }
 
-      // Notification pour demande de visite (avec gestion d'erreur)
+      // Notifications automatiques pour demande de visite (OBLIGATOIRE)
       try {
-        await this.notificationService.onVisitRequested(createVisite);
+        logger.info("Sending visit request notifications");
+        await this.activityNotificationService.sendVisitRequestNotifications(createVisite, property, user);
+        logger.info("Visit notifications sent successfully");
       } catch (notifError) {
-        logger.warn("Failed to send visit notification", notifError);
-        // On continue même si la notification échoue
+        logger.error("CRITICAL: Failed to send visit notifications - rolling back visit creation", notifError);
+        // Rollback transaction
+        await session.abortTransaction();
+        session.endSession();
+        throw new ActivityError(
+          "Failed to send visit request notifications",
+          500,
+          'NOTIFICATION_SEND_FAILED',
+          { propertyId: property._id.toString(), clientId: clientId?.toString() }
+        );
       }
 
       // Envoi du message dans la conversation
-      try {
-        const messageParams: SendMessageParams = {
-          conversationId: conversation._id.toString(),
-          content: `🏠 Demande de visite pour "${property.title}"\n📅 Date souhaitée: ${now.toLocaleDateString()}\n💬 Message: ${message}\n\n👤 Demandé par ${user.firstName} ${user.lastName}`,
-          messageType: 'text',
-          userId: (clientId as mongoose.Types.ObjectId).toString(),
-        };
+      if (conversation) {
+        try {
+          const messageParams: SendMessageParams = {
+            conversationId: conversation._id.toString(),
+            content: `📋 **DEMANDE DE VISITE**\n\n🏠 **Propriété:** ${property.title}\n📍 **Adresse:** ${property.address || 'Non spécifiée'}\n📅 **Date souhaitée:** ${now.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n⏰ **Heure:** ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}\n\n💬 **Message du visiteur:**\n"${message}"\n\n👤 **Demandeur:** ${user.firstName} ${user.lastName}\n📧 **Contact:** ${user.email}\n\n---\n⚡ **Actions rapides:**\n✅ Tapez "ACCEPTER" pour accepter cette visite\n❌ Tapez "REFUSER" pour décliner cette visite`,
+            messageType: 'visit_request',
+            userId: (clientId as mongoose.Types.ObjectId).toString(),
+            metadata: {
+              activityId: createVisite._id.toString(),
+              actionType: 'visit_request',
+              propertyId: property._id.toString(),
+              visitDate: now.toISOString()
+            },
+            visitData: {
+              id: createVisite._id.toString(),
+              date: now,
+              time: now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+              status: 'pending'
+            },
+            propertyData: {
+              id: property._id.toString(),
+              title: property.title,
+              address: property.address
+            }
+          };
 
-        await this.chatService.sendMessage(messageParams);
-      } catch (chatError) {
-        logger.warn("Failed to send chat message", chatError);
-        // On continue même si le chat échoue
+          const chatService = await this.getChatService();
+          const sentMessage = await chatService.sendMessage(messageParams);
+          logger.info('✅ Message de demande de visite envoyé:', {
+            messageId: sentMessage?._id,
+            conversationId: conversation._id.toString(),
+            messageType: messageParams.messageType,
+            activityId: createVisite._id.toString(),
+            hasMetadata: !!messageParams.metadata
+          });
+        } catch (chatError) {
+          logger.warn("Failed to send chat message", chatError);
+          // On continue même si le chat échoue
+        }
+      } else {
+        logger.warn("Skipping chat message - conversation not available");
       }
 
       await session.commitTransaction();
@@ -165,7 +236,10 @@ class ActivityServices {
       };
 
     } catch (error) {
-      await session.abortTransaction();
+      // Vérifier si la transaction est toujours active avant de l'annuler
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
       session.endSession();
 
       // Log spécifique pour les erreurs d'activité
@@ -185,28 +259,26 @@ class ActivityServices {
   }
 
   async createReservation(activity: ActivityData) {
-    const { activityId, reservationDate, uploadedFiles,documentsUploaded } = activity;
+    const { activityId, reservationDate, uploadedFiles } = activity;
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
       const activityDoc = await Activity.findById(activityId).session(session);
       if (!activityDoc) {
-        await session.abortTransaction();
-        session.endSession();
-        logger.warn("no activity found");
-        return;
+        throw new Error("Activity not found");
       }
 
       const property = await Property.findById(activityDoc.propertyId).session(session);
       if (!property || property.status !== PropertyStatus.AVAILABLE) {
-        await session.abortTransaction();
-        session.endSession();
-        logger.warn("you can't make the reservation");
-        return;
+        throw new Error("Property not available for reservation");
       }
 
-      logger.info("tentative de reservation");
+      // Vérification que l'utilisateur ne réserve pas sa propre propriété
+      if (property.ownerId.toString() === activityDoc.clientId?.toString()) {
+        throw new ActivityError("Cannot create reservation for your own property", 400, 'CANNOT_RESERVE_OWN_PROPERTY');
+      }
+
       let files: any = undefined;
       let isdocumentUpload = false;
 
@@ -214,7 +286,6 @@ class ActivityServices {
         files = uploadedFiles;
         if (files && files.length > 0) {
           isdocumentUpload = true;
-          // documentsUploaded: true
         }
       }
 
@@ -222,46 +293,64 @@ class ActivityServices {
         activityId,
         {
           isReservation: true,
-          clientId: activityDoc.clientId,
-          propertyId: activityDoc.propertyId,
           documentsUploaded: isdocumentUpload,
           uploadedFiles: files,
-          reservationDate: reservationDate ? new Date(reservationDate) : new Date()
+          reservationDate: reservationDate ? new Date(reservationDate) : new Date(),
+          reservationStatus: 'PENDING'
         },
         { new: true, session }
       );
 
-      // Notification pour demande de réservation
-      await this.notificationService.onReservationRequested(reservation);
-
-      if (!activityDoc.conversationId) {
-        const newConversation = new Conversation({
-          participants: [activityDoc.clientId, property.ownerId],
-        });
-        const savedConv = await newConversation.save({ session });
-        await session.commitTransaction();
-        session.endSession();
-        return savedConv;
+      if (!reservation) {
+        throw new Error("Failed to update activity");
       }
 
-      const user = await User.findById(activityDoc.clientId).session(session);
-      if (!user) {
-        await session.abortTransaction();
-        session.endSession();
-        logger.warn("no user found");
-        return;
+      // Utiliser le ChatService pour créer ou récupérer la conversation
+      const chatService = await this.getChatService();
+      const conversation = await chatService.createOrGetConversation({
+        userId: activityDoc.clientId.toString(),
+        participantId: property.ownerId.toString(),
+        type: 'property_discussion',
+        propertyId: property._id.toString()
+      });
+
+      // Notifications automatiques pour demande de réservation
+      try {
+        const user = await User.findById(activityDoc.clientId).session(session);
+        if (user) {
+          await this.activityNotificationService.sendReservationRequestNotifications(reservation, property, user);
+        }
+      } catch (notifError) {
+        logger.warn("Failed to send reservation notifications", notifError);
       }
 
-      const messageParams: SendMessageParams = {
-        conversationId: (activityDoc.conversationId as mongoose.Types.ObjectId).toString(),
-        content: `Réservation demandée par ${user.firstName} ${user.lastName} pour la propriété ${property.title} le ${reservationDate ? new Date(reservationDate).toLocaleDateString() : new Date().toLocaleDateString()}`,
-        messageType: 'text',
-        userId: (activityDoc.clientId as mongoose.Types.ObjectId).toString(),
-      };
-
-      const chat = await this.chatService.sendMessage(messageParams);
-      if (!chat) {
-        logger.warn("no chat sent");
+      // Send chat message with the formatted booking request message
+      try {
+        const user = await User.findById(activityDoc.clientId).session(session);
+        if (user && activityDoc.message) {
+          const messageParams: SendMessageParams = {
+            conversationId: conversation._id.toString(),
+            content: activityDoc.message, // Use the formatted message from the activity
+            messageType: 'reservation_request',
+            userId: activityDoc.clientId.toString(),
+            metadata: {
+              activityId: reservation._id.toString(),
+              actionType: 'reservation_request',
+              propertyId: property._id.toString(),
+              reservationDate: reservation.reservationDate?.toISOString()
+            }
+          };
+          const chatService = await this.getChatService();
+          const sentMessage = await chatService.sendMessage(messageParams);
+          logger.info('✅ Message de réservation envoyé:', {
+            messageId: sentMessage?._id,
+            conversationId: conversation._id.toString(),
+            messageType: messageParams.messageType,
+            activityId: reservation._id.toString()
+          });
+        }
+      } catch (chatError) {
+        logger.warn("Failed to send chat message", chatError);
       }
 
       await session.commitTransaction();
@@ -270,7 +359,7 @@ class ActivityServices {
     } catch (error) {
       await session.abortTransaction();
       session.endSession();
-      logger.error("error during the reservation", error);
+      logger.error("Error during reservation creation", error);
       throw error;
     }
   }
@@ -293,7 +382,8 @@ class ActivityServices {
         activityId,
         {
           isReservationAccepted: true,
-          acceptDate: new Date()
+          acceptDate: new Date(),
+          reservationStatus: 'ACCEPTED'
         },
         { new: true, session }
       );
@@ -304,8 +394,8 @@ class ActivityServices {
         { new: true, session }
       );
 
-      // Notification pour acceptation de réservation
-      await this.notificationService.onReservationResponseGiven(reservation, true);
+      // Notifications automatiques pour acceptation de réservation
+      await this.activityNotificationService.sendReservationResponseNotifications(reservation, true);
 
       const property = await Property.findById(activityDoc.propertyId).session(session);
       if (!property) {
@@ -318,23 +408,30 @@ class ActivityServices {
       // use the accept date from reservation if available
       const acceptDate = reservation?.acceptedDate ?? new Date();
 
-      let convId = activityDoc.conversationId;
-      if (!convId) {
-        const newConversation = new Conversation({
-          participants: [activityDoc.clientId, property.ownerId]
-        });
-        const savedConv = await newConversation.save({ session });
-        convId = savedConv._id;
-      }
+      // Utiliser le ChatService pour créer ou récupérer la conversation
+      const chatService = await this.getChatService();
+      const conversation = await chatService.createOrGetConversation({
+        userId: activityDoc.clientId.toString(),
+        participantId: property.ownerId.toString(),
+        type: 'property_discussion',
+        propertyId: property._id.toString()
+      });
 
       const messageParams: SendMessageParams = {
-        conversationId: (convId as mongoose.Types.ObjectId).toString(),
-        content: `Réservation acceptée pour la propriété ${property.title} le ${acceptDate.toLocaleDateString()} — vous pouvez continuer pour le paiement.`,
-        messageType: 'text',
+        conversationId: conversation._id.toString(),
+        content: `✅ **RÉSERVATION ACCEPTÉE**\n\n🏠 **Propriété:** ${property.title}\n📅 **Date d'acceptation:** ${acceptDate.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n\n💳 **Prochaine étape:** Vous pouvez maintenant procéder au paiement pour finaliser votre réservation.\n\n---\n⚡ Le propriétaire a accepté votre demande !`,
+        messageType: 'reservation_response',
         userId: (property.ownerId as mongoose.Types.ObjectId).toString(),
+        metadata: {
+          activityId: reservation._id.toString(),
+          actionType: 'reservation_accepted',
+          propertyId: property._id.toString(),
+          accepted: true,
+          acceptDate: acceptDate.toISOString()
+        }
       };
 
-      const chat = await this.chatService.sendMessage(messageParams);
+      const chat = await chatService.sendMessage(messageParams);
       if (!chat) {
         logger.warn("no chat sent");
       }
@@ -369,6 +466,7 @@ class ActivityServices {
         {
           isReservationAccepted: false,
           refusDate: new Date(),
+          visiteStatus: 'REFUSED',
           reason
         },
         { new: true, session }
@@ -380,8 +478,8 @@ class ActivityServices {
         { new: true, session }
       );
 
-      // Notification pour refus de réservation
-      await this.notificationService.onReservationResponseGiven(reservation, false, reason);
+      // Notifications automatiques pour refus de réservation
+      await this.activityNotificationService.sendReservationResponseNotifications(reservation, false, reason);
 
       const property = await Property.findById(activityDoc.propertyId).session(session);
       if (!property) {
@@ -391,23 +489,30 @@ class ActivityServices {
         return;
       }
 
-      let convId = activityDoc.conversationId;
-      if (!convId) {
-        const newConversation = new Conversation({
-          participants: [activityDoc.clientId, property.ownerId]
-        });
-        const savedConv = await newConversation.save({ session });
-        convId = savedConv._id;
-      }
+      // Utiliser le ChatService pour créer ou récupérer la conversation
+      const chatService = await this.getChatService();
+      const conversation = await chatService.createOrGetConversation({
+        userId: activityDoc.clientId.toString(),
+        participantId: property.ownerId.toString(),
+        type: 'property_discussion',
+        propertyId: property._id.toString()
+      });
 
       const messageParams: SendMessageParams = {
-        conversationId: (convId as mongoose.Types.ObjectId).toString(),
-        content: `Réservation refusée pour la propriété ${property.title}. La raison : ${reason}`,
-        messageType: 'text',
+        conversationId: conversation._id.toString(),
+        content: `❌ **RÉSERVATION REFUSÉE**\n\n🏠 **Propriété:** ${property.title}\n📝 **Raison:** ${reason || 'Non spécifiée'}\n\nNous sommes désolés, le propriétaire a refusé votre demande de réservation.\n\n---\n💡 Vous pouvez rechercher d'autres propriétés similaires.`,
+        messageType: 'reservation_response',
         userId: (property.ownerId as mongoose.Types.ObjectId).toString(),
+        metadata: {
+          activityId: reservation._id.toString(),
+          actionType: 'reservation_rejected',
+          propertyId: property._id.toString(),
+          accepted: false,
+          rejectionReason: reason
+        }
       };
 
-      const chat = await this.chatService.sendMessage(messageParams);
+      const chat = await chatService.sendMessage(messageParams);
       if (!chat) {
         logger.warn("no chat sent");
       }
@@ -459,6 +564,7 @@ class ActivityServices {
           isPayment: true,
           amount,
           paymentDate: pdate,
+          payementStatus: 'COMPLETED',
         },
         { new: true, session }
       );
@@ -470,27 +576,26 @@ class ActivityServices {
         { new: true, session }
       );
 
-      // Notification pour paiement effectué
-      await this.notificationService.onPaymentCompleted(payement);
+      // Notifications automatiques pour paiement effectué
+      await this.activityNotificationService.sendPaymentNotifications(payement);
 
-      // Gestion de la conversation et du chat
-      let convId = activityDoc.conversationId;
-      if (!convId) {
-        const newConversation = new Conversation({
-          participants: [activityDoc.clientId, property.ownerId]
-        });
-        const savedConv = await newConversation.save({ session });
-        convId = savedConv._id;
-      }
+      // Utiliser le ChatService pour créer ou récupérer la conversation
+      const chatService = await this.getChatService();
+      const conversation = await chatService.createOrGetConversation({
+        userId: activityDoc.clientId.toString(),
+        participantId: property.ownerId.toString(),
+        type: 'property_discussion',
+        propertyId: property._id.toString()
+      });
 
       const messageParams: SendMessageParams = {
-        conversationId: (convId as mongoose.Types.ObjectId).toString(),
+        conversationId: conversation._id.toString(),
         content: `Paiement effectué pour la propriété ${property.title} le ${pdate.toLocaleDateString()}`,
         messageType: 'text',
         userId: (activityDoc.clientId as mongoose.Types.ObjectId).toString(),
       };
 
-      const chat = await this.chatService.sendMessage(messageParams);
+      const chat = await chatService.sendMessage(messageParams);
       if (!chat) {
         logger.warn("no chat sent");
       }
@@ -524,33 +629,71 @@ class ActivityServices {
         logger.warn("no property found");
         return;
       }
+      logger.info('🔵 Avant mise à jour - acceptVisit', {
+        activityId,
+        currentStatus: activityDoc.visiteStatus,
+        currentIsVisitAccepted: activityDoc.isVisitAccepted
+      });
+
       const acceptVisit = await Activity.findByIdAndUpdate(
         activityId,
         {
           isVisitAccepted: true,
+          visiteStatus: 'ACCEPTED'
         },
         { new: true, session }
       );
 
-      // Notification pour acceptation de visite
-      await this.notificationService.onVisitResponseGiven(acceptVisit, true);
+      logger.info('✅ Après mise à jour - acceptVisit', {
+        activityId: acceptVisit._id.toString(),
+        newStatus: acceptVisit.visiteStatus,
+        newIsVisitAccepted: acceptVisit.isVisitAccepted,
+        // updatedAt: acceptVisit.updatedAt
+      });
 
-      let convId = activityDoc.conversationId;
-      if (!convId) {
-        const newConversation = new Conversation({
-          participants: [activityDoc.clientId, property.ownerId]
+      // Notifications automatiques pour acceptation de visite
+      await this.activityNotificationService.sendVisitResponseNotifications(acceptVisit, true);
+
+      // Émettre événement WebSocket pour mise à jour temps réel
+      if (this.io) {
+        this.io.to(`user_${activityDoc.clientId.toString()}`).emit('visit:updated', {
+          visitId: acceptVisit._id.toString(),
+          activityId: acceptVisit._id.toString(),
+          visiteStatus: 'accepted',
+          isVisitAccepted: true,
+          propertyId: property._id.toString(),
+          propertyTitle: property.title,
+          timestamp: new Date().toISOString()
         });
-        const savedConv = await newConversation.save({ session });
-        convId = savedConv._id;
+        logger.info('✅ Événement WebSocket émis: visit:updated (accepted)', {
+          clientId: activityDoc.clientId.toString(),
+          visitId: acceptVisit._id.toString()
+        });
       }
 
+      // Utiliser le ChatService pour créer ou récupérer la conversation
+      const chatService = await this.getChatService();
+      const conversation = await chatService.createOrGetConversation({
+        userId: activityDoc.clientId.toString(),
+        participantId: property.ownerId.toString(),
+        type: 'property_discussion',
+        propertyId: property._id.toString()
+      });
+
       const messageParams: SendMessageParams = {
-        conversationId: (convId as mongoose.Types.ObjectId).toString(),
-        content: `Visite acceptée pour la propriété ${property.title}`,
-        messageType: 'text',
+        conversationId: conversation._id.toString(),
+        content: `✅ **VISITE ACCEPTÉE**\n\n🏠 **Propriété:** ${property.title}\n📅 **Date de la visite:** ${acceptVisit.visitDate ? new Date(acceptVisit.visitDate).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'À confirmer'}\n\n🎉 **Félicitations !** Le propriétaire a accepté votre demande de visite.\n\n---\n💡 Vous pouvez maintenant faire une réservation après la visite.`,
+        messageType: 'visit_response',
         userId: (property.ownerId as mongoose.Types.ObjectId).toString(),
+        metadata: {
+          activityId: acceptVisit._id.toString(),
+          actionType: 'visit_accepted',
+          propertyId: property._id.toString(),
+          accepted: true,
+          visitDate: acceptVisit.visitDate?.toISOString()
+        }
       };
-      const chat = await this.chatService.sendMessage(messageParams);
+      const chat = await chatService.sendMessage(messageParams);
       if (!chat) {
         logger.warn("no chat sent");
       }
@@ -566,7 +709,7 @@ class ActivityServices {
     }
   }
 
-  async refusVisit(activityId: string) {
+  async refusVisit(activityId: string, rejectionReason?: string) {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
@@ -588,29 +731,57 @@ class ActivityServices {
         activityId,
         {
           isVisitAccepted: false,
+          visiteStatus: 'REFUSED',
+          ...(rejectionReason && { rejectionReason }) // Ajouter la raison si fournie
         },
         { new: true, session }
       );
 
-      // Notification pour refus de visite
-      await this.notificationService.onVisitResponseGiven(refusVisit, false);
+      // Notifications automatiques pour refus de visite
+      await this.activityNotificationService.sendVisitResponseNotifications(refusVisit, false);
 
-      let convId = activityDoc.conversationId;
-      if (!convId) {
-        const newConversation = new Conversation({
-          participants: [activityDoc.clientId, property.ownerId]
+      // Émettre événement WebSocket pour mise à jour temps réel
+      if (this.io) {
+        this.io.to(`user_${activityDoc.clientId.toString()}`).emit('visit:updated', {
+          visitId: refusVisit._id.toString(),
+          activityId: refusVisit._id.toString(),
+          status: 'rejected',
+          isVisitAccepted: false,
+          rejectionReason: rejectionReason || undefined,
+          propertyId: property._id.toString(),
+          propertyTitle: property.title,
+          timestamp: new Date().toISOString()
         });
-        const savedConv = await newConversation.save({ session });
-        convId = savedConv._id;
+        logger.info('❌ Événement WebSocket émis: visit:updated (rejected)', {
+          clientId: activityDoc.clientId.toString(),
+          visitId: refusVisit._id.toString(),
+          reason: rejectionReason
+        });
       }
 
+      // Utiliser le ChatService pour créer ou récupérer la conversation
+      const chatService = await this.getChatService();
+      const conversation = await chatService.createOrGetConversation({
+        userId: activityDoc.clientId.toString(),
+        participantId: property.ownerId.toString(),
+        type: 'property_discussion',
+        propertyId: property._id.toString()
+      });
+
       const messageParams: SendMessageParams = {
-        conversationId: (convId as mongoose.Types.ObjectId).toString(),
-        content: `Visite refusée pour la propriété ${property.title}`,
-        messageType: 'text',
+        conversationId: conversation._id.toString(),
+        content: `❌ **VISITE REFUSÉE**\n\n🏠 **Propriété:** ${property.title}\n📝 **Raison:** ${rejectionReason || 'Non spécifiée'}\n\nNous sommes désolés, le propriétaire a refusé votre demande de visite.\n\n---\n💡 Vous pouvez rechercher d'autres propriétés similaires.`,
+        messageType: 'visit_response',
         userId: (property.ownerId as mongoose.Types.ObjectId).toString(),
+        metadata: {
+          activityId: refusVisit._id.toString(),
+          actionType: 'visit_rejected',
+          propertyId: property._id.toString(),
+          accepted: false,
+          rejectionReason: rejectionReason
+        }
       };
-      const chat = await this.chatService.sendMessage(messageParams);
+      const chat = await chatService.sendMessage(messageParams);
       if (!chat) {
         logger.warn("no chat sent");
       }
@@ -632,7 +803,8 @@ class ActivityServices {
       page?: number;
       limit?: number;
       cursor?: string;
-      status?: 'pending' | 'accepted' | 'rejected' | 'completed';
+      visiteStatus?: 'pending' | 'accepted' | 'rejected' | 'completed';
+      reservationStatus?: 'pending' | 'accepted' | 'rejected' | 'completed';
       type?: 'visit' | 'reservation' | 'payment';
       dateRange?: { start: Date; end: Date };
       useCache?: boolean;
@@ -686,7 +858,8 @@ class ActivityServices {
       // Pagination classique avec filtres avancés
       const pipeline = ActivityOptimization.buildOptimizedQuery({
         userId,
-        status: options.status,
+        visiteStatus: options.visiteStatus ,
+        reservationStatus:options.reservationStatus,
         type: options.type,
         dateRange: options.dateRange
       });
@@ -783,6 +956,132 @@ class ActivityServices {
     }
   }
 
+  async getUserVisitForProperty(userId: string, propertyId: string) {
+    try {
+      if (!Types.ObjectId.isValid(userId)) {
+        throw new UserNotFoundError(userId);
+      }
+      if (!Types.ObjectId.isValid(propertyId)) {
+        throw new PropertyNotFoundError(propertyId);
+      }
+
+      const activity = await Activity.findOne({
+        clientId: new Types.ObjectId(userId),
+        propertyId: new Types.ObjectId(propertyId)
+        // Suppression du filtre isReservation: false pour trouver toutes les activités
+      })
+      .populate('propertyId')
+      .populate('clientId', 'firstName lastName profilePicture email')
+      .sort({ createdAt: -1 });
+      
+      if (!activity) {
+        return null;
+      }
+
+      console.log('[getUserVisitForProperty] Visit details:', {
+        id: activity._id,
+        isReservation: activity.isReservation,
+        isVisitAccepted: activity.isVisitAccepted,
+        visiteStatus: activity.visiteStatus,
+        reservationStatus: activity.reservationStatus
+      });
+
+      return activity;
+    } catch (error) {
+      logger.error("Error getting user visit for property", {
+        error: error instanceof Error ? error.message : error,
+        userId,
+        propertyId
+      });
+      throw error;
+    }
+  }
+
+  async  getPropertyActivity(propertyId:string){
+    if(!propertyId || !Types.ObjectId.isValid(propertyId))
+    {
+      logger.warn("Invalid property ID provided to getPropertyActivity", {propertyId});
+      return null
+    }
+    //search  the  activity
+    const  activity = await Activity.findOne({propertyId:new Types.ObjectId(propertyId)})
+    if(!activity){
+      logger.info("No activity found for the given property ID", {propertyId});
+      return null
+    }
+    return activity
+  }
+
+
+  async getVisitRequestStatus(visitId: string, propertyId: string) {
+    try {
+      if (!Types.ObjectId.isValid(visitId)) {
+        throw new Error('Invalid visit ID format');
+      }
+
+      const activity = await Activity.findById(visitId);
+      if (!activity) {
+        return null;
+      }
+
+      // Déterminer le statut basé sur les champs de l'activité
+      let status = 'pending';
+      
+      if (activity.visiteStatus) {
+        const activityStatus = activity.visiteStatus.toLowerCase();
+        if (activityStatus === 'accepted' || activityStatus === 'confirmed') {
+          status = 'accepted';
+        } else if (activityStatus === 'refused' || activityStatus === 'rejected') {
+          status = 'rejected';
+        }
+      } else {
+        // Fallback sur les champs booléens
+        if (activity.isVisitAccepted === true) {
+          status = 'accepted';
+        } else if (activity.isVisitAccepted === false) {
+          status = 'rejected';
+        }
+      }
+
+      return {
+        status,
+        rejectionReason: activity.rejectionReason || null,
+        visitDate: activity.visitDate,
+        message: activity.message
+      };
+    } catch (error) {
+      logger.error("Error getting visit request status", {
+        error: error instanceof Error ? error.message : error,
+        visitId,
+        propertyId
+      });
+      throw error;
+    }
+  }
+
+
+  async getOwnerVisitRequests(ownerId: string) {
+    try {
+      // Get all properties owned by this owner
+      const properties = await Property.find({ ownerId }).select('_id title');
+      const propertyIds = properties.map(p => p._id);
+
+      // Get all visit requests for these properties
+      const visits = await Activity.find({
+        propertyId: { $in: propertyIds },
+        isVisited: false // C'est une demande de visite
+      })
+        .populate('propertyId', 'title address images')
+        .populate('clientId', 'firstName lastName email fullName')
+        .sort({ createdAt: -1 });
+
+      return visits;
+    } catch (error) {
+      logger.error("error getting owner visit requests", error);
+      throw error;
+    }
+  }
+
   async getOwnerActivities(ownerId: string, options: { page: number; limit: number }) {
     try {
       const { page, limit } = options;
@@ -835,12 +1134,83 @@ class ActivityServices {
     }
   }
 
-  async refuseVisitRequest(activityId: string) {
+  async refuseVisitRequest(activityId: string, rejectionReason?: string) {
     try {
-      const result = await this.refusVisit(activityId);
+      const result = await this.refusVisit(activityId, rejectionReason);
       return result;
     } catch (error) {
       logger.error("error refusing visit", error);
+      throw error;
+    }
+  }
+  async getUserProgressHistory(userId: string) {
+    try {
+      if (!Types.ObjectId.isValid(userId)) {
+        throw new UserNotFoundError(userId);
+      }
+
+      // Récupérer toutes les activités de l'utilisateur
+      const activities = await Activity.find({
+        clientId: new Types.ObjectId(userId)
+      })
+      .sort({ updatedAt: -1 })
+      .populate('propertyId');
+
+      // Grouper par propriété pour consolider l'historique
+      return activities.map(activityDoc => {
+        // Cast to any to access properties that might be missing in the interface but present in Mongoose doc
+        const activity = activityDoc as any;
+        const property = activity.propertyId;
+        
+        // Déterminer les statuts
+        let visitStatus = 'none';
+        
+        // Logique de statut de visite
+        if (activity.status) {
+           const status = activity.status.toLowerCase();
+           if (status === 'accepted' || status === 'confirmed') visitStatus = 'accepted';
+           else if (status === 'refused' || status === 'rejected' || status === 'cancelled') visitStatus = 'rejected';
+           else if (status === 'pending') visitStatus = 'pending';
+        }
+        
+        // Fallback sur les booléens si le statut texte n'est pas clair ou est PENDING
+        // Note: isVisitAccepted est le champ correct selon le schéma (pas isVisiteAccepted)
+        if (visitStatus === 'none' || visitStatus === 'pending') {
+            if (activity.isVisitAccepted === true) visitStatus = 'accepted';
+            else if (activity.isVisitAccepted === false) visitStatus = 'rejected';
+            else if (activity.isVisited === false && activity.isVisitAccepted === null) visitStatus = 'pending';
+        }
+
+        let reservationStatus = 'none';
+        if (activity.isReservation) {
+          if (activity.isReservationAccepted === true) reservationStatus = 'accepted';
+          else if (activity.isReservationAccepted === false) reservationStatus = 'rejected';
+          else reservationStatus = 'pending';
+        }
+
+        let paymentStatus = 'none';
+        // Utiliser isPayment (from schema) qui indique si le paiement a été effectué
+        if (activity.isPayment === true) {
+          paymentStatus = 'completed';
+        }
+
+        return {
+          id: activity._id,
+          propertyId: property?._id,
+          propertyTitle: property?.title,
+          propertyImage: property?.images?.[0], 
+          visitStatus,
+          visitId: activity._id,
+          reservationStatus,
+          reservationId: activity._id,
+          paymentStatus,
+          paymentId: activity._id,
+          updatedAt: activity.updatedAt || activity.createdAt
+        };
+      });
+
+    } catch (error) {
+      logger.error(`Error fetching user activities: ${error}`);
       throw error;
     }
   }
